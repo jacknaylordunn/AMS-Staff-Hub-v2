@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Activity, User, AlertTriangle, Bot, Pill, FileText, ClipboardList, Plus, Lock, Search, Cloud, ShieldCheck, Sparkles, Loader2, Camera, Trash2, X, Eye, Gauge, Brain, Stethoscope, Syringe, Briefcase, FilePlus, Zap, Clock, MessageSquare, Menu, CheckCircle, AlertOctagon, UserPlus, Coffee, Moon, ThumbsUp, ThumbsDown, Droplets, ChevronRight, ShieldAlert, MoreVertical } from 'lucide-react';
+import { Save, Activity, User, AlertTriangle, Bot, Pill, FileText, ClipboardList, Plus, Lock, Search, Cloud, ShieldCheck, Sparkles, Loader2, Camera, Trash2, X, Eye, Gauge, Brain, Stethoscope, Syringe, Briefcase, FilePlus, Zap, Clock, MessageSquare, Menu, CheckCircle, AlertOctagon, UserPlus, Coffee, Moon, ThumbsUp, ThumbsDown, Droplets, ChevronRight, ShieldAlert, MoreVertical, Key, Users } from 'lucide-react';
 import BodyMap from '../components/BodyMap';
 import SignaturePad from '../components/SignaturePad';
 import VitalsChart from '../components/VitalsChart';
@@ -11,13 +11,13 @@ import WitnessModal from '../components/WitnessModal';
 import NeuroAssessment from '../components/NeuroAssessment';
 import TraumaTriage from '../components/TraumaTriage';
 import { generateSBAR, auditEPRF, analyzeSafeguarding } from '../services/geminiService';
-import { VitalsEntry, EPRF, Role, NeuroAssessment as NeuroType, DrugAdministration, Consumable, MediaAttachment, LogEntry, Patient } from '../types';
+import { VitalsEntry, EPRF, Role, NeuroAssessment as NeuroType, DrugAdministration, Consumable, MediaAttachment, LogEntry, Patient, AssistingClinician, User as UserType } from '../types';
 import { DRUG_DATABASE, CONTROLLED_DRUGS } from '../data/drugDatabase';
 import { generateEPRF_PDF } from '../utils/pdfGenerator';
 import { useAuth } from '../hooks/useAuth';
 import { useDataSync } from '../hooks/useDataSync';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, onSnapshot } from 'firebase/firestore';
 
 // --- Default Data Structures ---
 
@@ -39,6 +39,8 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber'> = {
     callSign: '',
     location: '',
     lastUpdated: new Date().toISOString(),
+    accessUids: [],
+    assistingClinicians: [],
     times: { callReceived: '', mobile: '', onScene: '', patientContact: '', departScene: '', atHospital: '' },
     patient: { firstName: '', lastName: '', dob: '', nhsNumber: '', address: '', gender: '' },
     history: { presentingComplaint: '', historyOfPresentingComplaint: '', pastMedicalHistory: '', allergies: 'NKDA', medications: '' },
@@ -94,7 +96,7 @@ const calculateNEWS2 = (v: Partial<VitalsEntry>): number => {
 };
 
 const EPRFPage = () => {
-  const { user, reauthenticate } = useAuth();
+  const { user, verifyPin } = useAuth();
   const { saveEPRF, syncStatus, pendingChanges } = useDataSync();
   
   // -- State: Draft Management --
@@ -125,28 +127,57 @@ const EPRFPage = () => {
   const [showWitnessModal, setShowWitnessModal] = useState(false);
   const [newDrug, setNewDrug] = useState({ name: '', dose: '', route: '' });
   
+  const [badgeInput, setBadgeInput] = useState('');
+  const [crewLookupLoading, setCrewLookupLoading] = useState(false);
+
   // -- State: Submission --
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [submitPassword, setSubmitPassword] = useState('');
+  const [submitPin, setSubmitPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // -- Load Drafts on Mount --
+  // -- Load Drafts (Sync with Firestore for Shared Drafts) --
   useEffect(() => {
-    const savedDrafts = localStorage.getItem('aegis_eprfs');
-    if (savedDrafts) {
-        try {
-            const parsed = JSON.parse(savedDrafts);
-            if (parsed.length > 0) {
-                setDrafts(parsed);
-                setActiveDraftId(parsed[0].id);
-            } else {
-                createNewDraft();
-            }
-        } catch (e) { createNewDraft(); }
-    } else {
-        createNewDraft();
+    if (!user) return;
+
+    // 1. Load from LocalStorage initially for speed
+    const localSaved = localStorage.getItem('aegis_eprfs');
+    let localDrafts: EPRF[] = [];
+    if (localSaved) {
+        try { localDrafts = JSON.parse(localSaved); } catch(e) {}
     }
-  }, []);
+
+    // 2. Subscribe to Firestore for any draft where I am an allowed user (Creator or Assisting)
+    const q = query(collection(db, 'eprfs'), where('accessUids', 'array-contains', user.uid));
+    
+    const unsub = onSnapshot(q, (snapshot) => {
+        const serverDrafts = snapshot.docs.map(doc => doc.data() as EPRF);
+        
+        // Merge Strategy: Prefer Server for Shared, Prefer Local for pure local (not yet synced)
+        // Simple approach: Union arrays by ID, using server version if exists.
+        
+        const mergedMap = new Map<string, EPRF>();
+        
+        // Add local drafts first
+        localDrafts.forEach(d => mergedMap.set(d.id, d));
+        
+        // Overwrite with server drafts (source of truth for collaboration)
+        serverDrafts.forEach(d => mergedMap.set(d.id, d));
+        
+        const finalDrafts = Array.from(mergedMap.values());
+        
+        if (finalDrafts.length === 0 && localDrafts.length === 0) {
+            // Only create new if absolutely nothing exists
+            createNewDraft();
+        } else {
+            setDrafts(finalDrafts);
+            if (!activeDraftId && finalDrafts.length > 0) {
+                setActiveDraftId(finalDrafts[0].id);
+            }
+        }
+    });
+
+    return () => unsub();
+  }, [user]); // Run on user auth change
 
   // -- Save Drafts on Change --
   useEffect(() => {
@@ -170,6 +201,7 @@ const EPRFPage = () => {
   };
 
   const createNewDraft = () => {
+      if (!user) return;
       const date = new Date();
       const yyyy = date.getFullYear();
       const mm = (date.getMonth()+1).toString().padStart(2,'0');
@@ -189,6 +221,7 @@ const EPRFPage = () => {
           ...DEFAULT_EPRF,
           location: location,
           callSign: user?.role === Role.Paramedic ? 'RRV-01' : 'MEDIC-01', 
+          accessUids: [user.uid], // Important: Initialize with creator
       };
       setDrafts(prev => [...prev, newDraft]);
       setActiveDraftId(newDraft.id);
@@ -207,6 +240,59 @@ const EPRFPage = () => {
           setDrafts(newDrafts);
           if (activeDraftId === id) setActiveDraftId(newDrafts[0].id);
       }
+  };
+
+  const handleCrewLookup = async () => {
+      if (!badgeInput) return;
+      
+      // Handle both "AMS1234..." and just the numbers
+      const fullId = badgeInput.toUpperCase().startsWith('AMS') ? badgeInput.toUpperCase() : `AMS${badgeInput}`;
+      
+      setCrewLookupLoading(true);
+      try {
+          const q = query(collection(db, 'users'), where('employeeId', '==', fullId));
+          const snap = await getDocs(q);
+          
+          if (snap.empty) {
+              alert("Clinician not found. Please check Badge ID.");
+          } else {
+              const crewUser = snap.docs[0].data() as UserType;
+              
+              // Check if already added
+              if (activeDraft.assistingClinicians.some(c => c.uid === crewUser.uid) || crewUser.uid === user?.uid) {
+                  alert("Clinician already assigned to this incident.");
+                  setCrewLookupLoading(false);
+                  return;
+              }
+
+              const newClinician: AssistingClinician = {
+                  uid: crewUser.uid,
+                  name: crewUser.name,
+                  role: crewUser.role,
+                  badgeNumber: crewUser.employeeId || fullId
+              };
+
+              // Add to Assisting Clinicians AND Access UIDs (for permissions)
+              updateDraft({
+                  assistingClinicians: [...activeDraft.assistingClinicians, newClinician],
+                  accessUids: [...activeDraft.accessUids, crewUser.uid]
+              });
+              
+              setBadgeInput('');
+          }
+      } catch (e) {
+          console.error("Lookup failed", e);
+          alert("Error verifying badge ID.");
+      } finally {
+          setCrewLookupLoading(false);
+      }
+  };
+
+  const removeCrewMember = (uid: string) => {
+      updateDraft({
+          assistingClinicians: activeDraft.assistingClinicians.filter(c => c.uid !== uid),
+          accessUids: activeDraft.accessUids.filter(id => id !== uid)
+      });
   };
 
   const handleValidation = () => {
@@ -229,14 +315,14 @@ const EPRFPage = () => {
 
   const finalizeSubmit = async () => {
       setIsSubmitting(true);
-      const verified = await reauthenticate(submitPassword);
+      const verified = await verifyPin(submitPin);
       if (verified) {
           updateDraft({ status: 'Submitted' });
           setShowSubmitModal(false);
-          setSubmitPassword('');
+          setSubmitPin('');
           alert("ePRF Signed & Submitted for Review.");
       } else {
-          alert("Incorrect Password. Signature Failed.");
+          alert("Incorrect PIN. Signature Failed.");
       }
       setIsSubmitting(false);
   };
@@ -524,6 +610,7 @@ const EPRFPage = () => {
               >
                   <span className="truncate flex-1 font-mono">{draft.incidentNumber}</span>
                   {draft.status === 'Submitted' && <Lock className="w-3 h-3 text-slate-400" />}
+                  {draft.assistingClinicians && draft.assistingClinicians.length > 0 && <Users className="w-3 h-3 text-blue-500" />}
                   {pendingChanges > 0 && activeDraftId === draft.id && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Changes pending sync" />}
                   <button onClick={(e) => closeDraft(draft.id, e)} className="hover:text-red-500 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"><X className="w-3 h-3" /></button>
               </div>
@@ -628,6 +715,65 @@ const EPRFPage = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Crew Resource Management */}
+                    <div className="card">
+                        <h3 className="card-title flex items-center gap-2"><Users className="w-5 h-5 text-ams-blue" /> Clinical Crew & Access</h3>
+                        <p className="text-xs text-slate-500 mb-4">Add other treating staff to this incident. They will be able to view and edit this record.</p>
+                        
+                        <div className="flex gap-2 mb-4">
+                            <div className="relative flex-1">
+                                <div className="absolute left-0 top-0 bottom-0 w-16 bg-slate-100 dark:bg-slate-700 border-r border-slate-200 dark:border-slate-600 rounded-l-xl flex items-center justify-center text-slate-500 font-bold text-xs">
+                                    AMS
+                                </div>
+                                <input 
+                                    className="input-field pl-20" 
+                                    placeholder="Badge ID (e.g. 25031234)" 
+                                    value={badgeInput}
+                                    onChange={e => setBadgeInput(e.target.value.replace(/\D/g, ''))}
+                                />
+                            </div>
+                            <button 
+                                onClick={handleCrewLookup}
+                                disabled={crewLookupLoading || !badgeInput}
+                                className="btn-primary w-32 flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {crewLookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
+                            </button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-ams-blue rounded-full flex items-center justify-center text-white font-bold text-xs">
+                                        {user?.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <span className="block text-sm font-bold text-slate-800 dark:text-white">{user?.name} (You)</span>
+                                        <span className="text-xs text-slate-500">{user?.role} • {user?.employeeId}</span>
+                                    </div>
+                                </div>
+                                <span className="text-xs font-bold bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded text-slate-600 dark:text-slate-300">Lead</span>
+                            </div>
+                            
+                            {activeDraft.assistingClinicians?.map(crew => (
+                                <div key={crew.uid} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-xs">
+                                            {crew.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <span className="block text-sm font-bold text-slate-800 dark:text-white">{crew.name}</span>
+                                            <span className="text-xs text-slate-500">{crew.role} • {crew.badgeNumber}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => removeCrewMember(crew.uid)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded-lg transition-colors">
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -1227,22 +1373,28 @@ const EPRFPage = () => {
                           <Lock className="w-10 h-10" />
                       </div>
                       <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Sign & Submit</h3>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Re-enter password to cryptographically sign this record.</p>
+                      <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Enter your secure PIN to sign this record.</p>
                   </div>
                   
-                  <input 
-                      type="password"
-                      autoFocus
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-4 text-lg mb-6 focus:ring-2 focus:ring-ams-blue outline-none text-center tracking-widest dark:text-white"
-                      placeholder="••••••••"
-                      value={submitPassword}
-                      onChange={e => setSubmitPassword(e.target.value)}
-                  />
+                  <div className="relative">
+                      <Key className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
+                      <input 
+                          type="password"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={4}
+                          autoFocus
+                          className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-12 pr-4 py-4 text-lg mb-6 focus:ring-2 focus:ring-ams-blue outline-none text-center tracking-[0.5em] font-mono font-bold dark:text-white"
+                          placeholder="••••"
+                          value={submitPin}
+                          onChange={e => setSubmitPin(e.target.value.replace(/\D/g, ''))}
+                      />
+                  </div>
                   
                   <div className="space-y-3">
                       <button 
                         onClick={finalizeSubmit}
-                        disabled={isSubmitting || !submitPassword}
+                        disabled={isSubmitting || submitPin.length !== 4}
                         className="w-full py-4 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 disabled:opacity-50 flex items-center justify-center gap-3 transition-transform active:scale-95"
                       >
                           {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}

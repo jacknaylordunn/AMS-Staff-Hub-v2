@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown } from 'lucide-react';
+import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { ComplianceDoc, Role } from '../types';
 import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
@@ -29,7 +29,7 @@ const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
 };
 
 const ProfilePage = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, updatePin } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
       phone: user?.phone || '',
@@ -48,6 +48,12 @@ const ProfilePage = () => {
   const [docExpiry, setDocExpiry] = useState('');
   const [docFile, setDocFile] = useState<string | null>(null); // storing base64 for demo
   const [uploading, setUploading] = useState(false);
+
+  // PIN Change State
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinError, setPinError] = useState('');
 
   // Bootstrap State
   const [canBootstrap, setCanBootstrap] = useState(false);
@@ -96,6 +102,28 @@ const ProfilePage = () => {
       } catch (e) {
           console.error("Update failed", e);
           alert("Failed to update profile.");
+      }
+  };
+
+  const handleChangePin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPinError('');
+      if (newPin !== confirmPin) {
+          setPinError("PINs do not match.");
+          return;
+      }
+      if (!/^\d{4}$/.test(newPin)) {
+          setPinError("PIN must be exactly 4 digits.");
+          return;
+      }
+      try {
+          await updatePin(newPin);
+          setShowPinModal(false);
+          setNewPin('');
+          setConfirmPin('');
+          alert("PIN updated successfully.");
+      } catch (e) {
+          setPinError("Failed to update PIN. Check connection.");
       }
   };
 
@@ -250,13 +278,13 @@ const ProfilePage = () => {
                                 <p className="font-mono font-bold text-slate-800 dark:text-white text-lg bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 text-center">{user.employeeId}</p>
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex justify-between">
-                                    <span>Signing PIN</span>
-                                    <button onClick={() => setShowPin(!showPin)} className="text-ams-blue hover:underline flex items-center gap-1 text-[10px]">
-                                        {showPin ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> Show</>}
+                                <div className="flex justify-between items-end mb-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase">Signing PIN</label>
+                                    <button onClick={() => setShowPinModal(true)} className="text-[10px] font-bold text-ams-blue hover:underline flex items-center gap-1">
+                                        <Key className="w-3 h-3" /> Update
                                     </button>
-                                </label>
-                                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 flex justify-center items-center h-10">
+                                </div>
+                                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 flex justify-between items-center h-10 px-3">
                                     {showPin ? (
                                         <span className="font-mono font-bold text-slate-800 dark:text-white text-lg tracking-widest">{user.pin || 'N/A'}</span>
                                     ) : (
@@ -264,7 +292,11 @@ const ProfilePage = () => {
                                             {[1,2,3,4].map(i => <div key={i} className="w-2 h-2 bg-slate-400 rounded-full"></div>)}
                                         </div>
                                     )}
+                                    <button onClick={() => setShowPin(!showPin)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                                        {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
                                 </div>
+                                <p className="text-[10px] text-slate-400 mt-1">Use this PIN to sign off documents.</p>
                             </div>
                           </>
                       ) : (
@@ -377,6 +409,48 @@ const ProfilePage = () => {
               </div>
           </div>
       </div>
+
+      {/* PIN Change Modal */}
+      {showPinModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Key className="w-5 h-5" /> Update PIN</h3>
+                      <button onClick={() => setShowPinModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+                  </div>
+                  <form onSubmit={handleChangePin} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">New 4-Digit PIN</label>
+                          <input 
+                            type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={4}
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white focus:ring-2 focus:ring-ams-blue"
+                            value={newPin}
+                            onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
+                            required
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Confirm New PIN</label>
+                          <input 
+                            type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={4}
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white focus:ring-2 focus:ring-ams-blue"
+                            value={confirmPin}
+                            onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                            required
+                          />
+                      </div>
+                      {pinError && <p className="text-xs text-red-500 font-bold text-center">{pinError}</p>}
+                      <button type="submit" className="w-full py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-900">Set New PIN</button>
+                  </form>
+              </div>
+          </div>
+      )}
 
       {/* Role Request Modal */}
       {showRoleModal && (

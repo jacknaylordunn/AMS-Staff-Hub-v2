@@ -13,7 +13,9 @@ const LoginPage = () => {
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [badgeId, setBadgeId] = useState('');
+  
+  // Badge Login State
+  const [badgeNumber, setBadgeNumber] = useState(''); // Only numbers part
 
   // Registration specific state
   const [firstName, setFirstName] = useState('');
@@ -27,7 +29,6 @@ const LoginPage = () => {
 
   // Auto-redirect if logged in
   useEffect(() => {
-      // Only redirect if we have a firebaseUser and we aren't currently in a loading state from useAuth
       if (!isLoading && firebaseUser) {
           navigate('/');
       }
@@ -48,17 +49,16 @@ const LoginPage = () => {
                 setIsSubmitting(false);
                 return;
             }
-            // Register auto-logs in. The useEffect will handle the redirect.
             await register(email, password, `${firstName} ${lastName}`, Role.Pending, regNumber);
         } else {
             if (loginMethod === 'Email') {
                 await login(email, password);
             } else {
-                await loginWithBadge(badgeId, password);
+                // Construct full badge ID
+                const fullBadgeId = `AMS${badgeNumber}`;
+                await loginWithBadge(fullBadgeId, password);
             }
         }
-        // Do NOT set isSubmitting(false) here on success, 
-        // because we want the button to stay in loading state until the redirect happens.
     } catch (err: any) {
         setLocalError(err.message || "Authentication failed");
         setIsSubmitting(false);
@@ -180,17 +180,23 @@ const LoginPage = () => {
           {!isRegistering && loginMethod === 'Badge' ? (
               <div className="animate-in fade-in">
                 <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase ml-1">Employee Badge ID</label>
-                <div className="relative">
-                    <Hash className="absolute left-4 top-3.5 w-4 h-4 text-slate-500" />
+                <div className="relative flex items-center group">
+                    <div className="absolute left-0 top-0 bottom-0 w-16 bg-slate-800 border border-slate-600 rounded-l-xl flex items-center justify-center text-slate-400 font-mono font-bold text-sm z-10 pointer-events-none">
+                        AMS
+                    </div>
                     <input
                         type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         required
-                        value={badgeId}
-                        onChange={(e) => setBadgeId(e.target.value)}
-                        className="input-field pl-10 font-mono uppercase"
-                        placeholder="AMS-2024-XX-001"
+                        value={badgeNumber}
+                        onChange={(e) => setBadgeNumber(e.target.value.replace(/\D/g, '').slice(0, 8))} // Limit to 8 digits
+                        className="input-field pl-20 font-mono tracking-widest"
+                        placeholder="YYMMXXXX"
+                        maxLength={8}
                     />
                 </div>
+                <p className="text-[10px] text-slate-500 mt-1 ml-1">Format: YYMM + 4 Digits (e.g. 25031234)</p>
               </div>
           ) : (
               <div>

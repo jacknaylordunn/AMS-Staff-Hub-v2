@@ -156,6 +156,13 @@ export interface ReviewNote {
   action: 'Approved' | 'Returned';
 }
 
+export interface AssistingClinician {
+    uid: string;
+    name: string;
+    role: string;
+    badgeNumber: string;
+}
+
 export interface EPRF {
   id: string; // Unique Draft ID
   incidentNumber: string;
@@ -164,6 +171,8 @@ export interface EPRF {
   callSign: string;
   location: string;
   lastUpdated: string;
+  accessUids: string[]; // List of UIDs allowed to edit this record
+  assistingClinicians: AssistingClinician[]; // Display data for PDF/UI
   times: {
     callReceived: string;
     mobile: string;

@@ -46,7 +46,8 @@ const StaffPage = () => {
       const date = new Date();
       const yy = date.getFullYear().toString().slice(-2);
       const mm = (date.getMonth() + 1).toString().padStart(2, '0');
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      // Generate random number between 0000 and 9999
+      const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
       return `AMS${yy}${mm}${randomSuffix}`;
   };
 

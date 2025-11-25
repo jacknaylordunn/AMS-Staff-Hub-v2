@@ -82,22 +82,25 @@ export const generateEPRF_PDF = async (data: EPRF) => {
 
   let yPos = 55;
 
-  // --- Incident Summary ---
+  // --- Incident Summary & Crew ---
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text("INCIDENT DETAILS", 10, yPos);
+  doc.text("INCIDENT & CREW DETAILS", 10, yPos);
   
+  const crewList = data.assistingClinicians && data.assistingClinicians.length > 0 
+    ? data.assistingClinicians.map(c => `${c.name} (${c.role})`).join(', ')
+    : 'Solo Clinician';
+
   doc.autoTable({
     startY: yPos + 3,
-    head: [['Date', 'Call Sign', 'Mode', 'Location', 'Time Call', 'Time Scene']],
+    head: [['Date', 'Call Sign', 'Mode', 'Location', 'Crew']],
     body: [[
         new Date().toLocaleDateString(), 
         data.callSign, 
         data.mode, 
         data.location,
-        data.times.callReceived || '-',
-        data.times.onScene || '-'
+        crewList
     ]],
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 3 },

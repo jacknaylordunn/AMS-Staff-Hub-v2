@@ -10,7 +10,7 @@ import {
   EmailAuthProvider,
   User as FirebaseUser 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { User, Role } from '../types';
 
@@ -22,6 +22,8 @@ interface AuthContextType {
   loginWithPin: (badgeId: string, pin: string) => Promise<void>;
   register: (email: string, password: string, name: string, role: Role, regNumber?: string) => Promise<void>;
   reauthenticate: (password: string) => Promise<boolean>;
+  verifyPin: (pin: string) => Promise<boolean>;
+  updatePin: (newPin: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
@@ -143,7 +145,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithPin = async (badgeId: string, pin: string) => {
-    throw new Error("PIN Login requires backend integration. Please use Badge ID + Password.");
+    // Note: True secure PIN login requires a backend custom token generator.
+    // For this implementation, we use Login with Badge + Password as primary.
+    // PIN is used for signing actions.
+    throw new Error("Please use Badge ID + Password for initial login.");
+  };
+
+  const verifyPin = async (pin: string): Promise<boolean> => {
+      if (!user) return false;
+      try {
+          // Fetch fresh doc to ensure PIN matches server state
+          const userDocRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+              const data = userDoc.data() as User;
+              return data.pin === pin;
+          }
+          return false;
+      } catch (e) {
+          console.error("PIN Verification Error", e);
+          return false;
+      }
+  };
+
+  const updatePin = async (newPin: string) => {
+      if (!user) return;
+      if (!/^\d{4}$/.test(newPin)) throw new Error("PIN must be 4 digits.");
+      
+      try {
+          await updateDoc(doc(db, 'users', user.uid), {
+              pin: newPin,
+              pinLastUpdated: new Date().toISOString()
+          });
+          await refreshUser();
+      } catch (e) {
+          throw new Error("Failed to update PIN");
+      }
   };
 
   const register = async (email: string, password: string, name: string, role: Role, regNumber?: string) => {
@@ -197,8 +234,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await auth.currentUser.reload();
               // Create a new object reference to force React to detect change
               const updatedUser = auth.currentUser; 
-              // Force re-render by creating a new object reference if needed, though auth state change handles it mostly.
-              // We explicity update state here to ensure UI reacts to emailVerified: true
               setFirebaseUser({ ...updatedUser } as FirebaseUser);
               
               // Re-fetch profile to ensure role/status is up to date
@@ -224,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, login, loginWithBadge, loginWithPin, register, reauthenticate, logout, refreshUser, isLoading, error }}>
+    <AuthContext.Provider value={{ user, firebaseUser, login, loginWithBadge, loginWithPin, verifyPin, updatePin, register, reauthenticate, logout, refreshUser, isLoading, error }}>
       {children}
     </AuthContext.Provider>
   );
