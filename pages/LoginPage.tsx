@@ -191,7 +191,7 @@ const LoginPage = () => {
                         required
                         value={badgeNumber}
                         onChange={(e) => setBadgeNumber(e.target.value.replace(/\D/g, '').slice(0, 8))} // Limit to 8 digits
-                        className="input-field pl-20 font-mono tracking-widest"
+                        className="input-field !pl-20 font-mono tracking-widest"
                         placeholder="YYMMXXXX"
                         maxLength={8}
                     />
