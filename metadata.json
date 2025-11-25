@@ -1,0 +1,8 @@
+{
+  "name": "Aegis Staff Hub v2",
+  "description": "Operational platform for clinical staff including ePRF, Rota, and Asset Management.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

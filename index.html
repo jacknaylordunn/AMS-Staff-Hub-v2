@@ -1,0 +1,145 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Aegis Staff Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              ams: {
+                blue: '#0052CC', // Brighter, modern clinical blue
+                dark: '#091E42',
+                light: '#E9F2FF',
+                teal: '#00B8D9', // Accent for actions
+                red: '#DE350B',  // Alert
+                green: '#00875A', // Success
+                gold: '#FFAB00', // Warning/Status
+              },
+              slate: {
+                850: '#172030', // Custom dark mode background
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            boxShadow: {
+              'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+              'glass-hover': '0 8px 32px 0 rgba(31, 38, 135, 0.15)',
+              'glow': '0 0 15px rgba(0, 82, 204, 0.3)',
+            },
+            animation: {
+              'blob': 'blob 10s infinite',
+              'fade-in': 'fadeIn 0.3s ease-out forwards',
+              'slide-up': 'slideUp 0.4s ease-out forwards',
+            },
+            keyframes: {
+              blob: {
+                '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                '100%': { transform: 'translate(0px, 0px) scale(1)' },
+              },
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%': { transform: 'translateY(20px)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+              }
+            },
+          },
+        },
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #F4F5F7;
+        color: #172B4D;
+        -webkit-tap-highlight-color: transparent;
+      }
+      
+      html.dark body {
+        background-color: #0F1115;
+        color: #F4F5F7;
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(9, 30, 66, 0.3) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(0, 82, 204, 0.1) 0px, transparent 50%);
+        background-attachment: fixed;
+      }
+      
+      /* Glassmorphism Utilities */
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+      }
+      
+      html.dark .glass-panel {
+        background: rgba(23, 32, 48, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #DFE1E6;
+        border-radius: 3px;
+      }
+      html.dark ::-webkit-scrollbar-thumb {
+        background: #2C3B55;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #B3BAC5;
+      }
+      
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "jspdf": "https://aistudiocdn.com/jspdf@^2.5.2",
+    "jspdf-autotable": "https://aistudiocdn.com/jspdf-autotable@^3.8.4",
+    "firebase/app": "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js",
+    "firebase/storage": "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js",
+    "firebase/functions": "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js",
+    "firebase/analytics": "https://www.gstatic.com/firebasejs/11.0.2/firebase-analytics.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
