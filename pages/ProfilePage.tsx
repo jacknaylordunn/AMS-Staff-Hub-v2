@@ -1,17 +1,17 @@
 
-import React, { useState } from 'react';
-import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { ComplianceDoc, Role } from '../types';
-import { doc, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
     const styles = {
-        Valid: 'bg-green-100 text-green-700 border-green-200',
-        Expiring: 'bg-amber-100 text-amber-700 border-amber-200',
-        Expired: 'bg-red-100 text-red-700 border-red-200',
-        Pending: 'bg-blue-100 text-blue-700 border-blue-200'
+        Valid: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800',
+        Expiring: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
+        Expired: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
+        Pending: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
     };
     const icons = {
         Valid: CheckCircle,
@@ -29,12 +29,13 @@ const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
 };
 
 const ProfilePage = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
       phone: user?.phone || '',
       address: user?.address || ''
   });
+  const [showPin, setShowPin] = useState(false);
   
   // Role Request State
   const [showRoleModal, setShowRoleModal] = useState(false);
@@ -47,6 +48,42 @@ const ProfilePage = () => {
   const [docExpiry, setDocExpiry] = useState('');
   const [docFile, setDocFile] = useState<string | null>(null); // storing base64 for demo
   const [uploading, setUploading] = useState(false);
+
+  // Bootstrap State
+  const [canBootstrap, setCanBootstrap] = useState(false);
+
+  useEffect(() => {
+      const checkSystemStatus = async () => {
+          try {
+              // Check if there are ANY admins or managers in the system
+              const q = query(collection(db, 'users'), where('role', 'in', [Role.Admin, Role.Manager]));
+              const snap = await getDocs(q);
+              if (snap.empty) {
+                  setCanBootstrap(true);
+              }
+          } catch (e) {
+              console.error("Error checking system status", e);
+          }
+      };
+      checkSystemStatus();
+  }, []);
+
+  const handleBootstrap = async () => {
+      if (!user || !confirm("Initialize system and claim Admin access?")) return;
+      try {
+          await updateDoc(doc(db, 'users', user.uid), {
+              role: Role.Admin,
+              status: 'Active',
+              employeeId: 'AMS-ADMIN-001',
+              pin: '0000'
+          });
+          alert("System Initialized. You are now Admin.");
+          await refreshUser();
+          window.location.reload();
+      } catch (e) {
+          console.error("Bootstrap failed", e);
+      }
+  };
 
   const handleProfileUpdate = async () => {
       if (!user) return;
@@ -125,7 +162,29 @@ const ProfilePage = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6 pb-20">
+      
+      {/* Bootstrap Banner */}
+      {canBootstrap && (
+          <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
+              <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 rounded-full">
+                      <Crown className="w-8 h-8" />
+                  </div>
+                  <div>
+                      <h2 className="text-xl font-bold">System Initialization Required</h2>
+                      <p className="text-white/90 text-sm">No Managers found. Claim ownership to bootstrap the system.</p>
+                  </div>
+              </div>
+              <button 
+                onClick={handleBootstrap}
+                className="px-6 py-3 bg-white text-orange-600 font-bold rounded-xl shadow-lg hover:bg-orange-50 transition-all whitespace-nowrap"
+              >
+                  Claim Admin Access
+              </button>
+          </div>
+      )}
+
       {/* Header */}
       <div className="relative bg-gradient-to-r from-ams-blue to-blue-900 rounded-2xl overflow-hidden shadow-lg">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
@@ -175,72 +234,115 @@ const ProfilePage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Personal Information */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 h-fit">
-              <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-slate-800">Personal Details</h3>
-                  <button 
-                    onClick={isEditing ? handleProfileUpdate : () => setIsEditing(true)}
-                    className="text-sm text-ams-blue font-bold hover:underline"
-                  >
-                      {isEditing ? 'Save Changes' : 'Edit Details'}
-                  </button>
-              </div>
-              
-              <div className="space-y-4">
-                  <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Phone Number</label>
-                      <div className="flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-slate-400" />
-                          {isEditing ? (
-                              <input 
-                                type="tel" 
-                                value={formData.phone}
-                                onChange={e => setFormData({...formData, phone: e.target.value})}
-                                className="w-full text-sm border-b border-ams-blue focus:outline-none py-1 bg-transparent"
-                              />
-                          ) : (
-                              <span className="text-slate-700">{user?.phone || 'Not set'}</span>
-                          )}
-                      </div>
+          {/* Personal Information & Digital ID */}
+          <div className="space-y-6">
+              {/* Digital ID Card */}
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
+                  <div className="bg-slate-900 dark:bg-slate-950 p-4 text-white flex justify-between items-center">
+                      <h3 className="font-bold flex items-center gap-2"><Shield className="w-4 h-4 text-ams-blue" /> Digital ID</h3>
+                      <img src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" className="h-6 w-auto opacity-80" alt="Logo" />
                   </div>
-                  <div className="pt-2">
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Home Address</label>
-                      <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-slate-400 mt-0.5" />
-                          {isEditing ? (
-                              <textarea 
-                                value={formData.address}
-                                onChange={e => setFormData({...formData, address: e.target.value})}
-                                className="w-full text-sm border border-slate-200 rounded p-2 focus:ring-1 focus:ring-ams-blue outline-none bg-transparent"
-                                rows={2}
-                              />
-                          ) : (
-                              <span className="text-slate-700">{user?.address || 'Not set'}</span>
-                          )}
+                  <div className="p-6 space-y-4">
+                      {user?.employeeId ? (
+                          <>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Employee ID</label>
+                                <p className="font-mono font-bold text-slate-800 dark:text-white text-lg bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 text-center">{user.employeeId}</p>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex justify-between">
+                                    <span>Signing PIN</span>
+                                    <button onClick={() => setShowPin(!showPin)} className="text-ams-blue hover:underline flex items-center gap-1 text-[10px]">
+                                        {showPin ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> Show</>}
+                                    </button>
+                                </label>
+                                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 flex justify-center items-center h-10">
+                                    {showPin ? (
+                                        <span className="font-mono font-bold text-slate-800 dark:text-white text-lg tracking-widest">{user.pin || 'N/A'}</span>
+                                    ) : (
+                                        <div className="flex gap-1">
+                                            {[1,2,3,4].map(i => <div key={i} className="w-2 h-2 bg-slate-400 rounded-full"></div>)}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                          </>
+                      ) : (
+                          <div className="text-center py-4">
+                              <Lock className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                              <p className="text-xs text-slate-500 dark:text-slate-400">ID and PIN pending approval.</p>
+                          </div>
+                      )}
+                  </div>
+              </div>
+
+              {/* Personal Details */}
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="font-bold text-slate-800 dark:text-white">Contact Info</h3>
+                      <button 
+                        onClick={isEditing ? handleProfileUpdate : () => setIsEditing(true)}
+                        className="text-sm text-ams-blue font-bold hover:underline"
+                      >
+                          {isEditing ? 'Save' : 'Edit'}
+                      </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Phone Number</label>
+                          <div className="flex items-center gap-2">
+                              <Phone className="w-4 h-4 text-slate-400" />
+                              {isEditing ? (
+                                  <input 
+                                    type="tel" 
+                                    value={formData.phone}
+                                    onChange={e => setFormData({...formData, phone: e.target.value})}
+                                    className="w-full text-sm border-b border-ams-blue focus:outline-none py-1 bg-transparent dark:text-white"
+                                  />
+                              ) : (
+                                  <span className="text-slate-700 dark:text-slate-200">{user?.phone || 'Not set'}</span>
+                              )}
+                          </div>
+                      </div>
+                      <div className="pt-2">
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Home Address</label>
+                          <div className="flex items-start gap-2">
+                              <MapPin className="w-4 h-4 text-slate-400 mt-0.5" />
+                              {isEditing ? (
+                                  <textarea 
+                                    value={formData.address}
+                                    onChange={e => setFormData({...formData, address: e.target.value})}
+                                    className="w-full text-sm border border-slate-200 dark:border-slate-600 rounded p-2 focus:ring-1 focus:ring-ams-blue outline-none bg-transparent dark:text-white"
+                                    rows={2}
+                                  />
+                              ) : (
+                                  <span className="text-slate-700 dark:text-slate-200">{user?.address || 'Not set'}</span>
+                              )}
+                          </div>
                       </div>
                   </div>
               </div>
           </div>
 
           {/* Compliance & Documents */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors">
               <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center gap-2">
                       <Shield className="w-5 h-5 text-ams-blue" />
-                      <h3 className="font-bold text-slate-800">Compliance Documents</h3>
+                      <h3 className="font-bold text-slate-800 dark:text-white">Compliance Documents</h3>
                   </div>
                   <button 
                     onClick={() => setShowDocModal(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-bold transition-colors border border-slate-200"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-lg text-sm font-bold transition-colors border border-slate-200 dark:border-slate-600"
                   >
                       <Upload className="w-4 h-4" /> Upload New
                   </button>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-slate-200">
+              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
                   <table className="w-full text-sm text-left">
-                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase text-xs">
                           <tr>
                               <th className="px-4 py-3">Document Name</th>
                               <th className="px-4 py-3">Expiry Date</th>
@@ -248,17 +350,17 @@ const ProfilePage = () => {
                               <th className="px-4 py-3 text-right">Action</th>
                           </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-200">
                           {user?.compliance?.map((doc, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50/50">
-                                  <td className="px-4 py-3 font-medium text-slate-700">{doc.name}</td>
-                                  <td className="px-4 py-3 text-slate-500">{new Date(doc.expiryDate).toLocaleDateString()}</td>
+                              <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                                  <td className="px-4 py-3 font-medium">{doc.name}</td>
+                                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{new Date(doc.expiryDate).toLocaleDateString()}</td>
                                   <td className="px-4 py-3">
                                       <StatusBadge status={doc.status} />
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                       {doc.fileUrl && (
-                                          <button onClick={() => window.open(doc.fileUrl)} className="text-ams-blue hover:text-blue-700 text-xs font-bold">View</button>
+                                          <button onClick={() => window.open(doc.fileUrl)} className="text-ams-blue hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-bold">View</button>
                                       )}
                                   </td>
                               </tr>
@@ -279,16 +381,16 @@ const ProfilePage = () => {
       {/* Role Request Modal */}
       {showRoleModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg text-slate-800">Request Role Change</h3>
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white">Request Role Change</h3>
                       <button onClick={() => setShowRoleModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
                   </div>
                   <form onSubmit={handleRoleRequest} className="space-y-4">
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">New Role</label>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">New Role</label>
                           <select 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
                             value={requestedRole}
                             onChange={e => setRequestedRole(e.target.value as Role)}
                             required
@@ -298,9 +400,9 @@ const ProfilePage = () => {
                           </select>
                       </div>
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Reason / Justification</label>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Reason / Justification</label>
                           <textarea 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none resize-none"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none resize-none dark:text-white"
                             rows={3}
                             placeholder="E.g. Completed FREC4 course."
                             value={requestReason}
@@ -317,16 +419,16 @@ const ProfilePage = () => {
       {/* Doc Upload Modal */}
       {showDocModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg text-slate-800">Upload Document</h3>
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white">Upload Document</h3>
                       <button onClick={() => setShowDocModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
                   </div>
                   <form onSubmit={handleDocUpload} className="space-y-4">
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Document Name</label>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Name</label>
                           <input 
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
                             placeholder="e.g. DBS Certificate"
                             value={docName}
                             onChange={e => setDocName(e.target.value)}
@@ -334,16 +436,16 @@ const ProfilePage = () => {
                           />
                       </div>
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Expiry Date</label>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Expiry Date</label>
                           <input 
                             type="date"
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
                             value={docExpiry}
                             onChange={e => setDocExpiry(e.target.value)}
                             required
                           />
                       </div>
-                      <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:bg-slate-50 relative">
+                      <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 relative">
                           <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} accept="image/*,application/pdf" required />
                           {docFile ? (
                               <span className="text-green-600 font-bold text-sm flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> File Selected</span>

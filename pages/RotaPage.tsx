@@ -16,11 +16,11 @@ import { analyzeRotaCoverage } from '../services/geminiService';
 
 // --- Colors for Shifts ---
 const SHIFT_COLORS = {
-    'Blue': 'border-l-blue-500 bg-blue-50/50 hover:bg-blue-50',
-    'Green': 'border-l-green-500 bg-green-50/50 hover:bg-green-50',
-    'Red': 'border-l-red-500 bg-red-50/50 hover:bg-red-50',
-    'Purple': 'border-l-purple-500 bg-purple-50/50 hover:bg-purple-50',
-    'Amber': 'border-l-amber-500 bg-amber-50/50 hover:bg-amber-50',
+    'Blue': 'border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/30',
+    'Green': 'border-l-green-500 bg-green-50/50 dark:bg-green-900/20 hover:bg-green-50 dark:hover:bg-green-900/30',
+    'Red': 'border-l-red-500 bg-red-50/50 dark:bg-red-900/20 hover:bg-red-50 dark:hover:bg-red-900/30',
+    'Purple': 'border-l-purple-500 bg-purple-50/50 dark:bg-purple-900/20 hover:bg-purple-50 dark:hover:bg-purple-900/30',
+    'Amber': 'border-l-amber-500 bg-amber-50/50 dark:bg-amber-900/20 hover:bg-amber-50 dark:hover:bg-amber-900/30',
 };
 
 const COLOR_OPTIONS = [
@@ -39,34 +39,34 @@ const ShiftCard: React.FC<{ shift: Shift; user: User | null; onSelect: (shift: S
     // Determine Style
     const baseStyle = shift.color && SHIFT_COLORS[shift.color as keyof typeof SHIFT_COLORS] 
         ? SHIFT_COLORS[shift.color as keyof typeof SHIFT_COLORS] 
-        : 'border-l-slate-300 bg-white hover:bg-slate-50';
+        : 'border-l-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700';
 
     return (
         <div 
           onClick={() => onSelect(shift)}
-          className={`p-4 rounded-xl border-t border-r border-b border-l-[6px] text-left relative transition-all cursor-pointer group shadow-sm hover:shadow-md ${baseStyle} ${
-              isAssigned ? 'ring-1 ring-green-200' : ''
+          className={`p-4 rounded-xl border-t border-r border-b border-l-[6px] text-left relative transition-all cursor-pointer group shadow-sm hover:shadow-md dark:border-slate-700 ${baseStyle} ${
+              isAssigned ? 'ring-1 ring-green-200 dark:ring-green-700' : ''
           }`}
         >
             <div className="flex justify-between items-start mb-2">
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
-                    shift.status === 'Open' ? 'bg-blue-100 text-blue-700' : 
-                    shift.status === 'Filled' ? 'bg-slate-200 text-slate-600' : 'bg-red-100 text-red-700'
+                    shift.status === 'Open' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 
+                    shift.status === 'Filled' ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
                 }`}>
                     {shift.status}
                 </span>
-                {isAssigned && <CheckCircle className="w-4 h-4 text-green-600" />}
-                {!isAssigned && isBid && <Clock className="w-4 h-4 text-blue-500" />}
+                {isAssigned && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
+                {!isAssigned && isBid && <Clock className="w-4 h-4 text-blue-500 dark:text-blue-400" />}
             </div>
             
-            <div className="flex items-center gap-1.5 text-slate-800 mb-1">
+            <div className="flex items-center gap-1.5 text-slate-800 dark:text-white mb-1">
                 <Clock className="w-4 h-4 text-slate-400" />
                 <span className="text-sm font-bold font-mono">
                     {shift.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {shift.end.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                 </span>
             </div>
             
-            <div className="flex items-center gap-1.5 text-slate-500 mb-3">
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mb-3">
                 <MapPin className="w-4 h-4 text-slate-400" />
                 <span className="text-xs font-medium truncate">{shift.location}</span>
             </div>
@@ -74,7 +74,7 @@ const ShiftCard: React.FC<{ shift: Shift; user: User | null; onSelect: (shift: S
             {shift.tags && shift.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-3">
                     {shift.tags.map(tag => (
-                        <span key={tag} className="text-[9px] px-2 py-0.5 bg-white text-slate-600 rounded-full border border-slate-200 font-bold uppercase shadow-sm">
+                        <span key={tag} className="text-[9px] px-2 py-0.5 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full border border-slate-200 dark:border-slate-600 font-bold uppercase shadow-sm">
                             {tag}
                         </span>
                     ))}
@@ -430,19 +430,19 @@ const RotaPage = () => {
       
       {/* Stats Dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-              <div className="p-4 bg-blue-50 text-ams-blue rounded-xl"><Clock className="w-6 h-6" /></div>
-              <div><p className="text-xs text-slate-500 uppercase font-bold tracking-wider">My Shifts</p><p className="text-3xl font-bold text-slate-800">{myShiftCount}</p></div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 text-ams-blue dark:text-blue-400 rounded-xl"><Clock className="w-6 h-6" /></div>
+              <div><p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">My Shifts</p><p className="text-3xl font-bold text-slate-800 dark:text-white">{myShiftCount}</p></div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-              <div className="p-4 bg-green-50 text-green-600 rounded-xl"><CheckCircle className="w-6 h-6" /></div>
-              <div><p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Open Slots</p><p className="text-3xl font-bold text-slate-800">{openShiftCount}</p></div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-4">
+              <div className="p-4 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl"><CheckCircle className="w-6 h-6" /></div>
+              <div><p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Open Slots</p><p className="text-3xl font-bold text-slate-800 dark:text-white">{openShiftCount}</p></div>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 md:col-span-2 relative overflow-hidden group">
-               <div className="p-4 bg-purple-50 text-purple-600 rounded-xl relative z-10"><Briefcase className="w-6 h-6" /></div>
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-4 md:col-span-2 relative overflow-hidden group">
+               <div className="p-4 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl relative z-10"><Briefcase className="w-6 h-6" /></div>
                <div className="relative z-10">
-                  <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Next Duty</p>
-                  <p className="text-lg font-bold truncate text-slate-800">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Next Duty</p>
+                  <p className="text-lg font-bold truncate text-slate-800 dark:text-white">
                       {shifts.find(s => s.assignedUserIds.includes(user?.uid || '') && s.start > new Date())?.location || 'No upcoming shifts'}
                   </p>
                </div>
@@ -451,31 +451,31 @@ const RotaPage = () => {
       </div>
 
       {/* Main Toolbar */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+      <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <h1 className="text-2xl font-bold text-slate-800">Rota & Scheduling</h1>
+                <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Rota & Scheduling</h1>
             </div>
             
             <div className="flex flex-wrap gap-3 items-center w-full lg:w-auto">
-               <div className="flex bg-slate-100 p-1.5 rounded-xl">
+               <div className="flex bg-slate-100 dark:bg-slate-700 p-1.5 rounded-xl">
                   {(['List', 'Week', 'Month'] as const).map(mode => (
                       <button
                         key={mode}
                         onClick={() => setViewMode(mode)}
-                        className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === mode ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${viewMode === mode ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                       >
                           {mode}
                       </button>
                   ))}
                </div>
                
-               <div className="flex items-center gap-2 bg-slate-50 rounded-xl p-1.5 border border-slate-200 ml-auto lg:ml-0">
-                    <button onClick={() => handleDateNav('prev')} className="p-2 hover:bg-white rounded-lg transition-colors"><ChevronLeft className="w-4 h-4 text-slate-600" /></button>
-                    <span className="text-sm font-bold text-slate-700 min-w-[140px] text-center">
+               <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 rounded-xl p-1.5 border border-slate-200 dark:border-slate-600 ml-auto lg:ml-0">
+                    <button onClick={() => handleDateNav('prev')} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-lg transition-colors"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" /></button>
+                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200 min-w-[140px] text-center">
                         {viewMode === 'Month' ? currentDate.toLocaleDateString('en-GB', {month: 'long', year: 'numeric'}) : currentDate.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'})}
                     </span>
-                    <button onClick={() => handleDateNav('next')} className="p-2 hover:bg-white rounded-lg transition-colors"><ChevronRight className="w-4 h-4 text-slate-600" /></button>
+                    <button onClick={() => handleDateNav('next')} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-lg transition-colors"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300" /></button>
                </div>
 
                {isManager && (
@@ -483,7 +483,7 @@ const RotaPage = () => {
                      <button
                         onClick={handleAnalyzeRota}
                         disabled={isAnalyzing}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-purple-50 text-purple-700 border border-purple-100 rounded-xl font-bold hover:bg-purple-100 transition-colors text-sm disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2.5 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800 rounded-xl font-bold hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors text-sm disabled:opacity-50"
                      >
                         {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                         AI Insight
@@ -501,30 +501,30 @@ const RotaPage = () => {
 
         {/* AI Rota Analysis Alert */}
         {aiInsight && (
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 relative">
-                <div className="p-2 bg-purple-100 rounded-lg text-purple-600 mt-0.5"><Sparkles className="w-4 h-4" /></div>
+            <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 relative">
+                <div className="p-2 bg-purple-100 dark:bg-purple-900/50 rounded-lg text-purple-600 dark:text-purple-400 mt-0.5"><Sparkles className="w-4 h-4" /></div>
                 <div className="flex-1">
-                    <h4 className="font-bold text-purple-800 text-sm mb-1">Rota Analysis</h4>
-                    <p className="text-xs text-purple-700 whitespace-pre-line leading-relaxed">{aiInsight}</p>
+                    <h4 className="font-bold text-purple-800 dark:text-purple-300 text-sm mb-1">Rota Analysis</h4>
+                    <p className="text-xs text-purple-700 dark:text-purple-400 whitespace-pre-line leading-relaxed">{aiInsight}</p>
                 </div>
                 <button onClick={() => setAiInsight(null)} className="text-purple-400 hover:text-purple-600"><X className="w-4 h-4" /></button>
             </div>
         )}
 
         {/* Filters Bar */}
-        <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100">
-            <div className="flex-1 flex items-center gap-3 bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-ams-blue transition-all">
+        <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+            <div className="flex-1 flex items-center gap-3 bg-slate-50 dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-ams-blue transition-all">
                 <Search className="w-4 h-4 text-slate-400" />
                 <input 
                     placeholder="Filter by location..." 
-                    className="bg-transparent text-sm w-full outline-none font-medium text-slate-700"
+                    className="bg-transparent text-sm w-full outline-none font-medium text-slate-700 dark:text-slate-200"
                     value={filterLocation}
                     onChange={e => setFilterLocation(e.target.value)}
                 />
             </div>
             <div className="flex gap-3 overflow-x-auto no-scrollbar">
                 <select 
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none font-medium text-slate-700 focus:ring-2 focus:ring-ams-blue"
+                    className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-ams-blue"
                     value={filterRole}
                     onChange={e => setFilterRole(e.target.value)}
                 >
@@ -534,7 +534,7 @@ const RotaPage = () => {
                 
                 <button 
                     onClick={() => setShowMyShiftsOnly(!showMyShiftsOnly)}
-                    className={`px-5 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-colors flex items-center gap-2 ${showMyShiftsOnly ? 'bg-ams-blue text-white border-ams-blue shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                    className={`px-5 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-colors flex items-center gap-2 ${showMyShiftsOnly ? 'bg-ams-blue text-white border-ams-blue shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                 >
                     <Briefcase className="w-4 h-4" /> My Shifts
                 </button>
@@ -569,11 +569,11 @@ const RotaPage = () => {
 
                         return (
                             <div key={offset} className="flex flex-col gap-3">
-                                <div className={`text-center p-3 rounded-xl border ${dayDate.getDate() === new Date().getDate() ? 'bg-ams-blue text-white border-ams-blue shadow-md' : 'bg-white text-slate-600 border-slate-200'}`}>
+                                <div className={`text-center p-3 rounded-xl border ${dayDate.getDate() === new Date().getDate() ? 'bg-ams-blue text-white border-ams-blue shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
                                     <div className="text-xs uppercase font-bold opacity-70 mb-1">{dayDate.toLocaleDateString('en-GB', {weekday: 'short'})}</div>
                                     <div className="text-xl font-bold">{dayDate.getDate()}</div>
                                 </div>
-                                <div className="flex-1 bg-slate-100/50 rounded-2xl p-2 space-y-3 border border-slate-200/50">
+                                <div className="flex-1 bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl p-2 space-y-3 border border-slate-200/50 dark:border-slate-800">
                                     {dayShifts.map(shift => (
                                         <ShiftCard key={shift.id} shift={shift} user={user} onSelect={handleOpenBriefing} />
                                     ))}
@@ -586,19 +586,19 @@ const RotaPage = () => {
 
             {/* Month View - Enhanced Grid */}
             {viewMode === 'Month' && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in">
-                    <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-in fade-in">
+                    <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
                         {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
-                            <div key={d} className="p-4 text-center text-xs font-bold text-slate-500 uppercase tracking-wide">{d}</div>
+                            <div key={d} className="p-4 text-center text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{d}</div>
                         ))}
                     </div>
-                    <div className="grid grid-cols-7 auto-rows-[140px] divide-x divide-slate-100 divide-y">
+                    <div className="grid grid-cols-7 auto-rows-[140px] divide-x divide-slate-100 dark:divide-slate-700 divide-y">
                         {Array.from({ length: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate() }, (_, i) => {
                             const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), i + 1);
                             const dayShifts = filteredShifts.filter(s => s.start.getDate() === d.getDate());
                             
                             return (
-                                <div key={i} className="p-2 hover:bg-slate-50 transition-colors overflow-y-auto relative group">
+                                <div key={i} className="p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors overflow-y-auto relative group">
                                     <div className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mb-2 ${
                                         d.getDate() === new Date().getDate() && d.getMonth() === new Date().getMonth() ? 'bg-ams-blue text-white' : 'text-slate-400'
                                     }`}>{i + 1}</div>
@@ -610,8 +610,8 @@ const RotaPage = () => {
                                                 onClick={() => handleOpenBriefing(s)}
                                                 className={`text-[10px] px-2 py-1.5 rounded-lg truncate cursor-pointer border font-medium flex items-center gap-1 ${
                                                     s.assignedUserIds.includes(user?.uid || '') 
-                                                    ? 'bg-green-100 text-green-700 border-green-200' 
-                                                    : 'bg-white text-slate-600 border-slate-200 hover:border-ams-blue'
+                                                    ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' 
+                                                    : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-ams-blue'
                                                 }`}
                                             >
                                                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -633,8 +633,8 @@ const RotaPage = () => {
       {/* --- Briefing Modal --- */}
       {showBriefingModal && activeShift && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-                <div className="bg-slate-900 text-white p-8 flex justify-between items-start">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-700">
+                <div className="bg-slate-900 dark:bg-slate-950 text-white p-8 flex justify-between items-start">
                     <div>
                         <div className="flex items-center gap-2 text-ams-light-blue font-bold text-xs uppercase tracking-widest mb-2">
                             <Briefcase className="w-4 h-4" /> Shift Details
@@ -647,28 +647,28 @@ const RotaPage = () => {
 
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
-                        <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
-                            <h3 className="font-bold text-slate-800 mb-4 text-xs uppercase tracking-wider">Operational Info</h3>
+                        <div className="p-6 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-4 text-xs uppercase tracking-wider">Operational Info</h3>
                             <div className="space-y-3 text-sm">
-                                <div className="flex justify-between border-b border-slate-200/60 pb-2">
-                                    <span className="text-slate-500">Roles Required</span>
-                                    <span className="font-medium text-slate-800">{activeShift.requiredRole.join(', ')}</span>
+                                <div className="flex justify-between border-b border-slate-200/60 dark:border-slate-700 pb-2">
+                                    <span className="text-slate-500 dark:text-slate-400">Roles Required</span>
+                                    <span className="font-medium text-slate-800 dark:text-white">{activeShift.requiredRole.join(', ')}</span>
                                 </div>
-                                <div className="flex justify-between border-b border-slate-200/60 pb-2">
-                                    <span className="text-slate-500">Vehicle ID</span>
+                                <div className="flex justify-between border-b border-slate-200/60 dark:border-slate-700 pb-2">
+                                    <span className="text-slate-500 dark:text-slate-400">Vehicle ID</span>
                                     <span className="font-bold text-ams-blue">{activeShift.vehicleId || 'Not Assigned'}</span>
                                 </div>
                                 {activeShift.tags && activeShift.tags.length > 0 && (
                                      <div className="flex flex-wrap gap-1 py-2">
                                          {activeShift.tags.map(t => (
-                                             <span key={t} className="text-[10px] bg-slate-200 text-slate-600 px-2 py-1 rounded-full font-bold uppercase">{t}</span>
+                                             <span key={t} className="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-full font-bold uppercase">{t}</span>
                                          ))}
                                      </div>
                                 )}
                                 {activeShift.notes && (
                                     <div className="pt-2">
-                                        <span className="text-slate-500 block mb-2 text-xs font-bold uppercase">Notes</span>
-                                        <p className="text-slate-700 bg-amber-50 p-3 rounded-xl border border-amber-100 text-xs leading-relaxed">{activeShift.notes}</p>
+                                        <span className="text-slate-500 dark:text-slate-400 block mb-2 text-xs font-bold uppercase">Notes</span>
+                                        <p className="text-slate-700 dark:text-slate-300 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-xl border border-amber-100 dark:border-amber-800 text-xs leading-relaxed">{activeShift.notes}</p>
                                     </div>
                                 )}
                             </div>
@@ -677,7 +677,7 @@ const RotaPage = () => {
                         {activeShift.assignedUserIds.includes(user?.uid || '') && (
                             <button 
                                 onClick={downloadICS}
-                                className="w-full py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl flex items-center justify-center gap-2 text-sm hover:bg-slate-50 transition-colors shadow-sm"
+                                className="w-full py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-xl flex items-center justify-center gap-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors shadow-sm"
                             >
                                 <Download className="w-4 h-4" /> Add to Calendar
                             </button>
@@ -686,7 +686,7 @@ const RotaPage = () => {
                         {isManager && (
                             <button 
                                 onClick={handleDeleteShift}
-                                className="w-full py-3 bg-red-50 text-red-600 border border-red-100 font-bold rounded-xl flex items-center justify-center gap-2 text-sm hover:bg-red-100 transition-colors"
+                                className="w-full py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30 font-bold rounded-xl flex items-center justify-center gap-2 text-sm hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                             >
                                 <Trash2 className="w-4 h-4" /> Cancel/Delete Shift
                             </button>
@@ -695,25 +695,25 @@ const RotaPage = () => {
 
                     <div className="space-y-6">
                         {/* Team View */}
-                        <div className="border border-slate-200 rounded-2xl p-6">
-                            <h3 className="font-bold text-slate-800 mb-4 text-xs uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4" /> Team Members</h3>
+                        <div className="border border-slate-200 dark:border-slate-700 rounded-2xl p-6">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-4 text-xs uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4" /> Team Members</h3>
                             {teamMembers.length > 0 ? (
                                 <div className="space-y-3">
                                     {teamMembers.map(tm => (
                                         <div key={tm.uid} className="flex items-center justify-between group">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600 border border-slate-200">
+                                                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
                                                     {tm.name.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-bold text-slate-800">{tm.name}</p>
-                                                    <p className="text-xs text-slate-500 font-medium">{tm.role}</p>
+                                                    <p className="text-sm font-bold text-slate-800 dark:text-white">{tm.name}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{tm.role}</p>
                                                 </div>
                                             </div>
                                             {isManager && (
                                                 <button 
                                                     onClick={() => handleUnassign(activeShift, tm.uid)}
-                                                    className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                                                    className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                                                     title="Unassign User"
                                                 >
                                                     <UserMinus className="w-4 h-4" />
@@ -729,16 +729,16 @@ const RotaPage = () => {
 
                         {/* Actions */}
                         {activeShift.assignedUserIds.includes(user?.uid || '') ? (
-                            <div className="bg-green-50 p-6 rounded-2xl border border-green-100 text-center">
-                                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600">
+                            <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-2xl border border-green-100 dark:border-green-900 text-center">
+                                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600 dark:text-green-400">
                                     <CheckCircle className="w-8 h-8" />
                                 </div>
-                                <h3 className="font-bold text-green-800 text-lg">Assigned to Shift</h3>
-                                <p className="text-green-600/80 text-sm mb-4">You are confirmed for this duty.</p>
+                                <h3 className="font-bold text-green-800 dark:text-green-400 text-lg">Assigned to Shift</h3>
+                                <p className="text-green-600/80 dark:text-green-400/80 text-sm mb-4">You are confirmed for this duty.</p>
                                 {activeShift.vehicleId && (
                                     <button 
                                         onClick={() => navigate('/assets')}
-                                        className="w-full py-3 bg-white text-green-700 border border-green-200 font-bold rounded-xl text-sm hover:bg-green-50 shadow-sm transition-colors"
+                                        className="w-full py-3 bg-white dark:bg-slate-800 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 font-bold rounded-xl text-sm hover:bg-green-50 dark:hover:bg-green-900/20 shadow-sm transition-colors"
                                     >
                                         Perform Vehicle Check
                                     </button>
@@ -747,7 +747,7 @@ const RotaPage = () => {
                         ) : (
                             activeShift.status === 'Open' && canPerformRole(user!.role, activeShift.requiredRole[0]) ? (
                                 activeShift.bids.some(b => b.userId === user?.uid) ? (
-                                    <div className="p-6 bg-blue-50 text-blue-800 font-bold text-center rounded-2xl border border-blue-100 flex flex-col items-center justify-center gap-3">
+                                    <div className="p-6 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 font-bold text-center rounded-2xl border border-blue-100 dark:border-blue-800 flex flex-col items-center justify-center gap-3">
                                         <Clock className="w-8 h-8 opacity-50" />
                                         <span>Bid Pending Approval</span>
                                     </div>
@@ -760,7 +760,7 @@ const RotaPage = () => {
                                     </button>
                                 )
                             ) : (
-                                <div className="p-6 bg-slate-100 text-slate-500 font-bold text-center rounded-2xl flex flex-col items-center justify-center gap-3">
+                                <div className="p-6 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-center rounded-2xl flex flex-col items-center justify-center gap-3">
                                     <AlertCircle className="w-8 h-8 opacity-50" />
                                     <span>Locked / Ineligible</span>
                                 </div>
@@ -769,16 +769,16 @@ const RotaPage = () => {
 
                         {/* Manager Controls */}
                         {isManager && activeShift.status === 'Open' && activeShift.bids.length > 0 && (
-                            <div className="border-t border-slate-200 pt-6 animate-in slide-in-from-bottom-2">
-                                <h4 className="font-bold text-xs uppercase tracking-wider mb-4 text-blue-800 flex items-center gap-2">
+                            <div className="border-t border-slate-200 dark:border-slate-700 pt-6 animate-in slide-in-from-bottom-2">
+                                <h4 className="font-bold text-xs uppercase tracking-wider mb-4 text-blue-800 dark:text-blue-400 flex items-center gap-2">
                                     <Clock className="w-4 h-4" /> Pending Bids ({activeShift.bids.length})
                                 </h4>
                                 <div className="space-y-3">
                                     {activeShift.bids.map(bid => (
-                                        <div key={bid.userId} className="flex justify-between items-center bg-blue-50 p-4 rounded-xl text-sm border border-blue-100">
+                                        <div key={bid.userId} className="flex justify-between items-center bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl text-sm border border-blue-100 dark:border-blue-800">
                                             <div>
-                                                <span className="font-bold text-slate-800 block">{bid.userName}</span>
-                                                <span className="text-xs text-slate-500 font-medium">{bid.userRole}</span>
+                                                <span className="font-bold text-slate-800 dark:text-white block">{bid.userName}</span>
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{bid.userRole}</span>
                                             </div>
                                             <button 
                                                 onClick={() => handleAssign(activeShift, bid.userId)}
@@ -800,20 +800,20 @@ const RotaPage = () => {
       {/* --- Modal: Create Shift --- */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
-            <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-lg w-full overflow-y-auto max-h-[90vh]">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 max-w-lg w-full overflow-y-auto max-h-[90vh] border border-slate-200 dark:border-slate-700">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-slate-800">Create Shifts</h2>
-                    <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X className="w-6 h-6" /></button>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Create Shifts</h2>
+                    <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400"><X className="w-6 h-6" /></button>
                 </div>
 
-                <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center gap-2 tracking-wider"><Bookmark className="w-3 h-3" /> Quick Load Template</h3>
+                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-2 tracking-wider"><Bookmark className="w-3 h-3" /> Quick Load Template</h3>
                     <div className="flex flex-wrap gap-2">
                         {templates.map(t => (
                             <button 
                                 key={t.id} 
                                 onClick={() => applyTemplate(t)}
-                                className="px-3 py-1.5 bg-white border border-slate-200 hover:border-ams-blue hover:text-ams-blue text-slate-600 rounded-lg text-xs font-bold transition-all"
+                                className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-ams-blue hover:text-ams-blue text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold transition-all"
                             >
                                 {t.name}
                             </button>
@@ -889,7 +889,7 @@ const RotaPage = () => {
                         <textarea rows={2} className="input-field resize-none" value={newShift.notes} onChange={e => setNewShift({...newShift, notes: e.target.value})} />
                     </div>
                     
-                    <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                    <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800">
                         <label className="flex items-center gap-2 mb-3">
                              <input 
                                 type="checkbox" 
@@ -897,20 +897,20 @@ const RotaPage = () => {
                                 onChange={() => setTemplateName(templateName ? '' : 'New Template')}
                                 className="w-4 h-4 text-ams-blue rounded border-slate-300 focus:ring-ams-blue"
                              />
-                             <span className="text-sm font-bold text-blue-800">Save as Template?</span>
+                             <span className="text-sm font-bold text-blue-800 dark:text-blue-300">Save as Template?</span>
                         </label>
                         {templateName && (
                             <input 
                                 type="text" 
                                 placeholder="Template Name (e.g. Standard Night)"
-                                className="w-full bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                className="w-full bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all dark:text-white"
                                 value={templateName === 'New Template' ? '' : templateName}
                                 onChange={e => setTemplateName(e.target.value)}
                             />
                         )}
                     </div>
 
-                    <div className="pt-4 border-t border-slate-100">
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
                         <label className="input-label flex items-center gap-1">
                             <Repeat className="w-3 h-3" /> Recurrence
                         </label>
@@ -929,8 +929,8 @@ const RotaPage = () => {
       )}
 
       <style>{`
-        .input-label { @apply block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1; }
-        .input-field { @apply w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-ams-blue transition-all; }
+        .input-label { @apply block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1.5 ml-1; }
+        .input-field { @apply w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-ams-blue transition-all dark:text-white; }
       `}</style>
     </div>
   );

@@ -23,6 +23,7 @@ interface AuthContextType {
   register: (email: string, password: string, name: string, role: Role, regNumber?: string) => Promise<void>;
   reauthenticate: (password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
   error: string | null;
 }
@@ -62,9 +63,7 @@ export const getFriendlyErrorMessage = (error: any): string => {
     let message = error.message || 'An unexpected error occurred.';
     if (message.includes('Firebase:')) {
         message = message.replace('Firebase: ', '');
-        // Remove error code in parenthesis e.g. (auth/foo-bar).
         message = message.replace(/\(auth\/[-\w]+\)\.?/, '').trim();
-        // Remove "Error" prefix if remaining
         if (message.startsWith('Error: ')) message = message.substring(7);
     }
     return message;
@@ -88,7 +87,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const userData = userDoc.data() as User;
             setUser(userData);
           } else {
-            setUser(null);
+            // Fallback if Firestore doc creation is lagging slightly
+            setUser({
+                uid: fbUser.uid,
+                email: fbUser.email || '',
+                name: fbUser.displayName || 'User',
+                role: Role.Pending,
+                status: 'Pending',
+                compliance: []
+            });
           }
         } catch (err) {
           console.error('Error fetching user profile:', err);
@@ -145,6 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const fbUser = userCredential.user;
 
+      // Send verification before proceeding
       await sendEmailVerification(fbUser);
 
       const newUser: User = {
@@ -158,6 +166,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       await setDoc(doc(db, 'users', fbUser.uid), newUser);
+      
+      // Update local state immediately to speed up UI transition
+      setUser(newUser);
+      setFirebaseUser(fbUser);
+      
     } catch (err: any) {
       console.error(err);
       const msg = getFriendlyErrorMessage(err);
@@ -174,8 +187,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return true;
       } catch (err) {
           console.error("Reauth failed", err);
-          // Note: We don't set global error here as UI typically handles re-auth failure locally (e.g. "Incorrect password")
           return false;
+      }
+  };
+
+  const refreshUser = async () => {
+      if (auth.currentUser) {
+          try {
+              await auth.currentUser.reload();
+              // Create a new object reference to force React to detect change
+              const updatedUser = auth.currentUser; 
+              // Force re-render by creating a new object reference if needed, though auth state change handles it mostly.
+              // We explicity update state here to ensure UI reacts to emailVerified: true
+              setFirebaseUser({ ...updatedUser } as FirebaseUser);
+              
+              // Re-fetch profile to ensure role/status is up to date
+              const userDocRef = doc(db, 'users', updatedUser.uid);
+              const userDoc = await getDoc(userDocRef);
+              if (userDoc.exists()) {
+                  setUser(userDoc.data() as User);
+              }
+          } catch (err) {
+              console.error("Error refreshing user", err);
+          }
       }
   };
 
@@ -190,7 +224,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, login, loginWithBadge, loginWithPin, register, reauthenticate, logout, isLoading, error }}>
+    <AuthContext.Provider value={{ user, firebaseUser, login, loginWithBadge, loginWithPin, register, reauthenticate, logout, refreshUser, isLoading, error }}>
       {children}
     </AuthContext.Provider>
   );

@@ -42,19 +42,12 @@ const StaffPage = () => {
       }
   };
 
-  const generateEmployeeId = async (role: Role) => {
-      const year = new Date().getFullYear();
-      const roleMap: Record<string, string> = {
-          'Paramedic': 'PARA', 'EMT': 'EMT', 'Doctor': 'DR', 'Nurse': 'RN',
-          'First Aider': 'FA', 'Manager': 'MGR', 'Admin': 'ADM',
-          'FREC3': 'FR3', 'FREC4': 'FR4'
-      };
-      const roleCode = roleMap[role] || 'STF';
-      const q = query(collection(db, 'users'), where('role', '==', role));
-      const snap = await getDocs(q);
-      const count = snap.size + 1; 
-      const num = count.toString().padStart(3, '0');
-      return `AMS-${year}-${roleCode}-${num}`;
+  const generateEmployeeId = () => {
+      const date = new Date();
+      const yy = date.getFullYear().toString().slice(-2);
+      const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      return `AMS${yy}${mm}${randomSuffix}`;
   };
 
   const generatePin = () => {
@@ -68,7 +61,7 @@ const StaffPage = () => {
       if (!confirm(`Approve ${selectedStaff.name} as ${roleToAssign}?`)) return;
       
       try {
-          const newId = await generateEmployeeId(roleToAssign);
+          const newId = generateEmployeeId();
           const newPin = generatePin();
 
           await updateDoc(doc(db, 'users', selectedStaff.uid), {
@@ -78,7 +71,9 @@ const StaffPage = () => {
               pin: newPin
           });
 
+          // Show the credentials modal so Manager can issue them
           setApprovedCreds({ name: selectedStaff.name, id: newId, pin: newPin });
+          
           setSelectedStaff(null);
           fetchStaff();
       } catch (e) {
@@ -103,6 +98,8 @@ const StaffPage = () => {
       if (!selectedStaff || !selectedStaff.roleChangeRequest) return;
       if (approve) {
           if (!confirm(`Promote to ${selectedStaff.roleChangeRequest.newRole}?`)) return;
+          // Optionally regen ID for new role? Keeping same ID is usually better unless role changes department logic
+          // For this system, we keep the ID.
           await updateDoc(doc(db, 'users', selectedStaff.uid), {
               role: selectedStaff.roleChangeRequest.newRole,
               roleChangeRequest: null
@@ -125,14 +122,13 @@ const StaffPage = () => {
       if (action === 'Verify') {
           docItem.status = 'Valid';
       } else {
-          docItem.status = 'Expired'; // Or delete
+          docItem.status = 'Expired'; 
       }
       
       await updateDoc(doc(db, 'users', selectedStaff.uid), { compliance: updatedCompliance });
       
-      // Update local state to reflect change immediately
       setSelectedStaff({ ...selectedStaff, compliance: updatedCompliance });
-      fetchStaff(); // Refresh background list
+      fetchStaff();
   };
 
   const handleCopy = (text: string, type: 'id' | 'pin') => {
@@ -152,12 +148,11 @@ const StaffPage = () => {
   const StaffManagementModal = () => {
       if (!selectedStaff) return null;
       const hasRoleRequest = selectedStaff.roleChangeRequest?.status === 'Pending';
-      const pendingDocs = selectedStaff.compliance?.filter(d => d.status === 'Pending') || [];
-
+      
       return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                  <div className="p-6 bg-slate-900 text-white flex justify-between items-start">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200 dark:border-slate-700">
+                  <div className="p-6 bg-slate-900 dark:bg-slate-950 text-white flex justify-between items-start">
                       <div>
                           <h2 className="text-2xl font-bold">{selectedStaff.name}</h2>
                           <p className="text-slate-400 text-sm">{selectedStaff.email}</p>
@@ -172,20 +167,20 @@ const StaffPage = () => {
                       <button onClick={() => setSelectedStaff(null)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"><X className="w-6 h-6" /></button>
                   </div>
 
-                  <div className="p-6 overflow-y-auto space-y-8 bg-slate-50">
+                  <div className="p-6 overflow-y-auto space-y-8 bg-slate-50 dark:bg-slate-900/50">
                       
-                      {/* Section 1: Approval (Only if Pending) */}
+                      {/* Approval Section */}
                       {selectedStaff.status === 'Pending' && (
-                          <div className="bg-white p-6 rounded-xl border border-amber-200 shadow-sm">
-                              <h3 className="font-bold text-amber-800 mb-4 flex items-center gap-2">
+                          <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-amber-200 dark:border-amber-800 shadow-sm">
+                              <h3 className="font-bold text-amber-800 dark:text-amber-400 mb-4 flex items-center gap-2">
                                   <AlertTriangle className="w-5 h-5" /> Account Approval Required
                               </h3>
-                              <p className="text-sm text-slate-600 mb-4">Select the approved role for this user. This will generate their Employee ID.</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Select the approved role for this user. This will generate their Employee ID.</p>
                               
                               <div className="mb-4">
-                                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Assign Role</label>
+                                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Assign Role</label>
                                   <select 
-                                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-amber-500"
+                                      className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-amber-500 dark:text-white"
                                       value={roleToAssign}
                                       onChange={e => setRoleToAssign(e.target.value as Role)}
                                   >
@@ -197,36 +192,36 @@ const StaffPage = () => {
                                   <button onClick={approveUser} className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2">
                                       <Check className="w-4 h-4" /> Approve & Generate ID
                                   </button>
-                                  <button onClick={rejectUser} className="px-6 py-3 bg-white text-red-600 border border-red-200 font-bold rounded-lg hover:bg-red-50 transition-colors">
+                                  <button onClick={rejectUser} className="px-6 py-3 bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 font-bold rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                                       Reject
                                   </button>
                               </div>
                           </div>
                       )}
 
-                      {/* Section 2: Role Change Request */}
+                      {/* Role Change Request */}
                       {hasRoleRequest && (
-                          <div className="bg-purple-50 p-6 rounded-xl border border-purple-200 shadow-sm">
-                              <h3 className="font-bold text-purple-800 mb-2 flex items-center gap-2">
+                          <div className="bg-purple-50 dark:bg-purple-900/10 p-6 rounded-xl border border-purple-200 dark:border-purple-800 shadow-sm">
+                              <h3 className="font-bold text-purple-800 dark:text-purple-300 mb-2 flex items-center gap-2">
                                   <ArrowUpCircle className="w-5 h-5" /> Role Promotion Request
                               </h3>
-                              <div className="bg-white p-4 rounded-lg border border-purple-100 mb-4">
+                              <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-purple-100 dark:border-slate-700 mb-4">
                                   <div className="flex justify-between items-center mb-2">
-                                      <span className="text-xs text-purple-600 font-bold uppercase">Requested Role</span>
-                                      <span className="text-sm font-bold text-slate-800">{selectedStaff.roleChangeRequest!.newRole}</span>
+                                      <span className="text-xs text-purple-600 dark:text-purple-400 font-bold uppercase">Requested Role</span>
+                                      <span className="text-sm font-bold text-slate-800 dark:text-white">{selectedStaff.roleChangeRequest!.newRole}</span>
                                   </div>
-                                  <p className="text-sm text-slate-600 italic">"{selectedStaff.roleChangeRequest!.reason}"</p>
+                                  <p className="text-sm text-slate-600 dark:text-slate-300 italic">"{selectedStaff.roleChangeRequest!.reason}"</p>
                               </div>
                               <div className="flex gap-3">
                                   <button onClick={() => handleRoleChangeRequest(true)} className="flex-1 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700">Approve Promotion</button>
-                                  <button onClick={() => handleRoleChangeRequest(false)} className="flex-1 py-2 bg-white text-purple-600 border border-purple-200 font-bold rounded-lg hover:bg-purple-50">Reject</button>
+                                  <button onClick={() => handleRoleChangeRequest(false)} className="flex-1 py-2 bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-bold rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20">Reject</button>
                               </div>
                           </div>
                       )}
 
-                      {/* Section 3: Compliance Docs */}
-                      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      {/* Compliance Docs */}
+                      <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                          <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                               <ShieldCheck className="w-5 h-5 text-ams-blue" /> Compliance Documents
                           </h3>
                           
@@ -235,22 +230,22 @@ const StaffPage = () => {
                           ) : (
                               <div className="space-y-3">
                                   {selectedStaff.compliance.map((doc, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                      <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
                                           <div>
-                                              <p className="font-bold text-slate-700 text-sm">{doc.name}</p>
+                                              <p className="font-bold text-slate-700 dark:text-slate-300 text-sm">{doc.name}</p>
                                               <p className="text-xs text-slate-500">Exp: {new Date(doc.expiryDate).toLocaleDateString()}</p>
                                           </div>
                                           <div className="flex items-center gap-2">
                                               {doc.status === 'Pending' ? (
                                                   <>
-                                                      <button onClick={() => handleDocAction(idx, 'Verify')} className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-bold hover:bg-green-200">Verify</button>
-                                                      <button onClick={() => handleDocAction(idx, 'Reject')} className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-bold hover:bg-red-200">Reject</button>
+                                                      <button onClick={() => handleDocAction(idx, 'Verify')} className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-3 py-1.5 rounded-lg font-bold hover:bg-green-200">Verify</button>
+                                                      <button onClick={() => handleDocAction(idx, 'Reject')} className="text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-3 py-1.5 rounded-lg font-bold hover:bg-red-200">Reject</button>
                                                   </>
                                               ) : (
-                                                  <span className={`text-xs font-bold px-2 py-1 rounded ${doc.status === 'Valid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{doc.status}</span>
+                                                  <span className={`text-xs font-bold px-2 py-1 rounded ${doc.status === 'Valid' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>{doc.status}</span>
                                               )}
                                               {doc.fileUrl && (
-                                                  <button onClick={() => window.open(doc.fileUrl)} className="p-1.5 bg-white border border-slate-200 rounded text-slate-500 hover:text-ams-blue">
+                                                  <button onClick={() => window.open(doc.fileUrl)} className="p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded text-slate-500 hover:text-ams-blue">
                                                       <Eye className="w-4 h-4" />
                                                   </button>
                                               )}
@@ -270,27 +265,27 @@ const StaffPage = () => {
     <div className="space-y-6 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-            <h1 className="text-2xl font-bold text-slate-800">Staff Administration</h1>
-            <p className="text-slate-500">Manage workforce, approvals, and view operational metrics.</p>
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Staff Administration</h1>
+            <p className="text-slate-500 dark:text-slate-400">Manage workforce, approvals, and view operational metrics.</p>
         </div>
         <div className="flex gap-2">
-            <button onClick={() => setActiveTab('Directory')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Directory' ? 'bg-white text-ams-blue shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-50'}`}><Users className="w-4 h-4" /> Directory</button>
-            <button onClick={() => setActiveTab('Analytics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Analytics' ? 'bg-white text-ams-blue shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-50'}`}><BarChart2 className="w-4 h-4" /> Analytics</button>
+            <button onClick={() => setActiveTab('Directory')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Directory' ? 'bg-white dark:bg-slate-800 text-ams-blue dark:text-white shadow-sm border border-slate-200 dark:border-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Users className="w-4 h-4" /> Directory</button>
+            <button onClick={() => setActiveTab('Analytics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Analytics' ? 'bg-white dark:bg-slate-800 text-ams-blue dark:text-white shadow-sm border border-slate-200 dark:border-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><BarChart2 className="w-4 h-4" /> Analytics</button>
         </div>
       </div>
 
       {activeTab === 'Directory' ? (
         <>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
                 <div className="flex flex-col md:flex-row gap-4 justify-between">
                     <div className="relative flex-1 max-w-md">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input type="text" placeholder="Search staff..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-ams-blue outline-none transition-all" />
+                        <input type="text" placeholder="Search staff..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-ams-blue outline-none transition-all dark:text-white" />
                     </div>
                     <div className="flex gap-2 overflow-x-auto">
-                        <button onClick={() => setFilter('All')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'All' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>All Staff</button>
-                        <button onClick={() => setFilter('Pending')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'Pending' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Pending {staffList.filter(s => s.status === 'Pending').length > 0 && <span className="px-1.5 py-0.5 bg-white text-amber-600 rounded-full text-xs">{staffList.filter(s => s.status === 'Pending').length}</span>}</button>
-                        <button onClick={() => setFilter('RoleRequest')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'RoleRequest' ? 'bg-purple-500 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Requests {staffList.filter(s => s.roleChangeRequest?.status === 'Pending').length > 0 && <span className="px-1.5 py-0.5 bg-white text-purple-600 rounded-full text-xs">{staffList.filter(s => s.roleChangeRequest?.status === 'Pending').length}</span>}</button>
+                        <button onClick={() => setFilter('All')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'All' ? 'bg-slate-800 dark:bg-slate-700 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>All Staff</button>
+                        <button onClick={() => setFilter('Pending')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'Pending' ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>Pending {staffList.filter(s => s.status === 'Pending').length > 0 && <span className="px-1.5 py-0.5 bg-white dark:bg-slate-900 text-amber-600 rounded-full text-xs">{staffList.filter(s => s.status === 'Pending').length}</span>}</button>
+                        <button onClick={() => setFilter('RoleRequest')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === 'RoleRequest' ? 'bg-purple-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>Requests {staffList.filter(s => s.roleChangeRequest?.status === 'Pending').length > 0 && <span className="px-1.5 py-0.5 bg-white dark:bg-slate-900 text-purple-600 rounded-full text-xs">{staffList.filter(s => s.roleChangeRequest?.status === 'Pending').length}</span>}</button>
                     </div>
                 </div>
             </div>
@@ -306,49 +301,48 @@ const StaffPage = () => {
                             <div 
                                 key={staff.uid} 
                                 onClick={() => {
-                                    setRoleToAssign(Role.FirstAider); // Reset default
+                                    setRoleToAssign(Role.FirstAider);
                                     setSelectedStaff(staff);
                                 }}
-                                className={`bg-white rounded-xl border p-6 shadow-sm hover:shadow-md transition-all relative group cursor-pointer ${reviewNeeded ? 'border-amber-200 ring-1 ring-amber-100' : 'border-slate-200'}`}
+                                className={`bg-white dark:bg-slate-800 rounded-xl border p-6 shadow-sm hover:shadow-md transition-all relative group cursor-pointer ${reviewNeeded ? 'border-amber-200 dark:border-amber-800 ring-1 ring-amber-100 dark:ring-amber-900' : 'border-slate-200 dark:border-slate-700'}`}
                             >
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="flex items-center gap-3">
                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg text-white ${staff.status === 'Pending' ? 'bg-amber-400' : staff.status === 'Rejected' ? 'bg-red-400' : 'bg-ams-blue'}`}>{staff.name.charAt(0)}</div>
                                         <div className="overflow-hidden">
-                                            <h3 className="font-bold text-slate-800 truncate">{staff.name}</h3>
-                                            <p className="text-xs text-slate-500 truncate">{staff.email}</p>
+                                            <h3 className="font-bold text-slate-800 dark:text-white truncate">{staff.name}</h3>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{staff.email}</p>
                                         </div>
                                     </div>
                                     {reviewNeeded && (
-                                        <div className="flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded-full animate-pulse">
+                                        <div className="flex items-center gap-1 text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-full animate-pulse">
                                             <AlertTriangle className="w-3 h-3" /> Review
                                         </div>
                                     )}
                                 </div>
                                 <div className="space-y-3 mb-4">
                                     <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500">Role</span>
-                                        <span className="font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded">{staff.role}</span>
+                                        <span className="text-slate-500 dark:text-slate-400">Role</span>
+                                        <span className="font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">{staff.role}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500">ID</span>
-                                        <span className="font-medium text-slate-700 font-mono">{staff.employeeId || '-'}</span>
+                                        <span className="text-slate-500 dark:text-slate-400">ID</span>
+                                        <span className="font-medium text-slate-700 dark:text-slate-300 font-mono">{staff.employeeId || '-'}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500">Status</span>
-                                        {staff.status === 'Active' ? <span className="flex items-center gap-1 text-green-600 font-bold text-xs bg-green-50 px-2 py-1 rounded-full"><BadgeCheck className="w-3 h-3" /> Active</span> : staff.status === 'Rejected' ? <span className="flex items-center gap-1 text-red-600 font-bold text-xs bg-red-50 px-2 py-1 rounded-full"><XCircle className="w-3 h-3" /> Rejected</span> : <span className="flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2 py-1 rounded-full"><AlertTriangle className="w-3 h-3" /> Pending</span>}
+                                        <span className="text-slate-500 dark:text-slate-400">Status</span>
+                                        {staff.status === 'Active' ? <span className="flex items-center gap-1 text-green-600 dark:text-green-400 font-bold text-xs bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-full"><BadgeCheck className="w-3 h-3" /> Active</span> : staff.status === 'Rejected' ? <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-bold text-xs bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded-full"><XCircle className="w-3 h-3" /> Rejected</span> : <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold text-xs bg-amber-50 dark:bg-amber-900/30 px-2 py-1 rounded-full"><AlertTriangle className="w-3 h-3" /> Pending</span>}
                                     </div>
                                 </div>
                                 
-                                {/* Quick Status Indicators */}
-                                <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+                                <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
                                     {staff.roleChangeRequest?.status === 'Pending' && (
-                                        <span className="text-[10px] bg-purple-50 text-purple-600 px-2 py-1 rounded font-bold flex items-center gap-1"><ArrowUpCircle className="w-3 h-3" /> Role Req</span>
+                                        <span className="text-[10px] bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 px-2 py-1 rounded font-bold flex items-center gap-1"><ArrowUpCircle className="w-3 h-3" /> Role Req</span>
                                     )}
                                     {pendingDocsCount > 0 && (
-                                        <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold flex items-center gap-1"><FileText className="w-3 h-3" /> Docs ({pendingDocsCount})</span>
+                                        <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-1 rounded font-bold flex items-center gap-1"><FileText className="w-3 h-3" /> Docs ({pendingDocsCount})</span>
                                     )}
-                                    <button className="ml-auto text-xs font-bold text-ams-blue hover:underline flex items-center gap-1">
+                                    <button className="ml-auto text-xs font-bold text-ams-blue dark:text-white hover:underline flex items-center gap-1">
                                         Manage <ChevronRight className="w-3 h-3" />
                                     </button>
                                 </div>
@@ -365,7 +359,7 @@ const StaffPage = () => {
       {/* Credential Result Modal */}
       {approvedCreds && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in zoom-in duration-200">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
                   <div className="p-6 bg-green-600 text-white flex justify-between items-start">
                       <div>
                           <h3 className="text-xl font-bold flex items-center gap-2"><BadgeCheck className="w-6 h-6" /> User Approved</h3>
@@ -375,25 +369,25 @@ const StaffPage = () => {
                   </div>
                   <div className="p-8 space-y-6">
                       <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-500 uppercase">Employee ID</label>
+                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Employee ID</label>
                           <div className="flex gap-2">
-                              <code className="flex-1 bg-slate-100 p-3 rounded-xl font-mono font-bold text-lg text-slate-800 border border-slate-200">{approvedCreds.id}</code>
-                              <button onClick={() => handleCopy(approvedCreds.id, 'id')} className={`p-3 rounded-xl border font-bold transition-all ${copiedId ? 'bg-green-50 text-green-600 border-green-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                              <code className="flex-1 bg-slate-100 dark:bg-slate-900 p-3 rounded-xl font-mono font-bold text-lg text-slate-800 dark:text-white border border-slate-200 dark:border-slate-700">{approvedCreds.id}</code>
+                              <button onClick={() => handleCopy(approvedCreds.id, 'id')} className={`p-3 rounded-xl border font-bold transition-all ${copiedId ? 'bg-green-50 text-green-600 border-green-200' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600'}`}>
                                   {copiedId ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                               </button>
                           </div>
                       </div>
                       <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-500 uppercase">Secure PIN</label>
+                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Secure PIN</label>
                           <div className="flex gap-2">
-                              <code className="flex-1 bg-slate-100 p-3 rounded-xl font-mono font-bold text-lg text-slate-800 border border-slate-200 tracking-widest">{approvedCreds.pin}</code>
-                              <button onClick={() => handleCopy(approvedCreds.pin, 'pin')} className={`p-3 rounded-xl border font-bold transition-all ${copiedPin ? 'bg-green-50 text-green-600 border-green-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                              <code className="flex-1 bg-slate-100 dark:bg-slate-900 p-3 rounded-xl font-mono font-bold text-lg text-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 tracking-widest">{approvedCreds.pin}</code>
+                              <button onClick={() => handleCopy(approvedCreds.pin, 'pin')} className={`p-3 rounded-xl border font-bold transition-all ${copiedPin ? 'bg-green-50 text-green-600 border-green-200' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600'}`}>
                                   {copiedPin ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                               </button>
                           </div>
-                          <p className="text-xs text-red-500 font-bold flex items-center gap-1 mt-2"><AlertTriangle className="w-3 h-3" /> Save this PIN now. It cannot be viewed again.</p>
+                          <p className="text-xs text-red-500 font-bold flex items-center gap-1 mt-2"><AlertTriangle className="w-3 h-3" /> Provide this to the staff member immediately.</p>
                       </div>
-                      <button onClick={() => setApprovedCreds(null)} className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 transition-all">Done & Close</button>
+                      <button onClick={() => setApprovedCreds(null)} className="w-full py-3 bg-slate-900 dark:bg-slate-950 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 dark:hover:bg-black transition-all">Done & Close</button>
                   </div>
               </div>
           </div>

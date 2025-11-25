@@ -1,8 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { LogIn, ShieldCheck, AlertCircle, Hash, Mail } from 'lucide-react';
+import { LogIn, ShieldCheck, AlertCircle, Hash, Mail, Loader2, ArrowRight } from 'lucide-react';
 import { Role } from '../types';
 
 const AMS_LOGO = "https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png";
@@ -20,10 +20,18 @@ const LoginPage = () => {
   const [lastName, setLastName] = useState('');
   const [regNumber, setRegNumber] = useState('');
   const [localError, setLocalError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { login, loginWithBadge, register, error: authError } = useAuth();
+  const { login, loginWithBadge, register, error: authError, user, isLoading, firebaseUser } = useAuth();
   const navigate = useNavigate();
+
+  // Auto-redirect if logged in
+  useEffect(() => {
+      // Only redirect if we have a firebaseUser and we aren't currently in a loading state from useAuth
+      if (!isLoading && firebaseUser) {
+          navigate('/');
+      }
+  }, [firebaseUser, isLoading, navigate]);
 
   // Password Validation Regex
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/;
@@ -31,29 +39,29 @@ const LoginPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError('');
-    setSuccessMsg('');
+    setIsSubmitting(true);
     
     try {
         if (isRegistering) {
             if (!passwordRegex.test(password)) {
                 setLocalError("Password must be at least 6 characters and contain: Uppercase, Lowercase, Number, and Special Character.");
+                setIsSubmitting(false);
                 return;
             }
-            // Default role is Pending on signup, manager must approve and upgrade.
+            // Register auto-logs in. The useEffect will handle the redirect.
             await register(email, password, `${firstName} ${lastName}`, Role.Pending, regNumber);
-            setSuccessMsg("Account created! Please check your inbox to verify your email address. Your role will be assigned by a manager upon approval.");
-            setIsRegistering(false);
-            setLoginMethod('Email');
         } else {
             if (loginMethod === 'Email') {
                 await login(email, password);
             } else {
                 await loginWithBadge(badgeId, password);
             }
-            navigate('/');
         }
+        // Do NOT set isSubmitting(false) here on success, 
+        // because we want the button to stay in loading state until the redirect happens.
     } catch (err: any) {
         setLocalError(err.message || "Authentication failed");
+        setIsSubmitting(false);
     }
   };
 
@@ -70,8 +78,16 @@ const LoginPage = () => {
       </div>
   );
 
+  if (isLoading) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-[#0F172A]">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+          </div>
+      );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0F172A] relative overflow-hidden font-sans selection:bg-ams-blue selection:text-white">
+    <div className="min-h-screen flex items-center justify-center bg-[#0F172A] relative overflow-hidden font-sans selection:bg-ams-blue selection:text-white p-4">
       {/* Abstract Background Shapes */}
       <div className="absolute top-0 left-0 w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-[128px] opacity-20 animate-blob"></div>
       <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500 rounded-full mix-blend-multiply filter blur-[128px] opacity-20 animate-blob animation-delay-2000"></div>
@@ -92,16 +108,9 @@ const LoginPage = () => {
         </div>
 
         {(localError || authError) && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-200 text-sm shadow-inner">
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-200 text-sm shadow-inner animate-in slide-in-from-top-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" />
                 <span>{localError || authError}</span>
-            </div>
-        )}
-
-        {successMsg && (
-            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-xl flex items-start gap-3 text-green-200 text-sm shadow-inner">
-                <ShieldCheck className="w-5 h-5 flex-shrink-0 text-green-400 mt-0.5" />
-                <span>{successMsg}</span>
             </div>
         )}
 
@@ -178,7 +187,7 @@ const LoginPage = () => {
                         required
                         value={badgeId}
                         onChange={(e) => setBadgeId(e.target.value)}
-                        className="input-field pl-10 font-mono"
+                        className="input-field pl-10 font-mono uppercase"
                         placeholder="AMS-2024-XX-001"
                     />
                 </div>
@@ -212,9 +221,17 @@ const LoginPage = () => {
 
           <button
             type="submit"
-            className="w-full py-4 px-6 bg-ams-blue hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 text-sm tracking-wide"
+            disabled={isSubmitting}
+            className="w-full py-4 px-6 bg-ams-blue hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 text-sm tracking-wide flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {isRegistering ? 'Create Staff Account' : loginMethod === 'Badge' ? 'Authenticate with Badge' : 'Sign In to Hub'}
+            {isSubmitting ? (
+                <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {isRegistering ? 'Creating Account...' : 'Signing In...'}
+                </>
+            ) : (
+                <>{isRegistering ? 'Create Staff Account' : loginMethod === 'Badge' ? 'Authenticate with Badge' : 'Sign In to Hub'} <ArrowRight className="w-4 h-4 opacity-50" /></>
+            )}
           </button>
         </form>
 
@@ -223,7 +240,7 @@ const LoginPage = () => {
             onClick={() => {
                 setIsRegistering(!isRegistering);
                 setLocalError('');
-                setSuccessMsg('');
+                setLoginMethod('Email');
             }}
             className="group flex items-center justify-center gap-2 mx-auto text-slate-400 hover:text-white transition-colors text-sm font-medium"
           >
@@ -255,10 +272,6 @@ const LoginPage = () => {
         }
         .input-field::placeholder {
             color: rgba(148, 163, 184, 0.5);
-        }
-        .input-field option {
-            background-color: #0F172A;
-            color: white;
         }
       `}</style>
     </div>
