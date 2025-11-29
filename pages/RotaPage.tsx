@@ -5,7 +5,7 @@ import {
   Calendar as CalendarIcon, Filter, Plus, X, Repeat, Loader2, 
   Briefcase, Truck, Users, Search, Trash2, UserPlus, 
   Sparkles, Save, Edit3, UserCheck, AlertCircle, ArrowRight, Bell,
-  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange
+  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange, Hand, MousePointerClick
 } from 'lucide-react';
 import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource } from '../types';
 import { useAuth } from '../hooks/useAuth';
@@ -152,6 +152,16 @@ const RotaPage = () => {
     return () => unsubscribe();
   }, [currentDate, viewMode, isManager]);
 
+  // --- Real-time Sync for Staff Modal ---
+  // Keeps the selectedShift up to date with Firestore changes (e.g. after bidding)
+  // DISABLED when Editor is open to prevent overwriting unsaved manager edits
+  useEffect(() => {
+      if (selectedShift && !isEditorOpen) {
+          const freshData = shifts.find(s => s.id === selectedShift.id);
+          if (freshData) setSelectedShift(freshData);
+      }
+  }, [shifts, isEditorOpen]);
+
   // --- Form Synchronization Effect ---
   // This ensures form data is populated whenever the editor opens or selected shift changes
   useEffect(() => {
@@ -229,7 +239,6 @@ const RotaPage = () => {
       setIsRepeating(false);
       
       // Clear assignments for duplicated shift to avoid accidental double booking
-      // CRITICAL: Ensure we strip undefined properties or keys entirely for Firestore
       const cleanSlots = formSlots.map(s => {
           const copy = { ...s, bids: [] };
           delete copy.userId;
@@ -247,6 +256,8 @@ const RotaPage = () => {
           const clean = { ...slot };
           if (clean.userId === undefined) delete clean.userId;
           if (clean.userName === undefined) delete clean.userName;
+          // Ensure bids is always an array
+          if (!clean.bids) clean.bids = [];
           return clean;
       });
   };
@@ -275,7 +286,7 @@ const RotaPage = () => {
           status: finalStatus,
           tags: formData.tags || [],
           resources: formData.resources || [],
-          createdBy: user?.uid || null, // Ensure not undefined
+          createdBy: user?.uid || null, 
           timeRecords: isNewShift ? {} : (selectedShift?.timeRecords || {})
       };
 
@@ -333,9 +344,13 @@ const RotaPage = () => {
           }
 
           await batch.commit();
+          
+          // Close modal immediately upon success
           setIsEditorOpen(false);
           setSelectedShift(null);
           setIsRepeating(false);
+          setIsNewShift(false);
+
       } catch (e) {
           console.error("Save failed", e);
           alert("Failed to save shift. Please check connection.");
@@ -384,6 +399,114 @@ const RotaPage = () => {
       }
   };
 
+  // --- Staff Action Handlers ---
+
+  const handleBid = async (slotIndex: number) => {
+      if (!selectedShift || !user) return;
+      setIsOperating(true);
+      try {
+          const updatedSlots = [...selectedShift.slots];
+          const currentBids = updatedSlots[slotIndex].bids || [];
+          
+          if (currentBids.some(b => b.userId === user.uid)) return;
+
+          updatedSlots[slotIndex] = {
+              ...updatedSlots[slotIndex],
+              bids: [...currentBids, {
+                  userId: user.uid,
+                  userName: user.name,
+                  userRole: user.role,
+                  timestamp: new Date().toISOString()
+              }]
+          };
+
+          await updateDoc(doc(db, 'shifts', selectedShift.id), {
+              slots: updatedSlots
+          });
+      } catch (e) {
+          console.error("Bid failed", e);
+          alert("Failed to place bid.");
+      } finally {
+          setIsOperating(false);
+      }
+  };
+
+  const handleReportSick = async () => {
+      if (!selectedShift || !user) return;
+      if(!confirm("Report Sick? This will remove you from the shift and flag it for cover.")) return;
+      
+      setIsOperating(true);
+      try {
+          // Remove user from slot
+          const newSlots = selectedShift.slots.map(s => 
+              s.userId === user.uid ? { ...s, userId: undefined, userName: undefined } : s
+          );
+          
+          // Add 'Cover Needed' tag
+          const currentTags = selectedShift.tags || [];
+          const newTags = currentTags.includes('Cover Needed') ? currentTags : [...currentTags, 'Cover Needed'];
+
+          await updateDoc(doc(db, 'shifts', selectedShift.id), {
+              slots: newSlots,
+              tags: newTags,
+              status: 'Open'
+          });
+          setIsBriefingOpen(false);
+      } catch (e) {
+          alert("Failed to report sick.");
+      } finally {
+          setIsOperating(false);
+      }
+  };
+
+  const handleRequestSwap = async () => {
+      if (!selectedShift) return;
+      try {
+          const tags = selectedShift.tags || [];
+          if(!tags.includes('Swap Requested')) {
+              await updateDoc(doc(db, 'shifts', selectedShift.id), {
+                  tags: [...tags, 'Swap Requested']
+              });
+              alert("Swap requested. This is now visible to other staff.");
+          }
+      } catch (e) {
+          alert("Error requesting swap.");
+      }
+  };
+
+  const handleOfferShift = async () => {
+      if (!selectedShift) return;
+      try {
+          const tags = selectedShift.tags || [];
+          if(!tags.includes('Offer Pending')) {
+              await updateDoc(doc(db, 'shifts', selectedShift.id), {
+                  tags: [...tags, 'Offer Pending']
+              });
+              alert("Shift offered to pool.");
+          }
+      } catch (e) {
+          alert("Error offering shift.");
+      }
+  };
+
+  const handleAcceptBid = (slotIndex: number, bidIndex: number) => {
+      const slot = formSlots[slotIndex];
+      if (!slot.bids || !slot.bids[bidIndex]) return;
+      
+      const winner = slot.bids[bidIndex];
+      
+      // Update the slot with the winner's details and clear bids
+      // Note: We don't save to Firestore yet, the manager must click "Save Changes"
+      const newSlots = [...formSlots];
+      newSlots[slotIndex] = {
+          ...newSlots[slotIndex],
+          userId: winner.userId,
+          userName: winner.userName,
+          bids: [] // Clear bids after acceptance
+      };
+      setFormSlots(newSlots);
+  };
+
   const updateSlot = (index: number, field: keyof ShiftSlot, val: any) => {
       const newSlots = [...formSlots];
       newSlots[index] = { ...newSlots[index], [field]: val };
@@ -426,7 +549,7 @@ const RotaPage = () => {
       setFormData({ ...formData, resources: (formData.resources || []).filter(r => r.id !== id) });
   };
 
-  // --- Renderers --- (Same as before, abridged for update)
+  // --- Renderers ---
   const renderMonthView = () => {
       const gridDays = getCalendarDays(currentDate);
       const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -468,7 +591,6 @@ const RotaPage = () => {
       );
   };
 
-  // ... (Week and List view renderers remain largely same) ...
   const renderWeekView = () => {
       const startOfWeek = getStartOfWeek(currentDate);
       const days = Array.from({length: 7}, (_, i) => { const d = new Date(startOfWeek); d.setDate(d.getDate() + i); return d; });
@@ -667,17 +789,42 @@ const RotaPage = () => {
                               <h4 className="font-bold text-sm text-slate-800 dark:text-white">Crew Allocation</h4>
                               <button onClick={addSlot} className="text-xs bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Slot</button>
                           </div>
-                          <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+                          <div className="space-y-3 max-h-[250px] overflow-y-auto pr-1">
                               {formSlots.map((slot, idx) => (
-                                  <div key={idx} className="flex gap-3 items-center bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                                      <select className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-sm outline-none font-bold text-slate-600 dark:text-slate-300 w-28" value={slot.role} onChange={e => updateSlot(idx, 'role', e.target.value)}>{Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}</select>
-                                      <div className="flex-1">
-                                          <select className={`w-full bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 text-sm outline-none transition-colors ${slot.userId ? 'border-green-300 text-green-700 font-bold' : 'border-slate-200 text-slate-500'}`} value={slot.userId || ''} onChange={e => updateSlot(idx, 'userId', e.target.value)}>
-                                              <option value="">( Unassigned / Open )</option>
-                                              {allStaff.map(s => <option key={s.uid} value={s.uid}>{s.name} - {s.role}</option>)}
-                                          </select>
+                                  <div key={idx} className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                                      <div className="flex gap-3 items-center">
+                                          <select className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-sm outline-none font-bold text-slate-600 dark:text-slate-300 w-28" value={slot.role} onChange={e => updateSlot(idx, 'role', e.target.value)}>{Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}</select>
+                                          <div className="flex-1 relative">
+                                              <select className={`w-full bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 text-sm outline-none transition-colors ${slot.userId ? 'border-green-300 text-green-700 font-bold' : 'border-slate-200 text-slate-500'}`} value={slot.userId || ''} onChange={e => updateSlot(idx, 'userId', e.target.value)}>
+                                                  <option value="">( Unassigned / Open )</option>
+                                                  {allStaff.map(s => <option key={s.uid} value={s.uid}>{s.name} - {s.role}</option>)}
+                                              </select>
+                                              {!slot.userId && slot.bids && slot.bids.length > 0 && (
+                                                  <div className="absolute top-0 right-0 -mt-2 -mr-2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                                                      {slot.bids.length} Bids
+                                                  </div>
+                                              )}
+                                          </div>
+                                          <button onClick={() => removeSlot(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                                       </div>
-                                      <button onClick={() => removeSlot(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                      
+                                      {/* Bid Management for Manager */}
+                                      {!slot.userId && slot.bids && slot.bids.length > 0 && (
+                                          <div className="mt-2 pl-2 border-l-2 border-blue-200 ml-2">
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Applicants</p>
+                                              {slot.bids.map((bid, bIdx) => (
+                                                  <div key={bIdx} className="flex justify-between items-center text-sm mb-1 bg-white dark:bg-slate-800 p-2 rounded shadow-sm">
+                                                      <span>{bid.userName} <span className="text-xs text-slate-400">({bid.userRole})</span></span>
+                                                      <button 
+                                                          onClick={() => handleAcceptBid(idx, bIdx)}
+                                                          className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold hover:bg-green-200"
+                                                      >
+                                                          Accept
+                                                      </button>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      )}
                                   </div>
                               ))}
                           </div>
@@ -743,24 +890,63 @@ const RotaPage = () => {
                       <div>
                           <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3">Crew Configuration</h4>
                           <div className="space-y-2">
-                              {selectedShift.slots.map((slot, idx) => (
-                                  <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
-                                      <div className="flex items-center gap-3">
-                                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${slot.userId ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-white dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400'}`}>{slot.userName ? slot.userName.charAt(0) : '?'}</div>
-                                          <div>
-                                              <div className={`font-bold text-sm ${slot.userId ? 'text-slate-800 dark:text-white' : 'text-slate-400 italic'}`}>{slot.userName || 'Open Slot'}</div>
-                                              <div className="text-[10px] text-slate-500 uppercase font-bold">{slot.role}</div>
+                              {selectedShift.slots.map((slot, idx) => {
+                                  const isAssignedToMe = slot.userId === user?.uid;
+                                  const isFilled = !!slot.userId;
+                                  const hasBid = slot.bids && slot.bids.some(b => b.userId === user?.uid);
+
+                                  return (
+                                      <div key={idx} className={`flex justify-between items-center p-3 rounded-xl border ${isAssignedToMe ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700'}`}>
+                                          <div className="flex items-center gap-3">
+                                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isFilled ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-white dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400'}`}>
+                                                  {isFilled ? (slot.userName ? slot.userName.charAt(0) : '?') : <UserPlus className="w-4 h-4" />}
+                                              </div>
+                                              <div>
+                                                  <div className={`font-bold text-sm ${isFilled ? 'text-slate-800 dark:text-white' : 'text-slate-400 italic'}`}>
+                                                      {isFilled ? (slot.userName || 'Unknown') : 'Open Slot'}
+                                                  </div>
+                                                  <div className="text-[10px] text-slate-500 uppercase font-bold">{slot.role}</div>
+                                              </div>
                                           </div>
+                                          
+                                          {isAssignedToMe ? (
+                                              <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-full font-bold">YOU</span>
+                                          ) : !isFilled ? (
+                                              hasBid ? (
+                                                  <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-full font-bold flex items-center gap-1">
+                                                      <Clock className="w-3 h-3" /> Bid Sent
+                                                  </span>
+                                              ) : (
+                                                  <button 
+                                                      onClick={() => handleBid(idx)} 
+                                                      disabled={isOperating}
+                                                      className="text-[10px] bg-ams-blue text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-900 transition-colors shadow-sm flex items-center gap-1"
+                                                  >
+                                                      {isOperating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Hand className="w-3 h-3" />} Apply
+                                                  </button>
+                                              )
+                                          ) : null}
                                       </div>
-                                      {slot.userId === user?.uid && <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-full font-bold">YOU</span>}
-                                  </div>
-                              ))}
+                                  );
+                              })}
                           </div>
                       </div>
+                      
                       {selectedShift.slots.some(s => s.userId === user?.uid) && (
                           <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                              <button onClick={async () => { if(confirm("Report sick?")) { const newSlots = selectedShift.slots.map(s => s.userId === user?.uid ? {...s, userId: undefined, userName: undefined} : s); await updateDoc(doc(db, 'shifts', selectedShift.id), { slots: newSlots, tags: [...(selectedShift.tags||[]), 'Cover Needed'] }); setIsBriefingOpen(false); }}} className="py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-red-100 transition-colors"><AlertOctagon className="w-5 h-5" /> Report Sick</button>
-                              <button onClick={async () => { const tags = selectedShift.tags || []; if(!tags.includes('Swap Requested')) { await updateDoc(doc(db, 'shifts', selectedShift.id), { tags: [...tags, 'Swap Requested'] }); alert("Swap requested."); }}} className="py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-amber-100 transition-colors"><RefreshCw className="w-5 h-5" /> Request Swap</button>
+                              <button onClick={handleReportSick} disabled={isOperating} className="col-span-2 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"><AlertOctagon className="w-4 h-4" /> Report Sick / Drop Shift</button>
+                              
+                              {selectedShift.tags?.includes('Swap Requested') ? (
+                                  <div className="py-3 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-bold text-xs flex flex-col items-center gap-1 text-center"><RefreshCw className="w-5 h-5" /> Swap Requested</div>
+                              ) : (
+                                  <button onClick={handleRequestSwap} disabled={isOperating} className="py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-amber-100 transition-colors"><RefreshCw className="w-5 h-5" /> Request Swap</button>
+                              )}
+
+                              {selectedShift.tags?.includes('Offer Pending') ? (
+                                  <div className="py-3 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-xl font-bold text-xs flex flex-col items-center gap-1 text-center"><Hand className="w-5 h-5" /> Offered</div>
+                              ) : (
+                                  <button onClick={handleOfferShift} disabled={isOperating} className="py-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-blue-100 transition-colors"><Hand className="w-5 h-5" /> Offer to Pool</button>
+                              )}
                           </div>
                       )}
                   </div>
