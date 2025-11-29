@@ -22,9 +22,10 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { DataSyncProvider } from './hooks/useDataSync';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
-import { Role } from './types';
+import { Role, AppNotification } from './types';
 import { db } from './services/firebase';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
+import { requestBrowserPermission, sendBrowserNotification } from './services/notificationService';
 
 // Define Access Groups
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
@@ -71,50 +72,51 @@ const ThemeToggle = () => {
 const NotificationBell = () => {
     const { user } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
-    const [notifications, setNotifications] = useState<any[]>([]);
+    const [notifications, setNotifications] = useState<AppNotification[]>([]);
+    const [lastNotifiedId, setLastNotifiedId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!user) return;
+        requestBrowserPermission();
+
+        // 1. Personal Notifications from Firestore
+        const notifRef = collection(db, `users/${user.uid}/notifications`);
+        const q = query(notifRef, orderBy('timestamp', 'desc'), limit(10));
         
-        // 1. Check Compliance
-        const docAlerts = user.compliance
-            ?.filter(doc => {
-                if (!doc.expiryDate) return false;
-                const d = new Date(doc.expiryDate);
-                if (isNaN(d.getTime())) return false; 
-                const days = Math.ceil((d.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-                return days < 30;
-            })
-            .map(doc => ({
-                id: `doc-${doc.id}`,
-                title: 'Compliance Alert',
-                msg: `${doc.name} expires soon (${doc.expiryDate})`,
-                time: 'Action Required',
-                type: 'alert'
-            })) || [];
+        const unsub = onSnapshot(q, (snap) => {
+            const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
+            setNotifications(items);
 
-        // 2. Check Announcements (Realtime)
+            // Check for new unread notifications to trigger browser alert
+            const newest = items[0];
+            if (newest && !newest.read && newest.id !== lastNotifiedId) {
+                sendBrowserNotification(newest.title, newest.message);
+                setLastNotifiedId(newest.id);
+            }
+        });
+
+        return () => unsub();
+    }, [user, lastNotifiedId]);
+
+    const markAsRead = async (id: string) => {
+        if (!user) return;
         try {
-            const q = query(collection(db, 'announcements'), orderBy('date', 'desc'), limit(3));
-            const unsub = onSnapshot(q, (snap) => {
-                const announceAlerts = snap.docs.map(d => ({
-                    id: d.id,
-                    title: d.data().priority === 'Urgent' ? 'Urgent Announcement' : 'New Announcement',
-                    msg: d.data().title,
-                    time: 'Just now',
-                    type: d.data().priority === 'Urgent' ? 'alert' : 'info'
-                }));
-                setNotifications([...docAlerts, ...announceAlerts]);
-            }, (error) => {
-                // Silent catch for permission errors on initial load
-            });
-            return () => unsub();
-        } catch(e) {
-            // Graceful degradation
+            await updateDoc(doc(db, `users/${user.uid}/notifications`, id), { read: true });
+        } catch (e) {
+            console.error("Error marking read", e);
         }
-    }, [user]);
+    };
 
-    const unreadCount = notifications.length;
+    const handleClearAll = async () => {
+        if (!user) return;
+        // In a real app, use a batch write. For now, simple loop for demo.
+        const unread = notifications.filter(n => !n.read);
+        for (const n of unread) {
+            await markAsRead(n.id);
+        }
+    };
+
+    const unreadCount = notifications.filter(n => !n.read).length;
 
     return (
         <div className="relative">
@@ -124,7 +126,7 @@ const NotificationBell = () => {
             >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                    <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900"></span>
+                    <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900 animate-pulse"></span>
                 )}
             </button>
 
@@ -134,14 +136,18 @@ const NotificationBell = () => {
                     <div className="absolute right-0 top-14 w-80 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl shadow-glass dark:shadow-none dark:border dark:border-slate-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <h3 className="font-bold text-slate-800 dark:text-white text-sm">Notifications</h3>
-                            <button onClick={() => setNotifications([])} className="text-xs text-ams-blue font-bold hover:underline">Clear</button>
+                            {unreadCount > 0 && <button onClick={handleClearAll} className="text-xs text-ams-blue font-bold hover:underline">Mark all read</button>}
                         </div>
                         <div className="max-h-[300px] overflow-y-auto">
                             {notifications.length === 0 && (
-                                <div className="p-8 text-center text-slate-400 text-xs">No new notifications</div>
+                                <div className="p-8 text-center text-slate-400 text-xs">No notifications</div>
                             )}
                             {notifications.map(n => (
-                                <div key={n.id} className="p-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                                <div 
+                                    key={n.id} 
+                                    onClick={() => !n.read && markAsRead(n.id)}
+                                    className={`p-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${!n.read ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
+                                >
                                     <div className="flex justify-between items-start mb-1">
                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                                             n.type === 'alert' ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' : 
@@ -151,10 +157,11 @@ const NotificationBell = () => {
                                             {n.type === 'alert' ? <AlertTriangle className="w-3 h-3" /> : n.type === 'success' ? <Check className="w-3 h-3" /> : <Info className="w-3 h-3" />}
                                             {n.type.toUpperCase()}
                                         </span>
-                                        <span className="text-[10px] text-slate-400">{n.time}</span>
+                                        <span className="text-[10px] text-slate-400">{new Date(n.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                                     </div>
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm mt-1">{n.title}</h4>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.msg}</p>
+                                    <h4 className={`font-bold text-sm mt-1 ${!n.read ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>{n.title}</h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.message}</p>
+                                    {n.link && <Link to={n.link} className="text-[10px] font-bold text-ams-blue hover:underline mt-1 block">View Details</Link>}
                                 </div>
                             ))}
                         </div>

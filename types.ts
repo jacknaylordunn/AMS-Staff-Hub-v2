@@ -20,6 +20,17 @@ export interface RoleChangeRequest {
   requestDate: string;
 }
 
+export interface AppNotification {
+  id: string;
+  userId: string; // Recipient
+  title: string;
+  message: string;
+  type: 'info' | 'alert' | 'success';
+  read: boolean;
+  timestamp: string;
+  link?: string; // e.g., '/rota'
+}
+
 export interface User {
   uid: string;
   email: string;

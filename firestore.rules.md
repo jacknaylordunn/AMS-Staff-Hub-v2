@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -37,6 +38,15 @@ service cloud.firestore {
       // --- CPD Subcollection (Fixes CPD Fetch Error) ---
       match /cpd/{entry} {
         allow read, write: if isAuthenticated() && (isOwner(userId) || isManager());
+      }
+
+      // --- Notifications Subcollection ---
+      // Allow managers to write notifications to any user
+      // Allow users to read/update their own notifications
+      match /notifications/{notifId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow create: if isManager() || isOwner(userId); // Manager can notify user, system/user can notify self
+        allow update: if isAuthenticated() && isOwner(userId); // Mark as read
       }
     }
 
@@ -109,6 +119,15 @@ service cloud.firestore {
       allow read: if isManager();
     }
     
+    match /oh_referrals/{id} {
+      allow create: if isAuthenticated();
+      allow read: if isManager() || request.auth.uid == resource.data.userId;
+    }
+    
+    match /major_incident_logs/{id} {
+      allow read, create: if isAuthenticated();
+    }
+
     // --- Patient Spine Mock ---
     match /patients/{patient} {
       allow read: if isAuthenticated();

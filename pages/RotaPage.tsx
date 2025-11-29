@@ -11,6 +11,7 @@ import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource } from
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, Timestamp, getDocs, writeBatch } from 'firebase/firestore';
+import { sendNotification } from '../services/notificationService';
 
 const RotaPage = () => {
   const { user } = useAuth();
@@ -302,7 +303,46 @@ const RotaPage = () => {
               batch.update(mainRef, basePayload);
           }
 
-          // 2. Repeats
+          // 2. Notifications Logic
+          if (!isNewShift && selectedShift) {
+              // Check for assignments (New assignments)
+              sanitizedSlots.forEach(newSlot => {
+                  const oldSlot = selectedShift.slots?.find(s => s.id === newSlot.id);
+                  // If assigned to a new person
+                  if (newSlot.userId && (!oldSlot || oldSlot.userId !== newSlot.userId)) {
+                      sendNotification(
+                          newSlot.userId,
+                          "Shift Assignment",
+                          `You have been assigned to a shift on ${formData.start?.toLocaleDateString()} at ${formData.location}.`,
+                          "success",
+                          "/rota"
+                      );
+                  }
+              });
+
+              // Check for significant updates (Time/Location)
+              const timeChanged = selectedShift.start.getTime() !== formData.start.getTime() || selectedShift.end.getTime() !== formData.end.getTime();
+              const locChanged = selectedShift.location !== formData.location;
+              
+              if (timeChanged || locChanged) {
+                  // Notify all assigned staff
+                  const notifiedUsers = new Set<string>();
+                  sanitizedSlots.forEach(slot => {
+                      if (slot.userId && !notifiedUsers.has(slot.userId)) {
+                          sendNotification(
+                              slot.userId,
+                              "Shift Update",
+                              `Shift details changed for ${formData.start?.toLocaleDateString()}. Please check the rota.`,
+                              "info",
+                              "/rota"
+                          );
+                          notifiedUsers.add(slot.userId);
+                      }
+                  });
+              }
+          }
+
+          // 3. Repeats
           if (isRepeating && repeatUntil) {
               const untilDate = new Date(repeatUntil);
               untilDate.setHours(23, 59, 59);
@@ -372,6 +412,20 @@ const RotaPage = () => {
               status: 'Cancelled',
               tags: newTags
           });
+
+          // Notify assigned staff
+          selectedShift.slots?.forEach(slot => {
+              if (slot.userId) {
+                  sendNotification(
+                      slot.userId,
+                      "Shift Cancelled",
+                      `The shift on ${selectedShift.start.toLocaleDateString()} at ${selectedShift.location} has been CANCELLED.`,
+                      "alert",
+                      "/rota"
+                  );
+              }
+          });
+
           setIsEditorOpen(false);
           setSelectedShift(null);
       } catch (e: any) {
@@ -489,7 +543,7 @@ const RotaPage = () => {
       }
   };
 
-  const handleAcceptBid = (slotIndex: number, bidIndex: number) => {
+  const handleAcceptBid = async (slotIndex: number, bidIndex: number) => {
       const slot = formSlots[slotIndex];
       if (!slot.bids || !slot.bids[bidIndex]) return;
       
@@ -505,6 +559,9 @@ const RotaPage = () => {
           bids: [] // Clear bids after acceptance
       };
       setFormSlots(newSlots);
+      
+      // Notify the winner immediately that they've been selected (optional, or wait for save)
+      // We'll wait for save to be robust, but visual feedback in UI happens via setFormSlots
   };
 
   const updateSlot = (index: number, field: keyof ShiftSlot, val: any) => {
