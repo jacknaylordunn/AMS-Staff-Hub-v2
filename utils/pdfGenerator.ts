@@ -142,13 +142,22 @@ export const generateEPRF_PDF = async (data: EPRF) => {
   doc.line(10, yPos + 2, 200, yPos + 2);
   yPos += 8;
 
+  const prim = data.assessment.primary;
+  const primBody = [[
+      `${prim.airway.status}\n${prim.airway.notes || ''}`,
+      `RR: ${prim.breathing.rate}\n${prim.breathing.effort}, ${prim.breathing.airEntry}\n${prim.breathing.addedSounds || ''}`,
+      `${prim.circulation.radialPulse}, ${prim.circulation.character}\nCRT: ${prim.circulation.capRefill}, ${prim.circulation.skin}`,
+      `AVPU: ${prim.disability.avpu}\nPupils: ${prim.disability.pupils}\nBM: ${prim.disability.bloodGlucose}`,
+      `Injuries: ${prim.exposure.injuriesFound ? 'Yes' : 'No'}\nRash: ${prim.exposure.rash ? 'Yes' : 'No'}`
+  ]];
+
   doc.autoTable({
       startY: yPos,
       head: [['Airway', 'Breathing', 'Circulation', 'Disability', 'Exposure']],
-      body: [[data.assessment.airway, data.assessment.breathing, data.assessment.circulation, data.assessment.disability, data.assessment.exposure]],
+      body: primBody,
       theme: 'striped',
       headStyles: { fillColor: themeBlue, textColor: 255 },
-      styles: { halign: 'center' }
+      styles: { halign: 'center', fontSize: 8, cellPadding: 2 }
   });
 
   yPos = doc.lastAutoTable.finalY + 10;
@@ -207,14 +216,30 @@ export const generateEPRF_PDF = async (data: EPRF) => {
   
   // Governance Box
   doc.setFillColor(240, 240, 240);
-  doc.rect(10, yPos, 190, 25, 'F');
+  doc.rect(10, yPos, 190, 35, 'F'); // Increased height for details
   doc.setFontSize(8);
   doc.setTextColor(50);
   doc.text("GOVERNANCE CHECKS:", 15, yPos + 6);
   doc.text(`Safeguarding Concerns: ${data.governance.safeguarding.concerns ? 'YES' : 'NO'}`, 15, yPos + 12);
   doc.text(`Capacity Status: ${data.governance.capacity.status}`, 15, yPos + 17);
-  doc.text(`Discharge Outcome: ${data.governance.discharge}`, 90, yPos + 12);
-  yPos += 35;
+  
+  // Discharge Details
+  doc.text(`Outcome: ${data.governance.discharge}`, 90, yPos + 12);
+  if (data.governance.destinationLocation) {
+      doc.text(`Destination: ${data.governance.destinationLocation}`, 90, yPos + 17);
+  }
+  if (data.governance.handoverClinician) {
+      doc.text(`Handover To: ${data.governance.handoverClinician}`, 90, yPos + 17);
+  }
+  
+  // Worsening Advice
+  if (data.governance.worseningAdviceDetails) {
+      doc.text("Worsening Advice Given:", 15, yPos + 25);
+      const waLines = doc.splitTextToSize(data.governance.worseningAdviceDetails, 170);
+      doc.text(waLines, 15, yPos + 30);
+  }
+
+  yPos += 45;
 
   // Declarations
   doc.setTextColor(0);
@@ -242,13 +267,17 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       try {
          doc.addImage(data.handover.patientSignature, 'PNG', 100, sigStart + 5, 40, 20);
       } catch(e) { console.error(e); }
-  } else if (data.governance.refusal.signature) {
+  } else if (data.governance.refusal.patientSignature) {
       try {
-         doc.addImage(data.governance.refusal.signature, 'PNG', 100, sigStart + 5, 40, 20);
+         doc.addImage(data.governance.refusal.patientSignature, 'PNG', 100, sigStart + 5, 40, 20);
          doc.setTextColor(200, 0, 0);
          doc.text("(REFUSAL OF CARE)", 150, sigStart);
          doc.setTextColor(0);
       } catch(e) { console.error(e); }
+  } else if (data.handover.patientSignatureType === 'Unable') {
+      doc.text("UNABLE TO SIGN", 100, sigStart + 15);
+  } else if (data.handover.patientSignatureType === 'Refused') {
+      doc.text("REFUSED TO SIGN", 100, sigStart + 15);
   }
   doc.line(100, sigStart + 25, 150, sigStart + 25); // Underline
 

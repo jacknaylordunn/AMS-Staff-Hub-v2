@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Clock, FileCheck, ShieldAlert, CalendarCheck, Truck, AlertTriangle, MapPin, CheckCircle, Loader2, Navigation, LogIn, ChevronRight, Plus, Pill, FilePlus, Play, Pause, Megaphone, X } from 'lucide-react';
+import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { Shift, TimeRecord, Announcement, Role } from '../types';
+import { Shift, TimeRecord, Announcement, Role, ComplianceDoc } from '../types';
 import { useNavigate } from 'react-router-dom';
 import AnnouncementModal from '../components/AnnouncementModal';
 
@@ -21,18 +21,25 @@ const QuickAction = ({ icon: Icon, label, onClick, color, desc }: any) => (
     </button>
 );
 
-const ComplianceItem = ({ name, date, status }: { name: string, date: string, status: 'Valid' | 'Expiring' | 'Expired' }) => (
+interface ComplianceItemProps {
+    name: string;
+    date: string;
+    status: 'Valid' | 'Expiring' | 'Expired' | 'Pending';
+}
+
+const ComplianceItem: React.FC<ComplianceItemProps> = ({ name, date, status }) => (
     <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 group hover:border-slate-200 transition-colors">
         <div className="flex items-center gap-3">
-            <div className={`w-2 h-2 rounded-full ${status === 'Valid' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : status === 'Expiring' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${status === 'Valid' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : status === 'Expiring' ? 'bg-amber-500 animate-pulse' : status === 'Pending' ? 'bg-blue-500' : 'bg-red-500'}`} />
             <div>
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-ams-blue transition-colors">{name}</p>
-                <p className="text-[10px] text-slate-400 font-mono">EXP: {date}</p>
+                <p className="text-[10px] text-slate-400 font-mono">EXP: {new Date(date).toLocaleDateString()}</p>
             </div>
         </div>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
             status === 'Valid' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' : 
             status === 'Expiring' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' : 
+            status === 'Pending' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' :
             'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
         }`}>
             {status.toUpperCase()}
@@ -40,12 +47,15 @@ const ComplianceItem = ({ name, date, status }: { name: string, date: string, st
     </div>
 );
 
+const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
+
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   
   const [showClockModal, setShowClockModal] = useState(false);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [nextShift, setNextShift] = useState<Shift | null>(null);
   const [shiftDuration, setShiftDuration] = useState<string>('00:00:00');
   const [todayShifts, setTodayShifts] = useState<Shift[]>([]);
   const [clockStep, setClockStep] = useState<'SELECT' | 'GPS' | 'CONFIRMED' | 'ERROR'>('SELECT');
@@ -56,33 +66,55 @@ const Dashboard = () => {
 
   // Load shifts & Check Active
   useEffect(() => {
-    const fetchTodayShifts = async () => {
+    const fetchShifts = async () => {
         if (!user) return;
         
-        const start = new Date(); start.setHours(0,0,0,0);
-        const end = new Date(); end.setHours(23,59,59,999);
+        const now = new Date();
+        // Check window: Yesterday to +2 Days (covers active night shifts and next shifts)
+        const start = new Date(now); start.setDate(start.getDate() - 1); 
+        const end = new Date(now); end.setDate(end.getDate() + 2);
 
         try {
             const q = query(
                 collection(db, 'shifts'),
-                where('assignedUserIds', 'array-contains', user.uid),
                 where('start', '>=', Timestamp.fromDate(start)),
                 where('start', '<=', Timestamp.fromDate(end))
             );
             
             const snap = await getDocs(q);
-            const shifts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
+            const shifts = snap.docs
+                .map(d => {
+                    const data = d.data();
+                    return { 
+                        id: d.id, 
+                        ...data, 
+                        start: data.start.toDate(), 
+                        end: data.end.toDate() 
+                    } as Shift;
+                })
+                .filter(s => s.slots && s.slots.some(slot => slot.userId === user.uid));
+            
+            // Sort by start time
+            shifts.sort((a, b) => a.start.getTime() - b.start.getTime());
+            
             setTodayShifts(shifts);
 
+            // Find Next Shift (First one in future)
+            const upcoming = shifts.find(s => s.start > now);
+            setNextShift(upcoming || null);
+
+            // Check active clock-in
             const storedShiftId = localStorage.getItem('active_shift_id');
             if (storedShiftId) {
                 const shiftRef = doc(db, 'shifts', storedShiftId);
                 const shiftSnap = await getDoc(shiftRef);
                 if (shiftSnap.exists()) {
-                    const sData = shiftSnap.data() as Shift;
-                    const record = sData.timeRecords?.[user.uid];
+                    const sData = shiftSnap.data();
+                    const s: Shift = { ...sData, id: shiftSnap.id, start: sData.start.toDate(), end: sData.end.toDate() } as Shift;
+                    
+                    const record = s.timeRecords?.[user.uid];
                     if (record && !record.clockOutTime) {
-                        setActiveShift({ id: shiftSnap.id, ...sData } as Shift);
+                        setActiveShift(s);
                     } else {
                         localStorage.removeItem('active_shift_id');
                     }
@@ -92,7 +124,7 @@ const Dashboard = () => {
             console.error("Error fetching shifts", e);
         }
     };
-    fetchTodayShifts();
+    fetchShifts();
   }, [user]);
 
   useEffect(() => {
@@ -156,9 +188,6 @@ const Dashboard = () => {
               clockInLocation: locationStr,
           };
           
-          const updatedShift = { ...activeShift, timeRecords: { ...activeShift.timeRecords, [user.uid]: timeRecord } };
-          setActiveShift(updatedShift);
-
           await updateDoc(doc(db, 'shifts', activeShift.id), {
               [`timeRecords.${user.uid}`]: timeRecord
           });
@@ -189,6 +218,15 @@ const Dashboard = () => {
   };
 
   const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
+  const isClinical = user ? CLINICAL_ROLES.includes(user.role) : false;
+
+  // Build Action List based on Role
+  const quickActions = [
+      { icon: FilePlus, label: "New ePRF", desc: "Create clinical record", color: "bg-ams-blue", onClick: () => navigate('/eprf') },
+      { icon: Truck, label: "Perform Check", desc: "VDI & Inventory", color: "bg-emerald-500", onClick: () => navigate('/assets') },
+      ...(isClinical ? [{ icon: Pill, label: "Drug Audit", desc: "CD Register log", color: "bg-purple-500", onClick: () => navigate('/drugs') }] : []),
+      { icon: Clock, label: "Rota / Leave", desc: "View schedule", color: "bg-amber-500", onClick: () => navigate('/rota') }
+  ];
 
   return (
     <div className="space-y-8">
@@ -199,7 +237,7 @@ const Dashboard = () => {
               <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-6 max-w-sm w-full text-center animate-in zoom-in-95 duration-200 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-ams-blue to-ams-teal"></div>
                   <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-bold text-xl text-slate-800 dark:text-white">Start Shift</h3>
+                      <h3 className="font-bold text-xl text-slate-800 dark:text-white">Clock In</h3>
                       <button onClick={() => setShowClockModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-400">
                         <X className="w-5 h-5" />
                       </button>
@@ -208,29 +246,34 @@ const Dashboard = () => {
                   {clockStep === 'SELECT' && (
                       <div className="space-y-4">
                           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Select your assigned shift:</p>
-                          {todayShifts.length === 0 ? (
+                          {todayShifts.filter(s => s.end > new Date()).length === 0 ? (
                               <div className="p-6 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center gap-3">
                                   <div className="p-3 bg-white dark:bg-slate-800 rounded-full shadow-sm"><CalendarCheck className="w-6 h-6 text-slate-400" /></div>
-                                  <p className="text-sm font-bold text-slate-600 dark:text-slate-300">No shifts today.</p>
+                                  <p className="text-sm font-bold text-slate-600 dark:text-slate-300">No shifts found.</p>
+                                  <p className="text-xs text-slate-400">Check Rota for assignments.</p>
                               </div>
                           ) : (
                               <div className="space-y-3">
-                                  {todayShifts.map(s => (
-                                      <button 
-                                        key={s.id}
-                                        onClick={() => initiateClockIn(s)}
-                                        className="w-full p-4 bg-white dark:bg-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 rounded-2xl text-left transition-all shadow-sm hover:shadow-md group"
-                                      >
-                                          <div className="flex justify-between items-center mb-1">
-                                              <div className="font-bold text-slate-800 dark:text-white group-hover:text-ams-blue transition-colors">{s.location}</div>
-                                              <div className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full text-[10px] font-bold text-slate-500 uppercase">{s.vehicleId || 'No Veh'}</div>
-                                          </div>
-                                          <div className="text-xs font-medium text-slate-400 flex items-center gap-1">
-                                              <Clock className="w-3 h-3" />
-                                              {new Date(s.start).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {new Date(s.end).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                          </div>
-                                      </button>
-                                  ))}
+                                  {todayShifts.filter(s => s.end > new Date()).map(s => {
+                                      const mySlot = s.slots?.find(slot => slot.userId === user?.uid);
+                                      return (
+                                          <button 
+                                            key={s.id}
+                                            onClick={() => initiateClockIn(s)}
+                                            className="w-full p-4 bg-white dark:bg-slate-700 hover:bg-blue-50 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600 rounded-2xl text-left transition-all shadow-sm hover:shadow-md group"
+                                          >
+                                              <div className="flex justify-between items-center mb-1">
+                                                  <div className="font-bold text-slate-800 dark:text-white group-hover:text-ams-blue transition-colors truncate pr-2">{s.location}</div>
+                                                  <div className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full text-[10px] font-bold text-slate-500 uppercase flex-shrink-0">
+                                                      {s.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                                  </div>
+                                              </div>
+                                              <div className="text-xs font-medium text-slate-400 flex items-center gap-1 mb-1">
+                                                  Role: <span className="text-slate-600 dark:text-slate-300 font-bold">{mySlot?.role}</span>
+                                              </div>
+                                          </button>
+                                      );
+                                  })}
                               </div>
                           )}
                       </div>
@@ -282,13 +325,30 @@ const Dashboard = () => {
                   <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-tight">
                       Hello, {user?.name.split(' ')[0]}
                   </h1>
-                  <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium flex items-center gap-2">
+                  <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium flex items-center gap-2 text-sm">
                       <span className="flex h-3 w-3 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
                       </span>
                       System Status: <span className="text-green-600 dark:text-green-400 font-bold">OPERATIONAL</span>
                   </p>
+                  
+                  {/* Next Shift Indicator */}
+                  {!activeShift && nextShift && (
+                      <div className="mt-6 flex items-center gap-4 bg-white/60 dark:bg-black/20 p-3 rounded-2xl backdrop-blur-sm border border-white/20">
+                          <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
+                              <CalendarCheck className="w-5 h-5 text-ams-blue" />
+                          </div>
+                          <div>
+                              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Your Next Shift</p>
+                              <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold text-slate-800 dark:text-white">{nextShift.start.toLocaleDateString([], {weekday: 'short', day: 'numeric'})} @ {nextShift.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                  <ArrowRight className="w-3 h-3 text-slate-400" />
+                                  <span className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[150px]">{nextShift.location}</span>
+                              </div>
+                          </div>
+                      </div>
+                  )}
               </div>
 
               <div>
@@ -300,12 +360,12 @@ const Dashboard = () => {
                           </div>
                           <div className="flex flex-col text-right mr-2">
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Active Unit</span>
-                              <span className="text-lg font-bold text-slate-800 dark:text-slate-200 leading-none">{activeShift.location}</span>
+                              <span className="text-lg font-bold text-slate-800 dark:text-slate-200 leading-none truncate max-w-[120px]">{activeShift.location}</span>
                           </div>
                           <button 
                               onClick={handleClockOut}
                               className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white flex items-center justify-center transition-all"
-                              title="End Shift"
+                              title="Clock Out"
                           >
                               <div className="w-3 h-3 bg-current rounded-sm" />
                           </button>
@@ -315,7 +375,7 @@ const Dashboard = () => {
                           onClick={() => { setShowClockModal(true); setClockStep('SELECT'); }}
                           className="flex items-center gap-3 px-8 py-4 bg-ams-blue text-white rounded-2xl text-lg font-bold shadow-glow hover:bg-blue-700 transition-all hover:scale-105 active:scale-95"
                       >
-                          <Play className="w-5 h-5 fill-current" /> Start Shift
+                          <Play className="w-5 h-5 fill-current" /> Clock In
                       </button>
                   )}
               </div>
@@ -325,61 +385,47 @@ const Dashboard = () => {
       {/* Quick Actions Grid */}
       <div>
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 px-2">Quick Actions</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <QuickAction 
-                icon={FilePlus} 
-                label="New ePRF" 
-                desc="Create clinical record"
-                color="bg-ams-blue" 
-                onClick={() => navigate('/eprf')} 
-              />
-              <QuickAction 
-                icon={Truck} 
-                label="Vehicle Check" 
-                desc="VDI & Inventory"
-                color="bg-emerald-500" 
-                onClick={() => navigate('/assets')} 
-              />
-              <QuickAction 
-                icon={Pill} 
-                label="Drug Audit" 
-                desc="CD Register log"
-                color="bg-purple-500" 
-                onClick={() => navigate('/drugs')} 
-              />
-              <QuickAction 
-                icon={Clock} 
-                label="Rota / Leave" 
-                desc="View schedule"
-                color="bg-amber-500" 
-                onClick={() => navigate('/rota')} 
-              />
+          <div className={`grid grid-cols-2 md:grid-cols-${quickActions.length} gap-4`}>
+              {quickActions.map((action, idx) => (
+                  <QuickAction 
+                    key={idx}
+                    icon={action.icon}
+                    label={action.label}
+                    desc={action.desc}
+                    color={action.color}
+                    onClick={action.onClick}
+                  />
+              ))}
           </div>
       </div>
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Compliance Card */}
-        <div className="glass-panel rounded-2xl p-6 flex flex-col h-full">
+        {/* Compliance Card (Real Data) */}
+        <div className="glass-panel rounded-2xl p-6 flex flex-col h-full shadow-sm">
              <div className="flex items-center gap-3 mb-6">
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl">
-                    <ShieldAlert className="w-6 h-6" />
+                    <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
                     <h3 className="font-bold text-slate-800 dark:text-white">Compliance</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Action Required</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Document Status</p>
                 </div>
              </div>
              
              <div className="flex-1 space-y-3">
-                <ComplianceItem name="DBS Certificate" date="12/12/2024" status="Valid" />
-                <ComplianceItem name="Blue Light Driving" date="01/11/2023" status="Expiring" />
-                <ComplianceItem name="Safeguarding L3" date="15/05/2025" status="Valid" />
+                {(user?.compliance && user.compliance.length > 0) ? (
+                    user.compliance.slice(0, 4).map((doc: ComplianceDoc) => (
+                        <ComplianceItem key={doc.id} name={doc.name} date={doc.expiryDate} status={doc.status} />
+                    ))
+                ) : (
+                    <div className="text-center text-slate-400 text-xs py-8">No compliance documents found.</div>
+                )}
              </div>
              
              <button onClick={() => navigate('/profile')} className="mt-6 w-full py-3 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-sm hover:bg-white dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">
-                 View All Documents <ChevronRight className="w-4 h-4" />
+                 View All Documents <ArrowRight className="w-4 h-4" />
              </button>
         </div>
 

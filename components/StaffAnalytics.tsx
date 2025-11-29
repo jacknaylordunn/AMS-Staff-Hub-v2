@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart, Clock, Users, Award, TrendingUp, Loader2 } from 'lucide-react';
 import { Role, Shift, TimeRecord } from '../types';
 import { db } from '../services/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, limit, orderBy } from 'firebase/firestore';
 
 const AnalyticsCard = ({ icon: Icon, label, value, trend, color }: any) => (
   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -47,8 +47,15 @@ const StaffAnalytics = () => {
               const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as any));
               setActiveStaffCount(users.filter((u: any) => u.status === 'Active').length);
 
-              // 2. Get Shifts (Optimized: Last 30 days ideally, but grabbing all for accurate total logic demo)
-              const shiftsSnap = await getDocs(collection(db, 'shifts'));
+              // 2. Get Shifts (Optimized: Last 500 shifts only)
+              // This prevents loading the entire history of the company on a single dashboard load.
+              const shiftsQ = query(
+                  collection(db, 'shifts'),
+                  orderBy('start', 'desc'),
+                  limit(500)
+              );
+              
+              const shiftsSnap = await getDocs(shiftsQ);
               const shifts = shiftsSnap.docs.map(d => d.data() as Shift);
 
               const userStats: Record<string, StaffStat> = {};

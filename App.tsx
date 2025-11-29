@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, FileText, Calendar, Truck, AlertTriangle, LogOut,
-  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, Sun, Moon, Bell, Check, Info
+  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import EPRFPage from './pages/EPRFPage';
@@ -23,28 +23,35 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { DataSyncProvider } from './hooks/useDataSync';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { Role } from './types';
+import { db } from './services/firebase';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+
+// Define Access Groups
+const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
 
 interface SidebarItemProps {
   to: string;
   icon: any;
   label: string;
   active: boolean;
+  collapsed: boolean;
   onClick?: () => void;
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon: Icon, label, active, onClick }) => (
+const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon: Icon, label, active, collapsed, onClick }) => (
   <Link
     to={to}
     onClick={onClick}
-    className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-300 group relative overflow-hidden mb-1 ${
+    className={`flex items-center ${collapsed ? 'justify-center px-2' : 'space-x-3 px-4'} py-3 rounded-xl transition-all duration-300 group relative overflow-hidden mb-1 ${
       active 
         ? 'bg-ams-blue text-white shadow-glow' 
         : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800 hover:text-ams-blue dark:hover:text-white'
     }`}
+    title={collapsed ? label : undefined}
   >
     <Icon className={`w-5 h-5 relative z-10 ${active ? 'text-white' : 'group-hover:scale-110 transition-transform'}`} />
-    <span className="font-medium relative z-10 text-sm">{label}</span>
-    {active && <ChevronRight className="w-4 h-4 ml-auto relative z-10 opacity-50" />}
+    {!collapsed && <span className="font-medium relative z-10 text-sm">{label}</span>}
+    {!collapsed && active && <ChevronRight className="w-4 h-4 ml-auto relative z-10 opacity-50" />}
   </Link>
 );
 
@@ -62,11 +69,51 @@ const ThemeToggle = () => {
 };
 
 const NotificationBell = () => {
+    const { user } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
-    const [notifications, setNotifications] = useState([
-        { id: 1, title: 'Shift Confirmed', msg: 'Your slot for 12/10 is confirmed.', time: '2m ago', type: 'success' },
-        { id: 2, title: 'Compliance Alert', msg: 'Blue Light Card expires in 30 days.', time: '1h ago', type: 'alert' },
-    ]);
+    const [notifications, setNotifications] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!user) return;
+        
+        // 1. Check Compliance
+        const docAlerts = user.compliance
+            ?.filter(doc => {
+                if (!doc.expiryDate) return false;
+                const d = new Date(doc.expiryDate);
+                if (isNaN(d.getTime())) return false; 
+                const days = Math.ceil((d.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                return days < 30;
+            })
+            .map(doc => ({
+                id: `doc-${doc.id}`,
+                title: 'Compliance Alert',
+                msg: `${doc.name} expires soon (${doc.expiryDate})`,
+                time: 'Action Required',
+                type: 'alert'
+            })) || [];
+
+        // 2. Check Announcements (Realtime)
+        try {
+            const q = query(collection(db, 'announcements'), orderBy('date', 'desc'), limit(3));
+            const unsub = onSnapshot(q, (snap) => {
+                const announceAlerts = snap.docs.map(d => ({
+                    id: d.id,
+                    title: d.data().priority === 'Urgent' ? 'Urgent Announcement' : 'New Announcement',
+                    msg: d.data().title,
+                    time: 'Just now',
+                    type: d.data().priority === 'Urgent' ? 'alert' : 'info'
+                }));
+                setNotifications([...docAlerts, ...announceAlerts]);
+            }, (error) => {
+                // Silent catch for permission errors on initial load
+            });
+            return () => unsub();
+        } catch(e) {
+            // Graceful degradation
+        }
+    }, [user]);
+
     const unreadCount = notifications.length;
 
     return (
@@ -122,6 +169,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Automatically collapse sidebar on ePRF page to give full screen space
+  const isEPRF = location.pathname === '/eprf';
+
+  // Automatically close mobile menu on route change
+  useEffect(() => {
+      setIsMobileMenuOpen(false);
+  }, [location]);
 
   if (!user) return null;
 
@@ -130,11 +186,17 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { path: '/eprf', icon: FileText, label: 'ePRF' },
     { path: '/rota', icon: Calendar, label: 'Rota & Leave' },
     { path: '/assets', icon: Truck, label: 'Fleet & Assets' },
-    { path: '/drugs', icon: Pill, label: 'CD Register' },
+  ];
+
+  if (CLINICAL_ROLES.includes(user.role)) {
+      navItems.push({ path: '/drugs', icon: Pill, label: 'CD Register' });
+  }
+
+  navItems.push(
     { path: '/cpd', icon: BookOpen, label: 'CPD Log' },
     { path: '/wellbeing', icon: Heart, label: 'Wellbeing Hub' },
     { path: '/major-incident', icon: AlertTriangle, label: 'Major Incident' },
-  ];
+  );
 
   if (user.role === Role.Manager || user.role === Role.Admin) {
       navItems.push({ path: '/staff', icon: Users, label: 'Staff Directory' });
@@ -145,31 +207,45 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       {/* Mobile Backdrop */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden animate-in fade-in"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] animate-in fade-in"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-white/80 dark:bg-[#172030]/90 backdrop-blur-2xl border-r border-white/50 dark:border-white/5 shadow-2xl transition-transform duration-300 ease-out
-        md:relative md:translate-x-0 md:shadow-none md:bg-transparent md:backdrop-blur-none md:border-r-0
+        fixed inset-y-0 left-0 z-[100] bg-white/90 dark:bg-[#172030]/95 backdrop-blur-2xl border-r border-white/50 dark:border-white/5 shadow-2xl transition-all duration-300 ease-out
+        ${isSidebarCollapsed && !isEPRF ? 'w-20' : 'w-72'}
+        ${!isEPRF ? 'md:relative md:translate-x-0 md:shadow-none md:bg-transparent md:backdrop-blur-none md:border-r-0' : ''}
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="h-full flex flex-col p-6">
-          <div className="flex items-center justify-between mb-8 px-2">
+        {/* Collapse Toggle Button (Desktop Only) */}
+        {!isEPRF && (
+            <button 
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="hidden md:flex absolute -right-3 top-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1 text-slate-500 shadow-sm hover:text-ams-blue z-50 transition-transform hover:scale-110"
+                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+                {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+        )}
+
+        <div className={`h-full flex flex-col ${isSidebarCollapsed ? 'p-2' : 'p-6'}`}>
+          <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} mb-8 px-2`}>
             <div className="flex items-center gap-3">
               <img 
                   src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" 
                   alt="Logo" 
                   className="h-8 w-auto object-contain"
               />
-              <div>
-                  <h1 className="font-bold text-slate-800 dark:text-white leading-tight text-lg">Aegis</h1>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold tracking-wider uppercase">Staff Hub v2.5</p>
-              </div>
+              {!isSidebarCollapsed && (
+                  <div>
+                      <h1 className="font-bold text-slate-800 dark:text-white leading-tight text-lg">Aegis</h1>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold tracking-wider uppercase">Staff Hub v2.5</p>
+                  </div>
+              )}
             </div>
-            <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-slate-400 hover:text-slate-600">
+            <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-slate-400 hover:text-slate-600 bg-white dark:bg-slate-800 rounded-full shadow-sm">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -182,27 +258,35 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 icon={item.icon}
                 label={item.label}
                 active={location.pathname === item.path}
+                collapsed={isSidebarCollapsed}
                 onClick={() => setIsMobileMenuOpen(false)}
               />
             ))}
           </nav>
 
           <div className="mt-6 pt-6 border-t border-slate-200/60 dark:border-slate-700/60">
-            <Link to="/profile" className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/60 dark:hover:bg-slate-800 transition-colors group mb-2 border border-transparent hover:border-white/50 hover:shadow-sm">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-ams-blue to-ams-dark flex items-center justify-center text-white font-bold shadow-md ring-2 ring-white dark:ring-slate-700 text-sm">
+            <Link 
+                to="/profile" 
+                className={`flex items-center gap-3 p-2 rounded-xl hover:bg-white/60 dark:hover:bg-slate-800 transition-colors group mb-2 border border-transparent hover:border-white/50 hover:shadow-sm ${isSidebarCollapsed ? 'justify-center' : ''}`}
+                title={isSidebarCollapsed ? "Profile" : undefined}
+            >
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-ams-blue to-ams-dark flex items-center justify-center text-white font-bold shadow-md ring-2 ring-white dark:ring-slate-700 text-sm flex-shrink-0">
                 {user.name.charAt(0)}
               </div>
-              <div className="flex-1 overflow-hidden">
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-ams-blue transition-colors">{user.name}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.role}</p>
-              </div>
+              {!isSidebarCollapsed && (
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-ams-blue transition-colors">{user.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.role}</p>
+                  </div>
+              )}
             </Link>
             <button 
               onClick={logout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all text-sm font-bold"
+              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all text-sm font-bold ${isSidebarCollapsed ? 'px-0' : 'px-4'}`}
+              title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
-              Sign Out
+              {!isSidebarCollapsed && "Sign Out"}
             </button>
           </div>
         </div>
@@ -214,12 +298,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <OfflineIndicator />
         
         {/* Header Bar */}
-        <div className="px-6 py-4 flex items-center justify-between bg-white/80 dark:bg-[#0F1115]/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200/50 dark:border-slate-800 transition-colors">
+        <div className={`px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b transition-colors ${isEPRF ? 'bg-white border-slate-200 dark:bg-[#0F1115] dark:border-slate-800' : 'bg-white/80 dark:bg-[#0F1115]/80 backdrop-blur-md border-slate-200/50 dark:border-slate-800'}`}>
           <div className="flex items-center gap-3">
-             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+             {/* Show Menu button on mobile OR on desktop if in ePRF (collapsed) mode */}
+             <button 
+                onClick={() => setIsMobileMenuOpen(true)} 
+                className={`${!isEPRF ? 'md:hidden' : ''} p-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors`}
+             >
                 <Menu className="w-5 h-5" />
              </button>
-             <div className="md:hidden flex items-center gap-2">
+             <div className={`${!isEPRF ? 'md:hidden' : ''} flex items-center gap-2`}>
                  <img src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" className="h-6 w-auto" alt="Aegis" />
                  <span className="font-bold text-slate-800 dark:text-white text-sm">Aegis</span>
              </div>
@@ -232,8 +320,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-auto p-4 md:p-8 scroll-smooth relative">
-           <div className="max-w-7xl mx-auto w-full pb-20 animate-slide-up">
+        <div className={`flex-1 overflow-auto ${isEPRF ? 'p-0' : 'p-4 md:p-8'} scroll-smooth relative`}>
+           <div className={`${isEPRF ? 'max-w-full' : 'max-w-7xl mx-auto'} w-full pb-20 animate-slide-up`}>
               {children}
            </div>
         </div>
@@ -256,13 +344,20 @@ const App = () => {
               <Route path="/eprf" element={<ProtectedRoute><Layout><EPRFPage /></Layout></ProtectedRoute>} />
               <Route path="/rota" element={<ProtectedRoute><Layout><RotaPage /></Layout></ProtectedRoute>} />
               <Route path="/assets" element={<ProtectedRoute><Layout><AssetPage /></Layout></ProtectedRoute>} />
-              <Route path="/drugs" element={<ProtectedRoute><Layout><DrugsPage /></Layout></ProtectedRoute>} />
+              
+              {/* Drugs Page - Restricted to Clinical Roles */}
+              <Route path="/drugs" element={
+                  <ProtectedRoute allowedRoles={CLINICAL_ROLES}>
+                      <Layout><DrugsPage /></Layout>
+                  </ProtectedRoute>
+              } />
+              
               <Route path="/cpd" element={<ProtectedRoute><Layout><CPDPage /></Layout></ProtectedRoute>} />
               <Route path="/wellbeing" element={<ProtectedRoute><Layout><WellbeingPage /></Layout></ProtectedRoute>} />
               <Route path="/major-incident" element={<ProtectedRoute><Layout><MajorIncidentPage /></Layout></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Layout><ProfilePage /></Layout></ProtectedRoute>} />
               
-              {/* Role Restricted */}
+              {/* Role Restricted Staff */}
               <Route path="/staff" element={
                   <ProtectedRoute allowedRoles={[Role.Manager, Role.Admin]}>
                       <Layout><StaffPage /></Layout>

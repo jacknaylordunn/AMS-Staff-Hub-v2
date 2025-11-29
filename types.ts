@@ -2,6 +2,7 @@
 export enum Role {
   Pending = 'Pending',
   FirstAider = 'First Aider',
+  Welfare = 'Welfare',
   FREC3 = 'FREC3',
   FREC4 = 'FREC4',
   EMT = 'EMT',
@@ -75,9 +76,12 @@ export interface DrugAdministration {
   dose: string;
   route: string;
   batchNumber?: string;
+  expiryDate?: string;
+  authorisation: string; // JRCALC, PGD, Patient's Own, Out of Scope
   administeredBy: string;
   witnessedBy?: string; // Name of witness
   witnessUid?: string; // ID of witness for audit
+  authClinician?: string; // For out of scope sign off
 }
 
 export interface InjuryMark {
@@ -85,8 +89,11 @@ export interface InjuryMark {
   x: number;
   y: number;
   view: 'Anterior' | 'Posterior';
-  type: 'Wound' | 'Fracture' | 'Burn' | 'Bruise' | 'Pain' | 'Intervention';
+  type: 'Injury' | 'IV' | 'Pain' | 'Other'; 
+  subtype?: string; // e.g., "Laceration", "18G Green"
+  description?: string;
   notes?: string;
+  success?: boolean; // For IVs
 }
 
 export interface NeuroAssessment {
@@ -124,6 +131,37 @@ export interface TraumaTriageResult {
     special: boolean;
     isMajorTrauma: boolean;
     criteria: string[];
+}
+
+export interface PrimarySurvey {
+    airway: {
+        status: string; // Patent, Obstructed, Swollen, Vomit/Blood etc.
+        notes: string;
+    };
+    breathing: {
+        rate: string;
+        rhythm: string; // Regular, Irregular
+        depth: string; // Normal, Shallow, Deep
+        effort: string; // Normal, Laboured, Accessory
+        airEntry: string; // Equal, Reduced L/R, Silent
+        addedSounds: string; // Wheeze, Crackles
+    };
+    circulation: {
+        radialPulse: string; // Present, Absent
+        character: string; // Regular, Irregular, Bounding, Thready
+        capRefill: string; // <2s, >2s
+        skin: string; // Normal, Pale, Flushed, Cyanosed, Mottled, Jaundiced
+        temp: string; // Warm, Cool, Hot, Clammy
+    };
+    disability: {
+        avpu: string;
+        pupils: string; // PERRLA, Unequal
+        bloodGlucose: string;
+    };
+    exposure: {
+        injuriesFound: boolean;
+        rash: boolean;
+    };
 }
 
 export interface Consumable {
@@ -166,8 +204,9 @@ export interface AssistingClinician {
 export interface EPRF {
   id: string; // Unique Draft ID
   incidentNumber: string;
+  shiftId?: string; // Linked to Shift
   status: 'Draft' | 'Submitted' | 'Review' | 'Approved';
-  mode: 'Clinical' | 'Welfare';
+  mode: 'Clinical' | 'Welfare' | 'Minor';
   callSign: string;
   location: string;
   lastUpdated: string;
@@ -197,20 +236,16 @@ export interface EPRF {
     medications: string;
   };
   assessment: {
-    airway: string;
-    breathing: string;
-    circulation: string;
-    disability: string;
-    exposure: string;
+    primary: PrimarySurvey;
     neuro: NeuroAssessment;
     traumaTriage?: TraumaTriageResult;
+    minorInjuryAssessment?: string; // For Minor Mode
   };
   vitals: VitalsEntry[];
   injuries: InjuryMark[];
   treatments: {
     drugs: DrugAdministration[];
-    interventions: string[];
-    consumables: Consumable[];
+    minorTreatment?: string; // OTC/Plaster etc.
   };
   governance: {
     safeguarding: {
@@ -229,19 +264,27 @@ export interface EPRF {
         };
         bestInterestsRationale?: string;
     };
-    discharge: 'Conveyed to Hospital' | 'Discharged on Scene' | 'Refusal of Care';
+    discharge: string; // Expanded Disposition options
+    destinationLocation?: string; // Hospital Name or MIU Name
+    handoverClinician?: string; // PIN or Crew ID
+    worseningAdviceDetails?: string;
     refusal: {
+        isRefusal: boolean;
+        witnessName?: string;
+        witnessSignature?: string;
         risksExplained: boolean;
         alternativesOffered: boolean;
         capacityConfirmed: boolean;
         worseningAdviceGiven: boolean;
-        signature?: string;
+        patientSignature?: string;
+        signatureType?: 'Signed' | 'Unable' | 'Refused';
     };
   };
   handover: {
       sbar: string;
       clinicianSignature: string;
-      patientSignature: string;
+      patientSignature: string; // For See & Treat / Discharge
+      patientSignatureType?: 'Signed' | 'Unable' | 'Refused';
       media: MediaAttachment[];
   };
   logs: LogEntry[];
@@ -253,6 +296,20 @@ export interface ShiftBid {
   userName: string;
   userRole: Role;
   timestamp: string;
+}
+
+export interface ShiftSlot {
+  id: string; // Unique slot ID (e.g. "slot_1")
+  role: Role; // Requirement
+  userId?: string; // Assigned User
+  userName?: string; // Denormalized name for display
+  bids: ShiftBid[];
+}
+
+export interface ShiftResource {
+  id: string;
+  type: 'Vehicle' | 'Kit';
+  name: string; // Denormalized for display
 }
 
 export interface TimeRecord {
@@ -269,11 +326,15 @@ export interface Shift {
   start: Date;
   end: Date;
   location: string;
-  requiredRole: Role[];
-  assignedUserIds: string[];
-  bids: ShiftBid[];
+  slots: ShiftSlot[]; 
   status: 'Open' | 'Filled' | 'Cancelled' | 'Completed';
-  vehicleId?: string; // Resource assignment
+  
+  // Replaces single vehicleId/kitBagId with array
+  resources?: ShiftResource[];
+  
+  vehicleId?: string; // Deprecated
+  kitBagId?: string; // Deprecated
+  
   notes?: string;
   createdBy: string;
   timeRecords?: Record<string, TimeRecord>; // Keyed by userId
@@ -281,18 +342,24 @@ export interface Shift {
   tags?: string[];
 }
 
-export interface ShiftTemplate {
-  id: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  role: Role;
-  slots: number;
-  notes: string;
+export interface LeaveRequest {
+    id: string;
+    userId: string;
+    userName: string;
+    startDate: string;
+    endDate: string;
+    type: 'Annual Leave' | 'Sick' | 'Study' | 'Other';
+    reason?: string;
+    status: 'Pending' | 'Approved' | 'Rejected';
 }
 
 // --- Asset & Inventory System ---
+
+export interface ChecklistItem {
+    id: string;
+    label: string;
+    category?: string; // e.g. "External", "Internal", "Consumables"
+}
 
 export interface Vehicle {
   id: string; // e.g., AE23XYZ
@@ -302,6 +369,7 @@ export interface Vehicle {
   status: 'Operational' | 'Maintenance' | 'Off Road';
   lastCheck?: string; // ISO Date
   mileage: number;
+  checklist?: ChecklistItem[];
   notes?: string;
 }
 
@@ -316,11 +384,14 @@ export interface KitItem {
 export interface MedicalKit {
   id: string;
   name: string;
-  type: 'Response Bag' | 'Trauma Bag' | 'Drug Pack' | 'O2 Bag';
+  type: 'Paramedic Bag' | 'Response Bag' | 'Trauma Bag' | 'Drug Pack' | 'O2 Bag' | 'Welfare Bag';
   status: 'Ready' | 'Restock Needed' | 'Quarantined';
   assignedToUser?: string; // User ID if checked out
   lastCheck?: string;
   contents: KitItem[];
+  checklist?: ChecklistItem[];
+  notes?: string;
+  earliestExpiry?: string; // Calculated field
 }
 
 export interface AssetCheck {
@@ -335,17 +406,14 @@ export interface AssetCheck {
   checklistData: Record<string, boolean>;
 }
 
-export interface Asset { // Helper Union for Generic Components
-  id: string;
-  type: 'Vehicle' | 'Kit';
-  status: string;
-  lastCheck: string;
-}
-
 export interface MajorIncidentReport {
   id: string;
   declaredBy: string;
+  declaredByRole?: string;
   timeDeclared: string;
+  active: boolean;
+  type: 'METHANE_REPORT' | 'DECLARATION';
+  linkedShiftId?: string;
   methane: {
     majorIncidentDeclared: boolean;
     exactLocation: string;
@@ -370,10 +438,24 @@ export interface CPDEntry {
 export interface Kudos {
   id: string;
   fromUser: string;
+  fromUid: string;
   toUser: string;
+  toUid?: string; // Direct linking
   message: string;
   timestamp: string;
   tags?: string[];
+  isPublic: boolean;
+}
+
+export interface OhReferral {
+    id: string;
+    userId: string;
+    userName: string;
+    date: string;
+    reason: string;
+    urgency: 'Routine' | 'Urgent';
+    contactPreference: 'Phone' | 'Email';
+    status: 'Submitted' | 'In Review' | 'Actioned';
 }
 
 export interface Announcement {
@@ -383,13 +465,4 @@ export interface Announcement {
   priority: 'Normal' | 'Urgent';
   date: string;
   author: string;
-}
-
-export interface AppNotification {
-  id: string;
-  title: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-  type: 'Info' | 'Alert' | 'Success';
 }

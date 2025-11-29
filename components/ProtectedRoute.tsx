@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -16,6 +15,16 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   const { user, isLoading, firebaseUser } = useAuth();
 
   if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <Loader2 className="w-8 h-8 animate-spin text-ams-blue" />
+      </div>
+    );
+  }
+
+  // Safety Check: Authenticated technically but profile not loaded yet.
+  // Prevents premature redirect to login page.
+  if (firebaseUser && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <Loader2 className="w-8 h-8 animate-spin text-ams-blue" />

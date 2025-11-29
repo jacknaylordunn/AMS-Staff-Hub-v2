@@ -3,6 +3,7 @@ import { Role } from '../types';
 
 export const ROLE_HIERARCHY: Record<Role, number> = {
   [Role.Pending]: 0,
+  [Role.Welfare]: 1,
   [Role.FirstAider]: 1,
   [Role.FREC3]: 2,
   [Role.FREC4]: 3,
@@ -30,6 +31,9 @@ export const getRoleColor = (role: Role): string => {
     case Role.EMT:
     case Role.FREC4:
       return 'text-blue-600 bg-blue-50 border-blue-200';
+    case Role.FirstAider:
+    case Role.Welfare:
+      return 'text-teal-600 bg-teal-50 border-teal-200';
     case Role.Pending:
       return 'text-amber-600 bg-amber-50 border-amber-200';
     default:

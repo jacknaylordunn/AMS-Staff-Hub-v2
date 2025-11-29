@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
@@ -10,7 +9,7 @@ import {
   EmailAuthProvider,
   User as FirebaseUser 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp, limit } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { User, Role } from '../types';
 
@@ -56,7 +55,7 @@ export const getFriendlyErrorMessage = (error: any): string => {
         case 'auth/requires-recent-login':
             return 'Please log in again to verify your identity.';
         case 'permission-denied':
-            return 'You do not have permission to perform this action.';
+            return 'Badge Login unavailable. System rules block ID lookup. Please use Email Login.';
         case 'unavailable':
             return 'Service temporarily unavailable. Please check your connection.';
     }
@@ -80,7 +79,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       setFirebaseUser(fbUser);
+      
       if (fbUser) {
+        // Ensure loading stays true while we fetch the profile to prevent race conditions
+        setIsLoading(true);
         try {
           const userDocRef = doc(db, 'users', fbUser.uid);
           const userDoc = await getDoc(userDocRef);
@@ -126,11 +128,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithBadge = async (badgeId: string, password: string) => {
       setError(null);
       try {
-          const q = query(collection(db, 'users'), where('employeeId', '==', badgeId));
+          // IMPORTANT: Must include limit(1) to satisfy Firestore security rules for unauthenticated queries
+          const q = query(collection(db, 'users'), where('employeeId', '==', badgeId), limit(1));
           const snapshot = await getDocs(q);
           
           if (snapshot.empty) {
-              throw new Error("Invalid Employee Badge ID");
+              throw new Error("Invalid Employee Badge ID. Please check your ID or use Email Login.");
           }
 
           const userData = snapshot.docs[0].data();
@@ -138,6 +141,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       } catch (err: any) {
           console.error(err);
+          // Specific check for Firestore permission issues
+          if (err.code === 'permission-denied' || err.message.includes('permission-denied')) {
+              console.warn("DEVELOPER: Add this to Firestore Rules to enable Badge Login:\nmatch /users/{userId} { allow list: if request.query.limit <= 1; }");
+              const errObj = { code: 'permission-denied', message: 'Badge Login disabled by security policy.' };
+              setError(getFriendlyErrorMessage(errObj));
+              throw new Error("Badge Login is disabled. Please use Email Login.");
+          }
+          
           const msg = getFriendlyErrorMessage(err);
           setError(msg);
           throw new Error(msg);

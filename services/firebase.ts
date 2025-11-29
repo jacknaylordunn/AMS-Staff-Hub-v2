@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
@@ -21,9 +21,10 @@ export const app = initializeApp(firebaseConfig);
 // Initialize Authentication
 export const auth = getAuth(app);
 
-// Initialize Firestore with offline persistence enabled (multi-tab support)
+// Initialize Firestore with single-tab persistence to avoid QuotaExceededError
+// This uses IndexedDB for data but avoids heavy LocalStorage usage for tab coordination
 export const db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
 });
 
 // Initialize other services

@@ -1,27 +1,41 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Aegis Staff Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Immediate Theme Application to prevent flash
+      (function() {
+        try {
+          const localTheme = localStorage.getItem('theme');
+          const supportDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (localTheme === 'dark' || (!localTheme && supportDarkMode)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+
       tailwind.config = {
         darkMode: 'class',
         theme: {
           extend: {
             colors: {
               ams: {
-                blue: '#0052CC', // Brighter, modern clinical blue
+                blue: '#0052CC', 
                 dark: '#091E42',
                 light: '#E9F2FF',
-                teal: '#00B8D9', // Accent for actions
-                red: '#DE350B',  // Alert
-                green: '#00875A', // Success
-                gold: '#FFAB00', // Warning/Status
+                teal: '#00B8D9', 
+                red: '#DE350B',  
+                green: '#00875A', 
+                gold: '#FFAB00', 
               },
               slate: {
-                850: '#172030', // Custom dark mode background
+                850: '#172030', 
               }
             },
             fontFamily: {
@@ -65,15 +79,18 @@
         background-color: #F4F5F7;
         color: #172B4D;
         -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: none;
+        min-height: 100vh;
+      }
+      
+      /* Dark mode initial paint fix */
+      @media (prefers-color-scheme: dark) {
+        body { background-color: #0F1115; color: #F4F5F7; }
       }
       
       html.dark body {
         background-color: #0F1115;
         color: #F4F5F7;
-        background-image: 
-          radial-gradient(at 0% 0%, rgba(9, 30, 66, 0.3) 0px, transparent 50%),
-          radial-gradient(at 100% 100%, rgba(0, 82, 204, 0.1) 0px, transparent 50%);
-        background-attachment: fixed;
       }
       
       /* Glassmorphism Utilities */
@@ -87,6 +104,49 @@
       html.dark .glass-panel {
         background: rgba(23, 32, 48, 0.6);
         border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      /* Modern Input Field (Global Style) */
+      .input-field {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        background-color: #ffffff;
+        color: #0f172a;
+        outline: none;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-weight: 500;
+        font-size: 0.875rem;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      }
+      html.dark .input-field {
+        background-color: #1e293b;
+        border-color: #334155;
+        color: #ffffff;
+      }
+      .input-field:focus {
+        border-color: #0052CC;
+        box-shadow: 0 0 0 4px rgba(0, 82, 204, 0.1);
+      }
+      .input-field::placeholder {
+        color: #94a3b8;
+      }
+      html.dark .input-field::placeholder {
+        color: #64748b;
+      }
+      .input-label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+        color: #64748b;
+        margin-bottom: 0.375rem;
+        margin-left: 0.25rem;
+      }
+      html.dark .input-label {
+        color: #94a3b8;
       }
 
       /* Scrollbar */
@@ -132,7 +192,8 @@
     "express": "https://aistudiocdn.com/express@^5.1.0",
     "url": "https://aistudiocdn.com/url@^0.11.4",
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
-    "jspdf": "https://aistudiocdn.com/jspdf@^3.0.4"
+    "jspdf": "https://aistudiocdn.com/jspdf@^3.0.4",
+    "fs": "https://aistudiocdn.com/fs@^0.0.1-security"
   }
 }
 </script>

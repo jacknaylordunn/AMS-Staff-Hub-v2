@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -29,10 +28,11 @@ const LoginPage = () => {
 
   // Auto-redirect if logged in
   useEffect(() => {
-      if (!isLoading && firebaseUser) {
+      // Ensure we have both auth AND profile before redirecting to avoid glitches
+      if (!isLoading && firebaseUser && user) {
           navigate('/');
       }
-  }, [firebaseUser, isLoading, navigate]);
+  }, [firebaseUser, user, isLoading, navigate]);
 
   // Password Validation Regex
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/;
@@ -60,8 +60,14 @@ const LoginPage = () => {
             }
         }
     } catch (err: any) {
-        setLocalError(err.message || "Authentication failed");
+        let msg = err.message || "Authentication failed";
+        setLocalError(msg);
         setIsSubmitting(false);
+        
+        // Auto-switch to Email if Badge fails
+        if (msg.includes("Badge Login is disabled") || msg.includes("permission-denied")) {
+            setLoginMethod('Email');
+        }
     }
   };
 
@@ -104,7 +110,6 @@ const LoginPage = () => {
             />
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight text-center">Aegis Staff Hub</h1>
-          <p className="text-slate-400 mt-2 text-sm font-medium uppercase tracking-widest border-b border-slate-700 pb-1">Clinical Operations Platform</p>
         </div>
 
         {(localError || authError) && (
@@ -119,14 +124,14 @@ const LoginPage = () => {
             <div className="flex bg-slate-950/50 p-1.5 rounded-xl mb-6 border border-white/5">
                 <button 
                     type="button"
-                    onClick={() => setLoginMethod('Email')}
+                    onClick={() => { setLoginMethod('Email'); setLocalError(''); }}
                     className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all duration-300 ${loginMethod === 'Email' ? 'bg-ams-blue text-white shadow-md ring-1 ring-white/10' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                     <Mail className="w-3.5 h-3.5" /> Email Login
                 </button>
                 <button 
                     type="button"
-                    onClick={() => setLoginMethod('Badge')}
+                    onClick={() => { setLoginMethod('Badge'); setLocalError(''); }}
                     className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all duration-300 ${loginMethod === 'Badge' ? 'bg-ams-blue text-white shadow-md ring-1 ring-white/10' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                     <Hash className="w-3.5 h-3.5" /> Badge Login
@@ -196,10 +201,10 @@ const LoginPage = () => {
                         maxLength={8}
                     />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 ml-1">Format: YYMM + 4 Digits (e.g. 25031234)</p>
+                <p className="text-[10px] text-slate-500 mt-1 ml-1">(e.g. 25031234)</p>
               </div>
           ) : (
-              <div>
+              <div className="animate-in fade-in">
                 <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase ml-1">Email Address</label>
                 <input
                     type="email"
