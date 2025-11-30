@@ -2,6 +2,7 @@
 import { db } from './firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { AppNotification } from '../types';
+import logo from '../assets/logo.png';
 
 export const sendNotification = async (
   recipientId: string, 
@@ -51,7 +52,7 @@ export const sendBrowserNotification = (title: string, body: string) => {
   if (Notification.permission === 'granted') {
     new Notification(title, {
       body,
-      icon: 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png'
+      icon: logo
     });
   }
 };

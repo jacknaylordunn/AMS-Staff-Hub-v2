@@ -26,6 +26,7 @@ import { Role, AppNotification } from './types';
 import { db } from './services/firebase';
 import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
 import { requestBrowserPermission, sendBrowserNotification } from './services/notificationService';
+import logo from './assets/logo.png';
 
 // Define Access Groups
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
@@ -241,7 +242,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} mb-8 px-2`}>
             <div className="flex items-center gap-3">
               <img 
-                  src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" 
+                  src={logo} 
                   alt="Logo" 
                   className="h-8 w-auto object-contain"
               />
@@ -315,7 +316,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <Menu className="w-5 h-5" />
              </button>
              <div className={`${!isEPRF ? 'md:hidden' : ''} flex items-center gap-2`}>
-                 <img src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" className="h-6 w-auto" alt="Aegis" />
+                 <img src={logo} className="h-6 w-auto" alt="Aegis" />
                  <span className="font-bold text-slate-800 dark:text-white text-sm">Aegis</span>
              </div>
           </div>

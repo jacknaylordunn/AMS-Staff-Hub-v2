@@ -1,31 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { QrCode, CheckCircle, Truck, Briefcase, XCircle, AlertTriangle, Loader2, Plus, Printer, Wrench, Search, ArrowRightLeft, Calendar, FileText, History, Trash2, Save, MoreVertical, Gauge, Scan, ListChecks, Wand2 } from 'lucide-react';
+import { QrCode, Truck, Briefcase, XCircle, Loader2, Plus, History, Trash2, Gauge, ListChecks } from 'lucide-react';
 import { Vehicle, MedicalKit, KitItem, AssetCheck, Role, ChecklistItem } from '../types';
 import QrScannerModal from '../components/QrScannerModal';
 import { db } from '../services/firebase';
-import { collection, addDoc, doc, getDoc, setDoc, onSnapshot, query, where, orderBy, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
-
-// Constants
-const DEFAULT_VDI_CHECKLIST: ChecklistItem[] = [
-    { id: 'ext_tyres', label: 'Tyres (Tread & Pressure)', category: 'External' },
-    { id: 'ext_lights', label: 'Lights, Sirens & Indicators', category: 'External' },
-    { id: 'ext_body', label: 'Bodywork Damage Check', category: 'External' },
-    { id: 'eng_fluids', label: 'Fluid Levels (Oil, Coolant, Brake)', category: 'Engine' },
-    { id: 'eng_fuel', label: 'Fuel Level (> 1/4)', category: 'Engine' },
-    { id: 'int_clean', label: 'Interior Cleanliness', category: 'Interior' },
-    { id: 'int_equip', label: 'Medical Equipment Secure', category: 'Interior' },
-];
-
-const DEFAULT_KIT_CHECKLIST_ITEMS: Record<string, string[]> = {
-    'Paramedic Bag': ['Monitor (ECG/SpO2/BP)', 'Advanced Airway Kit (iGel/Laryngoscope)', 'Cannulation Kit & Fluids', 'Drugs Pack (JRCALC Checked)', 'IO Driver & Needles'],
-    'Response Bag': ['Oxygen Cylinder (>50%)', 'BVM (Adult/Paed)', 'Suction Unit (Functioning)', 'Diagnostic Kit (BP/SpO2/Therm/BM)', 'Basic Airway (OPA/NPA)'],
-    'Trauma Bag': ['Tourniquets (x2)', 'Blast Bandages / Haemostatics', 'Pelvic Binder', 'Splints (Sam/Traction)', 'Chest Seals'],
-    'Welfare Bag': ['Water Bottles', 'Energy Snacks', 'Foil Blankets', 'Vomit Bowls', 'Basic First Aid (Plasters)', 'Torch/Headtorch'],
-    'Drug Pack': ['CD Register Check', 'JRCALC Pocket Book', 'Ampoule Snapper', 'Flush Syringes'],
-    'O2 Bag': ['CD Oxygen Cylinder', 'Entonox Cylinder', 'Masks (NRB/Nasal/Neb)', 'Tubing']
-};
+import { DEFAULT_VDI_CHECKLIST, DEFAULT_KIT_CHECKLIST_ITEMS } from '../data/assetDefaults';
 
 const RESTRICTED_ROLES = [Role.FirstAider, Role.Welfare, Role.Pending];
 
@@ -449,6 +430,10 @@ const AssetPage = () => {
 
         {showScanner && <QrScannerModal onScan={handleScanComplete} onClose={() => setShowScanner(false)} />}
 
+        {/* Add Asset Modal, Manage Kit Modal, Check VDI Modal, History Modal... */}
+        {/* Same as before but now using newAssetDetails.checklist which is built using new defaults logic in handleAddAsset */}
+        {/* ... (Rest of the component logic for modals remains identical to previous, just contextually correct) ... */}
+        
         {/* Add Asset Modal (Managers) */}
         {showAddAssetModal && (
             <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
@@ -526,6 +511,7 @@ const AssetPage = () => {
             </div>
         )}
 
+        {/* ... Other modals (Manage, Check, History) same as original ... */}
         {/* Manage Kit Content Modal */}
         {showManageKitModal && (
             <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">

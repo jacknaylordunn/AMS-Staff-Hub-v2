@@ -70,12 +70,38 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber'> = {
         gastrointestinal: { abdominalPain: false, painLocation: '', palpation: '', distension: false, bowelSounds: '', lastMeal: '', lastBowelMovement: '', urineOutput: '', nauseaVomiting: false },
         obsGynae: { pregnant: false },
         mentalHealth: { appearance: '', behaviour: '', speech: '', mood: '', riskToSelf: false, riskToOthers: false, capacityStatus: '' },
-        burns: { estimatedPercentage: '', depth: '', site: '' }
+        burns: { estimatedPercentage: '', depth: '', site: '' },
+        sepsis: { 
+            screeningTrigger: false, 
+            suspectedSource: [], 
+            redFlags: [], 
+            riskFactors: [], 
+            outcome: 'Clear' 
+        },
+        falls: { 
+            historyOfFalls: false, 
+            unsteadyWalk: false, 
+            visualImpairment: false, 
+            alteredMentalState: false, 
+            medications: false 
+        },
+        mobility: { 
+            preMorbidMobility: '', 
+            currentMobility: '', 
+            transferAbility: '', 
+            aidsUsed: '' 
+        },
+        cfsScore: 0,
+        wounds: []
     },
     clinicalDecision: { workingImpression: '', differentialDiagnosis: '', managementPlan: '', finalDisposition: '' },
     vitals: [],
     injuries: [],
-    treatments: { drugs: [], procedures: [] },
+    treatments: { 
+        drugs: [], 
+        procedures: [], 
+        resusLog: [] 
+    },
     governance: { 
         safeguarding: { concerns: false, type: [], details: '' }, 
         capacity: { status: 'Capacity Present', stage1Impairment: false, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true } }, 

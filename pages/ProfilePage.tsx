@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { ComplianceDoc, Role } from '../types';
 import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import logo from '../assets/logo.png';
 
 const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
     const styles = {
@@ -268,7 +269,7 @@ const ProfilePage = () => {
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
                   <div className="bg-slate-900 dark:bg-slate-950 p-4 text-white flex justify-between items-center">
                       <h3 className="font-bold flex items-center gap-2"><Shield className="w-4 h-4 text-ams-blue" /> Digital ID</h3>
-                      <img src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" className="h-6 w-auto opacity-80" alt="Logo" />
+                      <img src={logo} className="h-6 w-auto opacity-80" alt="Logo" />
                   </div>
                   <div className="p-6 space-y-4">
                       {user?.employeeId ? (

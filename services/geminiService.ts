@@ -1,14 +1,6 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Use process.env.API_KEY as per guidelines.
-const apiKey = process.env.API_KEY;
-
-if (!apiKey) {
-    console.warn("Gemini API Key is missing. AI features will not work.");
-}
-
-const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeSafeguarding = async (narrative: string): Promise<{ detected: boolean; type?: string; reasoning?: string }> => {
   try {

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { LogIn, Hash, Mail, Loader2, ArrowRight, UserPlus, Shield, Check, X } from 'lucide-react';
 import { Role } from '../types';
+import logo from '../assets/logo.png';
 
 const LoginPage = () => {
   const [mode, setMode] = useState<'Login' | 'Register'>('Login');
@@ -85,7 +86,7 @@ const LoginPage = () => {
         
         <div className="flex flex-col items-center mb-8">
             <img 
-                src="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" 
+                src={logo} 
                 alt="Aegis Logo" 
                 className="h-20 w-auto object-contain mb-4 drop-shadow-md"
             />

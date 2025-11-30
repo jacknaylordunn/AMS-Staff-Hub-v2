@@ -2,9 +2,11 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { RefreshCcw, Plus, X } from 'lucide-react';
 import { InjuryMark } from '../types';
+import bodyMapFront from '../assets/body-map-front.jpeg';
+import bodyMapBack from '../assets/body-map-back.jpeg';
 
-const ANTERIOR_URL = "https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Front.jpeg";
-const POSTERIOR_URL = "https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Back.jpeg";
+const ANTERIOR_URL = bodyMapFront;
+const POSTERIOR_URL = bodyMapBack;
 
 interface BodyMapProps {
     value: InjuryMark[];
@@ -86,6 +88,17 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
           onImageChange(dataUrl);
       }
     };
+
+    img.onerror = () => {
+        console.error("Failed to load body map image:", img.src);
+        // Draw fallback or clear canvas to prevent stale state
+        ctx.clearRect(0, 0, width, height);
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "gray";
+        ctx.textAlign = "center";
+        ctx.fillText("Body Map Image Not Found", width / 2, height / 2);
+    };
+
   }, [view, value, pendingMark, mode]);
 
   const handleCanvasClick = (e: React.MouseEvent) => {

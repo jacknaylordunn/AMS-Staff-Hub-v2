@@ -2,8 +2,9 @@
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { EPRF } from '../types';
+import logo from '../assets/logo.png';
 
-const LOGO_URL = "https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png";
+const LOGO_URL = logo;
 
 const getImageData = (url: string): Promise<string> => {
     return new Promise((resolve) => {

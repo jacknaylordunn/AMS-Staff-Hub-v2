@@ -5,7 +5,7 @@ import SignaturePad from '../SignaturePad';
 import SpeechTextArea from '../SpeechTextArea';
 import { useAuth } from '../../hooks/useAuth';
 import { Lock, CheckCircle, Send, Loader2, AlertCircle, PenTool, Sparkles } from 'lucide-react';
-import { auditEPRF } from '../../services/geminiService';
+import { auditEPRF, generateSBAR } from '../../services/geminiService';
 import AuditSummaryModal from '../AuditSummaryModal';
 
 const HandoverTab = () => {
@@ -16,6 +16,7 @@ const HandoverTab = () => {
     const [isSigning, setIsSigning] = useState(false);
     const [auditing, setAuditing] = useState(false);
     const [auditResult, setAuditResult] = useState<any>(null);
+    const [generating, setGenerating] = useState(false);
 
     if (!activeDraft) return null;
 
@@ -26,6 +27,13 @@ const HandoverTab = () => {
         const result = await auditEPRF(activeDraft);
         setAuditResult(result);
         setAuditing(false);
+    };
+
+    const handleAutoSbar = async () => {
+        setGenerating(true);
+        const text = await generateSBAR(activeDraft);
+        handleNestedUpdate(['handover', 'sbar'], text);
+        setGenerating(false);
     };
 
     const handlePinSubmit = async () => {
@@ -66,7 +74,17 @@ const HandoverTab = () => {
     return (
         <div className="space-y-6 animate-in fade-in pb-10">
             <div className="glass-panel p-6 rounded-2xl">
-                <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">SBAR Handover</h3>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-slate-800 dark:text-white">SBAR Handover</h3>
+                    <button 
+                        onClick={handleAutoSbar} 
+                        disabled={generating || isSubmitted}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors disabled:opacity-50"
+                    >
+                        {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                        Auto-Generate
+                    </button>
+                </div>
                 <SpeechTextArea 
                     label="Situation / Background / Assessment / Recommendation"
                     value={activeDraft.handover.sbar}
