@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Users, Loader2, Edit3, AlertTriangle, ArrowRight, CheckCircle, XCircle, Shield, X, Save, FileText, Lock, Calendar, Trash2 } from 'lucide-react';
+import { Search, Filter, Users, Loader2, Edit3, AlertTriangle, ArrowRight, CheckCircle, XCircle, Shield, X, Save, FileText, Lock, Calendar, Trash2, Clock } from 'lucide-react';
 import { Role, User, ComplianceDoc } from '../types';
 import StaffAnalytics from '../components/StaffAnalytics';
 import { db } from '../services/firebase';
@@ -14,6 +14,7 @@ const StaffPage = () => {
   const [activeTab, setActiveTab] = useState<'Directory' | 'Analytics'>('Directory');
   const [staffList, setStaffList] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
+  const [pendingDocs, setPendingDocs] = useState<{user: User, doc: ComplianceDoc}[]>([]);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -48,9 +49,25 @@ const StaffPage = () => {
 
   const fetchPending = async () => {
       try {
-          const q = query(collection(db, 'users'), where('status', '==', 'Pending'));
-          const snap = await getDocs(q);
-          setPendingUsers(snap.docs.map(d => d.data() as User));
+          // Pending Users
+          const qUsers = query(collection(db, 'users'), where('status', '==', 'Pending'));
+          const snapUsers = await getDocs(qUsers);
+          setPendingUsers(snapUsers.docs.map(d => d.data() as User));
+
+          // Pending Docs (Scan all active users - requires optimized query or backend function in production)
+          // For this app scale, client-side scan of fetched users is acceptable
+          const qDocs = query(collection(db, 'users'), where('status', '==', 'Active'));
+          const snapDocs = await getDocs(qDocs);
+          const docsQueue: {user: User, doc: ComplianceDoc}[] = [];
+          
+          snapDocs.docs.forEach(d => {
+              const u = d.data() as User;
+              u.compliance?.forEach(c => {
+                  if (c.status === 'Pending') docsQueue.push({ user: u, doc: c });
+              });
+          });
+          setPendingDocs(docsQueue);
+
       } catch (e) {
           console.error("Error fetching pending", e);
       }
@@ -82,7 +99,7 @@ const StaffPage = () => {
       }
   };
 
-  const handleApprove = async () => {
+  const handleApproveUser = async () => {
       if (!showApproveModal) return;
       setIsProcessing(true);
       try {
@@ -110,6 +127,28 @@ const StaffPage = () => {
           alert("Failed to approve user.");
       } finally {
           setIsProcessing(false);
+      }
+  };
+
+  const handleDocAction = async (targetUser: User, targetDoc: ComplianceDoc, action: 'Valid' | 'Rejected') => {
+      try {
+          const updatedDocs = targetUser.compliance.map(d => 
+              d.id === targetDoc.id ? { ...d, status: action === 'Valid' ? 'Valid' : 'Expired' } : d
+          );
+          
+          // If rejected, maybe remove? For now set to expired/invalid
+          if (action === 'Rejected') {
+             // Optional: remove completely
+          }
+
+          await updateDoc(doc(db, 'users', targetUser.uid), {
+              compliance: updatedDocs
+          });
+
+          setPendingDocs(prev => prev.filter(p => p.doc.id !== targetDoc.id));
+          alert(`Document ${action}`);
+      } catch (e) {
+          console.error("Doc update failed", e);
       }
   };
 
@@ -177,39 +216,56 @@ const StaffPage = () => {
 
       {activeTab === 'Directory' ? (
         <>
-            {/* Pending Approvals Section */}
-            {pendingUsers.length > 0 && (
-                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 p-6 animate-in slide-in-from-top-2">
-                    <h3 className="font-bold text-amber-800 dark:text-amber-200 mb-4 flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5" /> Pending Approvals ({pendingUsers.length})
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {pendingUsers.map(u => (
-                            <div key={u.uid} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-amber-100 dark:border-amber-900/50 shadow-sm flex flex-col gap-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                                        {u.name.charAt(0)}
+            {/* Action Queues */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Pending Users */}
+                {pendingUsers.length > 0 && (
+                    <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 p-6">
+                        <h3 className="font-bold text-amber-800 dark:text-amber-200 mb-4 flex items-center gap-2">
+                            <Users className="w-5 h-5" /> New Staff Requests ({pendingUsers.length})
+                        </h3>
+                        <div className="space-y-3">
+                            {pendingUsers.map(u => (
+                                <div key={u.uid} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-amber-100 dark:border-amber-900/50 shadow-sm flex justify-between items-center">
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">{u.name}</p>
+                                        <p className="text-xs text-slate-500">{u.email}</p>
                                     </div>
-                                    <div className="overflow-hidden">
-                                        <p className="font-bold text-slate-800 dark:text-white truncate">{u.name}</p>
-                                        <p className="text-xs text-slate-500 truncate">{u.email}</p>
-                                    </div>
+                                    <button onClick={() => setShowApproveModal(u)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors">Review</button>
                                 </div>
-                                <div className="flex gap-2 mt-auto">
-                                    <button 
-                                        onClick={() => setShowApproveModal(u)}
-                                        className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
-                                    >
-                                        <CheckCircle className="w-3 h-3" /> Approve
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+                {/* Document Approvals */}
+                {pendingDocs.length > 0 && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 p-6">
+                        <h3 className="font-bold text-blue-800 dark:text-blue-200 mb-4 flex items-center gap-2">
+                            <FileText className="w-5 h-5" /> Document Review ({pendingDocs.length})
+                        </h3>
+                        <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                            {pendingDocs.map(({user, doc}, idx) => (
+                                <div key={idx} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-blue-100 dark:border-blue-900/50 shadow-sm">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-800 dark:text-white">{doc.name}</p>
+                                            <p className="text-xs text-slate-500">For: {user.name}</p>
+                                        </div>
+                                        {doc.fileUrl && <a href={doc.fileUrl} target="_blank" className="text-xs text-blue-600 underline font-bold">View</a>}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleDocAction(user, doc, 'Valid')} className="flex-1 py-1 bg-green-100 text-green-700 rounded text-xs font-bold hover:bg-green-200">Approve</button>
+                                        <button onClick={() => handleDocAction(user, doc, 'Rejected')} className="flex-1 py-1 bg-red-100 text-red-700 rounded text-xs font-bold hover:bg-red-200">Reject</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 mt-6">
                 <div className="relative max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input type="text" placeholder="Search staff..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-ams-blue dark:text-white" />
@@ -285,7 +341,7 @@ const StaffPage = () => {
                       <div className="flex gap-2 pt-2">
                           <button onClick={() => setShowApproveModal(null)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-700 font-bold text-slate-600 dark:text-slate-300 rounded-lg text-sm">Cancel</button>
                           <button 
-                              onClick={handleApprove}
+                              onClick={handleApproveUser}
                               disabled={isProcessing}
                               className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                           >
@@ -428,7 +484,9 @@ const StaffPage = () => {
                                           <div className="flex items-center gap-2">
                                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                                                   doc.status === 'Valid' ? 'bg-green-100 text-green-700' : 
-                                                  doc.status === 'Expiring' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                                  doc.status === 'Expiring' ? 'bg-amber-100 text-amber-700' : 
+                                                  doc.status === 'Pending' ? 'bg-blue-100 text-blue-700' :
+                                                  'bg-red-100 text-red-700'
                                               }`}>{doc.status}</span>
                                               {doc.fileUrl && (
                                                   <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline font-bold">View</a>

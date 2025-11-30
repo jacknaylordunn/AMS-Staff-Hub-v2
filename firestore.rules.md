@@ -55,7 +55,8 @@ service cloud.firestore {
       allow create: if isAuthenticated();
       // Only allow read/write if the user is in the 'accessUids' list (The crew) or is a Manager
       allow read, update: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager());
-      allow delete: if isManager();
+      // Allow delete if user is in access list (creator) OR manager
+      allow delete: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager());
     }
 
     // --- Rota & Shifts ---

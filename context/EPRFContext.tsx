@@ -13,12 +13,32 @@ interface EPRFContextType {
     addDrug: (entry: DrugAdministration) => void;
     addProcedure: (entry: Procedure) => void;
     generateIncidentId: () => string;
+    deleteCurrentDraft: () => Promise<void>;
 }
 
 const EPRFContext = createContext<EPRFContextType | undefined>(undefined);
 
+// Helper to remove undefined values for Firestore
+const sanitizeData = (data: any): any => {
+    if (Array.isArray(data)) {
+        return data.map(sanitizeData);
+    } else if (data !== null && typeof data === 'object') {
+        const newObj: any = {};
+        Object.keys(data).forEach(key => {
+            const val = data[key];
+            if (val === undefined) {
+                newObj[key] = null; // Convert undefined to null
+            } else {
+                newObj[key] = sanitizeData(val);
+            }
+        });
+        return newObj;
+    }
+    return data;
+};
+
 export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: EPRF | null }> = ({ children, initialDraft }) => {
-    const { saveEPRF } = useDataSync();
+    const { saveEPRF, deleteEPRF } = useDataSync();
     const [activeDraft, setActiveDraftState] = useState<EPRF | null>(initialDraft);
 
     useEffect(() => {
@@ -32,14 +52,19 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     const updateDraft = (updates: Partial<EPRF>) => {
         if (!activeDraft) return;
         const updated = { ...activeDraft, ...updates, lastUpdated: new Date().toISOString() };
-        setActiveDraftState(updated);
-        saveEPRF(updated);
+        
+        // Sanitize before saving
+        const safeData = sanitizeData(updated);
+        
+        setActiveDraftState(safeData);
+        saveEPRF(safeData);
     };
 
     const handleNestedUpdate = (path: string[], value: any) => {
         if (!activeDraft) return;
         
-        const newDraft = JSON.parse(JSON.stringify(activeDraft)); // Deep clone
+        // Performance Upgrade: Use structuredClone
+        const newDraft = structuredClone(activeDraft); 
         let current = newDraft;
         
         for (let i = 0; i < path.length - 1; i++) {
@@ -49,8 +74,10 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         current[path[path.length - 1]] = value;
         
         newDraft.lastUpdated = new Date().toISOString();
-        setActiveDraftState(newDraft);
-        saveEPRF(newDraft);
+        const safeData = sanitizeData(newDraft);
+        
+        setActiveDraftState(safeData);
+        saveEPRF(safeData);
     };
 
     const addVitals = (entry: VitalsEntry) => {
@@ -82,6 +109,12 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         return `AMS${yyyy}${mm}${xxxx}`;
     };
 
+    const deleteCurrentDraft = async () => {
+        if (!activeDraft) return;
+        await deleteEPRF(activeDraft.id);
+        setActiveDraftState(null);
+    };
+
     return (
         <EPRFContext.Provider value={{ 
             activeDraft, 
@@ -91,7 +124,8 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
             addVitals,
             addDrug,
             addProcedure,
-            generateIncidentId
+            generateIncidentId,
+            deleteCurrentDraft
         }}>
             {children}
         </EPRFContext.Provider>

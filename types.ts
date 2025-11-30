@@ -678,3 +678,12 @@ export interface Announcement {
   date: string;
   author: string;
 }
+
+export interface AuditEntry {
+    action: string;
+    details: string;
+    userId: string;
+    userName: string;
+    timestamp: string;
+    category: 'Clinical' | 'Operational' | 'Security' | 'Drug';
+}

@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { QrCode, Truck, Briefcase, XCircle, Loader2, Plus, History, Trash2, Gauge, ListChecks } from 'lucide-react';
+import { QrCode, Truck, Briefcase, XCircle, Loader2, Plus, History, Trash2, Gauge, ListChecks, Edit, Printer } from 'lucide-react';
 import { Vehicle, MedicalKit, KitItem, AssetCheck, Role, ChecklistItem } from '../types';
 import QrScannerModal from '../components/QrScannerModal';
 import { db } from '../services/firebase';
-import { collection, addDoc, doc, setDoc, onSnapshot, query, where, orderBy, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, onSnapshot, query, where, orderBy, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
 import { DEFAULT_VDI_CHECKLIST, DEFAULT_KIT_CHECKLIST_ITEMS } from '../data/assetDefaults';
+import QRCode from 'qrcode';
 
 const RESTRICTED_ROLES = [Role.FirstAider, Role.Welfare, Role.Pending];
 
@@ -58,7 +59,10 @@ const AssetPage = () => {
   const [showHistoryModal, setShowHistoryModal] = useState<string | null>(null);
   const [assetHistory, setAssetHistory] = useState<AssetCheck[]>([]);
   const [showManageKitModal, setShowManageKitModal] = useState<MedicalKit | null>(null);
+  
+  // Create / Edit Asset State
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  const [isEditingAsset, setIsEditingAsset] = useState(false);
   
   // Check Form State
   const [checkData, setCheckData] = useState<Record<string, boolean>>({});
@@ -75,6 +79,10 @@ const AssetPage = () => {
       id: '', name: '', type: '', registration: '', checklist: [] 
   });
   const [newChecklistItem, setNewChecklistItem] = useState('');
+
+  // QR Print State
+  const [showQrModal, setShowQrModal] = useState<string | null>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
   useEffect(() => {
     if (isRestricted) { setLoading(false); return; }
@@ -99,6 +107,16 @@ const AssetPage = () => {
           return () => unsub();
       }
   }, [showHistoryModal]);
+
+  useEffect(() => {
+      if (showQrModal) {
+          QRCode.toDataURL(showQrModal, { width: 300, margin: 2 })
+              .then(url => setQrCodeDataUrl(url))
+              .catch(err => console.error(err));
+      } else {
+          setQrCodeDataUrl('');
+      }
+  }, [showQrModal]);
 
   const handleScanComplete = async (code: string) => {
       setShowScanner(false);
@@ -214,7 +232,33 @@ const AssetPage = () => {
       setShowManageKitModal({ ...showManageKitModal, contents: updatedContents, earliestExpiry: earliest });
   };
 
-  // --- Add Asset Logic ---
+  // --- Add/Edit Asset Logic ---
+  const handleEditInit = (asset: Vehicle | MedicalKit, type: 'Vehicle' | 'Kit') => {
+      setNewAssetType(type);
+      setNewAssetDetails({
+          id: asset.id,
+          name: type === 'Vehicle' ? (asset as Vehicle).callSign : (asset as MedicalKit).name,
+          type: type === 'Vehicle' ? (asset as Vehicle).type : (asset as MedicalKit).type,
+          registration: type === 'Vehicle' ? (asset as Vehicle).registration : '',
+          checklist: asset.checklist || getChecklistForAsset(asset, type)
+      });
+      setIsEditingAsset(true);
+      setShowAddAssetModal(true);
+  };
+
+  const handleDeleteAsset = async () => {
+      if (!isEditingAsset || !confirm("Are you sure you want to PERMANENTLY DELETE this asset?")) return;
+      try {
+          const collectionName = newAssetType === 'Vehicle' ? 'fleet' : 'medical_kits';
+          await deleteDoc(doc(db, collectionName, newAssetDetails.id));
+          setShowAddAssetModal(false);
+          setNewAssetDetails({ id: '', name: '', type: '', registration: '', checklist: [] });
+      } catch (e) {
+          console.error("Delete failed", e);
+          alert("Failed to delete asset.");
+      }
+  };
+
   const handleAddAsset = async () => {
       if (!newAssetDetails.id || !newAssetDetails.name) return;
       
@@ -227,9 +271,9 @@ const AssetPage = () => {
                   type: newAssetDetails.type || 'Ambulance',
                   status: 'Operational',
                   mileage: 0,
-                  checklist: newAssetDetails.checklist // Custom checklist
+                  checklist: newAssetDetails.checklist
               };
-              await setDoc(doc(db, 'fleet', vehicle.id), vehicle);
+              await setDoc(doc(db, 'fleet', vehicle.id), vehicle, { merge: true });
           } else {
               const kit: MedicalKit = {
                   id: newAssetDetails.id,
@@ -237,15 +281,15 @@ const AssetPage = () => {
                   type: newAssetDetails.type || 'Response Bag',
                   status: 'Ready',
                   contents: [],
-                  checklist: newAssetDetails.checklist // Custom checklist
+                  checklist: newAssetDetails.checklist
               };
-              await setDoc(doc(db, 'medical_kits', kit.id), kit);
+              await setDoc(doc(db, 'medical_kits', kit.id), kit, { merge: true });
           }
           setShowAddAssetModal(false);
           setNewAssetDetails({ id: '', name: '', type: '', registration: '', checklist: [] });
       } catch (e) {
-          console.error("Error adding asset", e);
-          alert("Failed to create asset.");
+          console.error("Error adding/updating asset", e);
+          alert("Failed to save asset.");
       }
   };
 
@@ -303,7 +347,7 @@ const AssetPage = () => {
             <div className="flex gap-2">
                 {isManager && (
                     <button 
-                        onClick={() => setShowAddAssetModal(true)}
+                        onClick={() => { setIsEditingAsset(false); setNewAssetDetails({id:'',name:'',type:'',registration:'',checklist:[]}); setShowAddAssetModal(true); }}
                         className="flex items-center gap-2 px-5 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-95"
                     >
                         <Plus className="w-5 h-5" /> Add Asset
@@ -370,13 +414,18 @@ const AssetPage = () => {
         {activeTab === 'Fleet' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in">
                 {fleet.map(vehicle => (
-                    <div key={vehicle.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden group">
+                    <div key={vehicle.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden group relative">
+                        {isManager && (
+                            <button onClick={() => handleEditInit(vehicle, 'Vehicle')} className="absolute top-4 right-4 p-2 bg-slate-100 dark:bg-slate-700 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors z-10 shadow-sm">
+                                <Edit className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                            </button>
+                        )}
                         <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
                                     <Truck className="w-6 h-6 text-ams-blue dark:text-blue-400" />
                                 </div>
-                                <StatusBadge status={vehicle.status} />
+                                <div className="mr-8"><StatusBadge status={vehicle.status} /></div>
                             </div>
                             <h3 className="text-xl font-bold text-slate-800 dark:text-white">{vehicle.callSign}</h3>
                             <p className="text-sm text-slate-500 dark:text-slate-400 font-mono mt-1">{vehicle.registration}</p>
@@ -398,13 +447,18 @@ const AssetPage = () => {
         {activeTab === 'Inventory' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in">
                 {kits.map(kit => (
-                    <div key={kit.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                    <div key={kit.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden relative">
+                        {isManager && (
+                            <button onClick={() => handleEditInit(kit, 'Kit')} className="absolute top-4 right-4 p-2 bg-slate-100 dark:bg-slate-700 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors z-10 shadow-sm">
+                                <Edit className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                            </button>
+                        )}
                         <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="p-3 bg-emerald-50 dark:bg-emerald-900/30 rounded-xl">
                                     <Briefcase className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
                                 </div>
-                                <StatusBadge status={kit.status} />
+                                <div className="mr-8"><StatusBadge status={kit.status} /></div>
                             </div>
                             <h3 className="text-lg font-bold text-slate-800 dark:text-white">{kit.name}</h3>
                             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{kit.type}</p>
@@ -430,29 +484,27 @@ const AssetPage = () => {
 
         {showScanner && <QrScannerModal onScan={handleScanComplete} onClose={() => setShowScanner(false)} />}
 
-        {/* Add Asset Modal, Manage Kit Modal, Check VDI Modal, History Modal... */}
-        {/* Same as before but now using newAssetDetails.checklist which is built using new defaults logic in handleAddAsset */}
-        {/* ... (Rest of the component logic for modals remains identical to previous, just contextually correct) ... */}
-        
-        {/* Add Asset Modal (Managers) */}
+        {/* Add/Edit Asset Modal (Managers) */}
         {showAddAssetModal && (
             <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700 max-h-[90vh]">
                     <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
-                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">Create New Asset</h3>
+                        <h3 className="font-bold text-xl text-slate-800 dark:text-white">{isEditingAsset ? 'Edit Asset' : 'Create New Asset'}</h3>
                         <button onClick={() => setShowAddAssetModal(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><XCircle className="w-6 h-6 text-slate-400" /></button>
                     </div>
                     <div className="p-6 flex-1 overflow-y-auto space-y-4">
-                        <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-700 rounded-xl">
-                            <button onClick={() => setNewAssetType('Vehicle')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newAssetType === 'Vehicle' ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Vehicle</button>
-                            <button onClick={() => setNewAssetType('Kit')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newAssetType === 'Kit' ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Kit Bag</button>
-                        </div>
+                        {!isEditingAsset && (
+                            <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-700 rounded-xl">
+                                <button onClick={() => setNewAssetType('Vehicle')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newAssetType === 'Vehicle' ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Vehicle</button>
+                                <button onClick={() => setNewAssetType('Kit')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newAssetType === 'Kit' ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Kit Bag</button>
+                            </div>
+                        )}
 
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Asset ID</label>
-                                    <input className="w-full input-field" placeholder="e.g. V001" value={newAssetDetails.id} onChange={e => setNewAssetDetails({...newAssetDetails, id: e.target.value})} />
+                                    <input className="w-full input-field" placeholder="e.g. V001" value={newAssetDetails.id} onChange={e => setNewAssetDetails({...newAssetDetails, id: e.target.value})} disabled={isEditingAsset} />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">{newAssetType === 'Vehicle' ? 'Registration' : 'Type'}</label>
@@ -479,7 +531,7 @@ const AssetPage = () => {
                             {/* Custom Checklist Builder */}
                             <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                                 <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-                                    <ListChecks className="w-4 h-4" /> Custom Checklist
+                                    <ListChecks className="w-4 h-4" /> Checklist Configuration
                                 </h4>
                                 <div className="mb-3 flex flex-wrap gap-2">
                                     {SUGGESTED_ITEMS.map(item => (
@@ -499,19 +551,24 @@ const AssetPage = () => {
                                             <button onClick={() => removeCustomChecklistItem(item.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 className="w-3 h-3" /></button>
                                         </div>
                                     ))}
-                                    {newAssetDetails.checklist.length === 0 && <p className="text-xs text-slate-400 italic">No custom items. Will use role-based default.</p>}
+                                    {newAssetDetails.checklist.length === 0 && <p className="text-xs text-slate-400 italic">No custom items. Using default list.</p>}
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div className="p-6 border-t border-slate-200 dark:border-slate-700">
-                        <button onClick={handleAddAsset} className="w-full py-3 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 transition-all active:scale-95">Create Asset</button>
+                    <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex gap-3">
+                        {isEditingAsset && (
+                            <>
+                                <button onClick={handleDeleteAsset} className="px-4 py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold flex items-center justify-center transition-colors"><Trash2 className="w-5 h-5" /></button>
+                                <button onClick={() => setShowQrModal(newAssetDetails.id)} className="px-4 py-3 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"><Printer className="w-5 h-5" /> QR</button>
+                            </>
+                        )}
+                        <button onClick={handleAddAsset} className="flex-1 py-3 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 transition-all active:scale-95">{isEditingAsset ? 'Update Asset' : 'Create Asset'}</button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* ... Other modals (Manage, Check, History) same as original ... */}
         {/* Manage Kit Content Modal */}
         {showManageKitModal && (
             <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
@@ -692,6 +749,29 @@ const AssetPage = () => {
                         )}
                     </div>
                 </div>
+            </div>
+        )}
+
+        {/* QR Print Modal */}
+        {showQrModal && qrCodeDataUrl && (
+            <div className="fixed inset-0 z-[70] bg-white flex flex-col items-center justify-center p-8">
+                <h1 className="text-3xl font-bold mb-4">Print Asset Tag</h1>
+                <p className="text-xl font-mono mb-8">{showQrModal}</p>
+                <div className="border-4 border-black p-4 rounded-xl mb-8">
+                    <img src={qrCodeDataUrl} alt="Asset QR" className="w-64 h-64" />
+                </div>
+                <div className="flex gap-4 print:hidden">
+                    <button onClick={() => window.print()} className="px-8 py-3 bg-ams-blue text-white font-bold rounded-xl shadow-lg">Print Label</button>
+                    <button onClick={() => setShowQrModal(null)} className="px-8 py-3 bg-slate-200 text-slate-700 font-bold rounded-xl">Close</button>
+                </div>
+                <style>{`
+                    @media print {
+                        body * { visibility: hidden; }
+                        .fixed { position: absolute; left: 0; top: 0; width: 100%; height: 100%; visibility: visible; background: white; }
+                        .fixed * { visibility: visible; }
+                        .print\\:hidden { display: none !important; }
+                    }
+                `}</style>
             </div>
         )}
     </div>

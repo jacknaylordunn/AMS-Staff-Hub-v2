@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { BarChart, Clock, Users, Award, TrendingUp, Loader2 } from 'lucide-react';
-import { Role, Shift, TimeRecord } from '../types';
+import { BarChart, Clock, Users, Award, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
+import { Role, Shift, TimeRecord, User, ComplianceDoc } from '../types';
 import { db } from '../services/firebase';
 import { collection, getDocs, query, limit, orderBy } from 'firebase/firestore';
 
@@ -38,17 +38,35 @@ const StaffAnalytics = () => {
   const [totalHours, setTotalHours] = useState(0);
   const [activeStaffCount, setActiveStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [expiringDocs, setExpiringDocs] = useState<{name: string, docName: string, days: number}[]>([]);
 
   useEffect(() => {
       const calculateStats = async () => {
           try {
               // 1. Get Users
               const usersSnap = await getDocs(collection(db, 'users'));
-              const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as any));
-              setActiveStaffCount(users.filter((u: any) => u.status === 'Active').length);
+              const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User));
+              setActiveStaffCount(users.filter((u) => u.status === 'Active').length);
+
+              // Calculate Compliance Risks
+              const risks: {name: string, docName: string, days: number}[] = [];
+              const now = new Date();
+              users.forEach(u => {
+                  if (u.status !== 'Active') return;
+                  u.compliance?.forEach(doc => {
+                      if (doc.expiryDate) {
+                          const exp = new Date(doc.expiryDate);
+                          const diffTime = exp.getTime() - now.getTime();
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          if (diffDays < 30) {
+                              risks.push({ name: u.name, docName: doc.name, days: diffDays });
+                          }
+                      }
+                  });
+              });
+              setExpiringDocs(risks.sort((a,b) => a.days - b.days));
 
               // 2. Get Shifts (Optimized: Last 500 shifts only)
-              // This prevents loading the entire history of the company on a single dashboard load.
               const shiftsQ = query(
                   collection(db, 'shifts'),
                   orderBy('start', 'desc'),
@@ -164,25 +182,52 @@ const StaffAnalytics = () => {
           </div>
         </div>
 
-        {/* Role Distribution */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-           <h3 className="font-bold text-slate-800 mb-6">Role Distribution</h3>
-           <div className="space-y-4">
-              {Object.entries(roleDist).map(([role, count], idx) => (
-                 <div key={idx} className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${roleColors[role] || 'bg-slate-400'}`}></div>
-                    <div className="flex-1">
-                       <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium text-slate-600">{role}</span>
-                          <span className="text-slate-400">{count}</span>
-                       </div>
-                       <div className="w-full bg-slate-100 rounded-full h-1.5">
-                          <div className={`h-1.5 rounded-full ${roleColors[role] || 'bg-slate-400'}`} style={{ width: `${(Number(count) / activeStaffCount) * 100}%` }}></div>
-                       </div>
+        {/* Compliance Risk & Role Distribution */}
+        <div className="space-y-6">
+            {/* Compliance Warning */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <h3 className="font-bold text-red-700 mb-4 flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5" /> Compliance Risk
+                </h3>
+                <div className="space-y-3 max-h-[200px] overflow-y-auto">
+                    {expiringDocs.length === 0 ? (
+                        <p className="text-sm text-slate-400 italic">No expiry warnings.</p>
+                    ) : (
+                        expiringDocs.map((item, idx) => (
+                            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-red-50 rounded-lg">
+                                <div>
+                                    <div className="font-bold text-slate-800">{item.name}</div>
+                                    <div className="text-xs text-slate-500">{item.docName}</div>
+                                </div>
+                                <span className={`text-xs font-bold px-2 py-1 rounded ${item.days < 0 ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'}`}>
+                                    {item.days < 0 ? 'EXPIRED' : `${item.days} days`}
+                                </span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {/* Role Distribution */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-6">Role Distribution</h3>
+            <div className="space-y-4">
+                {Object.entries(roleDist).map(([role, count], idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${roleColors[role] || 'bg-slate-400'}`}></div>
+                        <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium text-slate-600">{role}</span>
+                            <span className="text-slate-400">{count}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-1.5">
+                            <div className={`h-1.5 rounded-full ${roleColors[role] || 'bg-slate-400'}`} style={{ width: `${(Number(count) / activeStaffCount) * 100}%` }}></div>
+                        </div>
+                        </div>
                     </div>
-                 </div>
-              ))}
-           </div>
+                ))}
+            </div>
+            </div>
         </div>
       </div>
     </div>

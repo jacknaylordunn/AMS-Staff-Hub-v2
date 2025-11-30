@@ -22,6 +22,9 @@ const DiagnosisTab = () => {
         handleNestedUpdate(['clinicalDecision', field], value);
     };
 
+    const isConveying = data.finalDisposition?.toLowerCase().includes('conveyed') || 
+                        data.finalDisposition?.toLowerCase().includes('referred to sdec');
+
     return (
         <div className="space-y-6 animate-in fade-in">
             {/* Diagnosis Section */}
@@ -57,6 +60,7 @@ const DiagnosisTab = () => {
                             <option value="">-- Select --</option>
                             <option>Treated & Discharged on Scene</option>
                             <option>Conveyed to Emergency Dept</option>
+                            <option>Conveyed to Other Department</option>
                             <option>Referred to Primary Care (GP)</option>
                             <option>Referred to SDEC / Ambulatory</option>
                             <option>Left at Home (Care Plan)</option>
@@ -78,6 +82,35 @@ const DiagnosisTab = () => {
                 </div>
             </div>
 
+            {/* Conveyance Details - Always show if disposition implies transport */}
+            {isConveying && (
+                <div className="glass-panel p-6 rounded-2xl animate-in slide-in-from-bottom-2 border-l-4 border-l-green-500">
+                    <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                        <Signpost className="w-5 h-5 text-green-600" /> Handoff Destination
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="input-label">Receiving Hospital</label>
+                            <input 
+                                className="input-field"
+                                value={data.destinationLocation || ''}
+                                onChange={e => update('destinationLocation', e.target.value)}
+                                placeholder="e.g. Royal Berkshire Hospital"
+                            />
+                        </div>
+                        <div>
+                            <label className="input-label">Department / Ward</label>
+                            <input 
+                                className="input-field"
+                                value={data.receivingUnit || ''}
+                                onChange={e => update('receivingUnit', e.target.value)}
+                                placeholder="e.g. Resus, Majors, CDU, Paeds"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Management Plan */}
             <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-purple-500">
                 <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
@@ -90,35 +123,6 @@ const DiagnosisTab = () => {
                     onChange={e => update('managementPlan', e.target.value)}
                 />
             </div>
-
-            {/* Conveyance Details (Conditional) */}
-            {data.finalDisposition?.includes('Conveyed') && (
-                <div className="glass-panel p-6 rounded-2xl animate-in slide-in-from-bottom-2">
-                    <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                        <Signpost className="w-5 h-5 text-green-600" /> Destination
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="input-label">Receiving Hospital</label>
-                            <input 
-                                className="input-field"
-                                value={data.destinationLocation}
-                                onChange={e => update('destinationLocation', e.target.value)}
-                                placeholder="e.g. Royal Berkshire Hospital"
-                            />
-                        </div>
-                        <div>
-                            <label className="input-label">Department / Ward</label>
-                            <input 
-                                className="input-field"
-                                value={data.receivingUnit}
-                                onChange={e => update('receivingUnit', e.target.value)}
-                                placeholder="e.g. Resus, Majors, CDU"
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

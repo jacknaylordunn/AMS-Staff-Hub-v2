@@ -5,9 +5,9 @@ import {
   Calendar as CalendarIcon, Filter, Plus, X, Repeat, Loader2, 
   Briefcase, Truck, Users, Search, Trash2, UserPlus, 
   Sparkles, Save, Edit3, UserCheck, AlertCircle, ArrowRight, Bell,
-  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange, Hand, MousePointerClick, Navigation
+  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange, Hand, MousePointerClick, Navigation, DollarSign
 } from 'lucide-react';
-import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource } from '../types';
+import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource, TimeRecord } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, Timestamp, getDocs, writeBatch } from 'firebase/firestore';
@@ -36,6 +36,10 @@ const RotaPage = () => {
   const [isBriefingOpen, setIsBriefingOpen] = useState(false); // For Staff
   const [isNewShift, setIsNewShift] = useState(false);
   const [isOperating, setIsOperating] = useState(false);
+
+  // Time Manager Modal
+  const [manageTimeUser, setManageTimeUser] = useState<{uid: string, name: string} | null>(null);
+  const [manageTimeData, setManageTimeData] = useState<{in: string, out: string}>({in: '', out: ''});
 
   // AI Rota Analysis
   const [rotaAnalysis, setRotaAnalysis] = useState<string | null>(null);
@@ -178,7 +182,8 @@ const RotaPage = () => {
               notes: selectedShift.notes,
               status: selectedShift.status,
               tags: selectedShift.tags || [],
-              resources: selectedShift.resources || []
+              resources: selectedShift.resources || [],
+              timeRecords: selectedShift.timeRecords || {}
           });
           setFormSlots(selectedShift.slots || []);
           setIsRepeating(false);
@@ -298,7 +303,7 @@ const RotaPage = () => {
           tags: formData.tags || [],
           resources: formData.resources || [],
           createdBy: user?.uid || null, 
-          timeRecords: isNewShift ? {} : (selectedShift?.timeRecords || {})
+          timeRecords: formData.timeRecords || {}
       };
 
       setIsOperating(true);
@@ -463,6 +468,36 @@ const RotaPage = () => {
   };
 
   const removeResource = (id: string) => setFormData({ ...formData, resources: (formData.resources || []).filter(r => r.id !== id) });
+
+  const openTimeManager = (uid: string, name: string) => {
+      const existing = formData.timeRecords?.[uid];
+      setManageTimeUser({ uid, name });
+      setManageTimeData({
+          in: existing?.clockInTime ? new Date(existing.clockInTime).toISOString().slice(0, 16) : '',
+          out: existing?.clockOutTime ? new Date(existing.clockOutTime).toISOString().slice(0, 16) : ''
+      });
+  };
+
+  const saveTimeData = () => {
+      if (!manageTimeUser) return;
+      
+      const newRecord: TimeRecord = {
+          userId: manageTimeUser.uid,
+          clockInTime: manageTimeData.in ? new Date(manageTimeData.in).toISOString() : '',
+          clockOutTime: manageTimeData.out ? new Date(manageTimeData.out).toISOString() : undefined,
+          clockInLocation: 'MANUAL_EDIT'
+      };
+
+      setFormData(prev => ({
+          ...prev,
+          timeRecords: {
+              ...prev.timeRecords,
+              [manageTimeUser.uid]: newRecord
+          }
+      }));
+      
+      setManageTimeUser(null);
+  };
 
   // --- Renderers ---
   const renderMonthView = () => {
@@ -752,6 +787,11 @@ const RotaPage = () => {
                                                   </div>
                                               )}
                                           </div>
+                                          {slot.userId && (
+                                              <button onClick={() => openTimeManager(slot.userId!, slot.userName!)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Manage Time">
+                                                  <DollarSign className="w-4 h-4" />
+                                              </button>
+                                          )}
                                           <button onClick={() => removeSlot(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                                       </div>
                                       
@@ -802,6 +842,29 @@ const RotaPage = () => {
                               {isOperating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {isNewShift ? 'Publish Shift' : 'Save Changes'}
                           </button>
                       </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Manual Time Entry Modal */}
+      {manageTimeUser && (
+          <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Adjust Timesheet: {manageTimeUser.name}</h3>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clock In</label>
+                          <input type="datetime-local" className="w-full input-field" value={manageTimeData.in} onChange={e => setManageTimeData({...manageTimeData, in: e.target.value})} />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clock Out</label>
+                          <input type="datetime-local" className="w-full input-field" value={manageTimeData.out} onChange={e => setManageTimeData({...manageTimeData, out: e.target.value})} />
+                      </div>
+                  </div>
+                  <div className="flex gap-2 mt-6">
+                      <button onClick={() => setManageTimeUser(null)} className="flex-1 py-2 bg-slate-100 rounded-lg font-bold text-slate-600">Cancel</button>
+                      <button onClick={saveTimeData} className="flex-1 py-2 bg-ams-blue text-white rounded-lg font-bold">Save Record</button>
                   </div>
               </div>
           </div>
