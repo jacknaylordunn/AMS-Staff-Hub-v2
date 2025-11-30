@@ -26,324 +26,384 @@ const getImageData = (url: string): Promise<string> => {
     });
 };
 
+export const generateSafeguardingPDF = async (data: EPRF) => {
+    const doc: any = new jsPDF();
+    const themeRed = '#DC2626'; 
+    let yPos = 20;
+
+    let logoData = '';
+    try { logoData = await getImageData(LOGO_URL); } catch (e) {}
+
+    // Header
+    doc.setFillColor(themeRed);
+    doc.rect(0, 0, 210, 35, 'F');
+    if (logoData) try { doc.addImage(logoData, 'PNG', 12, 6, 22, 22); } catch (e) {}
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text("CONFIDENTIAL SAFEGUARDING REFERRAL", 40, 20);
+    
+    doc.setFontSize(10);
+    doc.text(`INCIDENT: ${data.incidentNumber}`, 195, 15, { align: 'right' });
+    doc.text(`DATE: ${new Date().toLocaleDateString()}`, 195, 22, { align: 'right' });
+
+    yPos = 45;
+    doc.setTextColor(0);
+
+    // Subject
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`SUBJECT: ${data.governance.safeguarding.category || 'Unknown Category'}`, 15, yPos);
+    yPos += 10;
+
+    // Patient Details
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text("Patient Details", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Name: ${data.patient.firstName} ${data.patient.lastName}`, 15, yPos);
+    doc.text(`DOB: ${data.patient.dob}`, 15, yPos + 6);
+    doc.text(`NHS: ${data.patient.nhsNumber}`, 15, yPos + 12);
+    doc.text(`Address: ${data.patient.address}`, 15, yPos + 18);
+    yPos += 30;
+
+    // Concerns
+    doc.setFont('helvetica', 'bold');
+    doc.text("Nature of Concern", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Categories: ${data.governance.safeguarding.type?.join(', ') || 'Unspecified'}`, 15, yPos);
+    yPos += 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Detailed Narrative / Cause for Concern", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    const splitText = doc.splitTextToSize(data.governance.safeguarding.details || 'No details provided.', 180);
+    doc.text(splitText, 15, yPos);
+    yPos += (splitText.length * 5) + 10;
+
+    // Footer
+    doc.setFontSize(8);
+    doc.text("This document contains sensitive personal data. Handle in accordance with GDPR and Caldicott Principles.", 105, 280, { align: 'center' });
+
+    doc.save(`Safeguarding_${data.incidentNumber}.pdf`);
+};
+
 export const generateEPRF_PDF = async (data: EPRF) => {
   const doc: any = new jsPDF();
-  const themeBlue = '#0052CC'; // ams-blue
-  const themeDark = '#091E42'; // ams-dark
+  const themeBlue = '#0052CC'; 
+  const themeDark = '#091E42';
   const themeGrey = '#F1F5F9';
+
+  let yPos = 20;
+
+  const checkPage = (heightNeeded: number) => {
+      if (yPos + heightNeeded > 280) {
+          doc.addPage();
+          yPos = 20;
+      }
+  };
+
+  const printSectionHeader = (title: string) => {
+      checkPage(15);
+      doc.setFillColor(240, 240, 240);
+      doc.rect(10, yPos, 190, 8, 'F');
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(title.toUpperCase(), 12, yPos + 5.5);
+      yPos += 12;
+  };
 
   let logoData = '';
   try { logoData = await getImageData(LOGO_URL); } catch (e) {}
 
-  // --- Header ---
+  // --- HEADER ---
   doc.setFillColor(themeDark);
-  doc.rect(0, 0, 210, 30, 'F');
-  if (logoData) try { doc.addImage(logoData, 'PNG', 10, 5, 20, 20); } catch (e) {}
+  doc.rect(0, 0, 210, 35, 'F');
+  if (logoData) try { doc.addImage(logoData, 'PNG', 12, 6, 22, 22); } catch (e) {}
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
-  doc.text("AEGIS MEDICAL SOLUTIONS", 35, 15);
+  doc.text("AEGIS MEDICAL SOLUTIONS", 40, 16);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text("CLINICAL PATIENT RECORD", 35, 22);
-  doc.text("CONFIDENTIAL", 195, 15, { align: 'right' });
+  doc.text("CLINICAL PATIENT RECORD", 40, 23);
+  
   doc.setFontSize(9);
-  doc.text(`INCIDENT REF: ${data.incidentNumber}`, 195, 25, { align: 'right' });
+  doc.text(`INCIDENT: ${data.incidentNumber}`, 195, 12, { align: 'right' });
+  doc.text(`DATE: ${new Date().toLocaleDateString()}`, 195, 17, { align: 'right' });
+  doc.text(`CALL SIGN: ${data.callSign || 'N/A'}`, 195, 22, { align: 'right' });
+  
+  yPos = 45;
 
-  // --- Patient Strip ---
+  // --- DEMOGRAPHICS ---
   doc.setFillColor(themeBlue);
-  doc.rect(0, 30, 210, 15, 'F');
+  doc.rect(10, yPos - 5, 190, 15, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${data.patient.lastName.toUpperCase()}, ${data.patient.firstName}`, 10, 40);
-  doc.setFontSize(10);
+  doc.text(`${data.patient.lastName.toUpperCase()}, ${data.patient.firstName}`, 15, yPos + 4);
+  
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(`DOB: ${data.patient.dob ? new Date(data.patient.dob).toLocaleDateString() : 'Unknown'}`, 100, 40);
-  doc.text(`NHS: ${data.patient.nhsNumber || 'N/A'}`, 160, 40);
-  if (data.patient.chronicHypoxia) {
-      doc.text("COPD / Chronic Hypoxia (Scale 2)", 10, 25); // Added warning in header
-  }
-
-  let yPos = 55;
-
-  // --- Incident Details ---
-  doc.setTextColor(0, 0, 0);
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text("INCIDENT & CREW DETAILS", 10, yPos);
+  const dobStr = data.patient.dob ? new Date(data.patient.dob).toLocaleDateString() : 'Unknown';
+  doc.text(`DOB: ${dobStr}`, 120, yPos + 4);
+  doc.text(`NHS: ${data.patient.nhsNumber || 'N/A'}`, 160, yPos + 4);
   
-  const crewList = data.assistingClinicians && data.assistingClinicians.length > 0 
-    ? data.assistingClinicians.map(c => `${c.name} (${c.role})`).join(', ')
-    : 'Solo Clinician';
+  yPos += 20;
 
+  // --- TIMINGS ---
   doc.autoTable({
-    startY: yPos + 3,
-    head: [['Date', 'Call Sign', 'Mode', 'Location', 'Crew']],
-    body: [[new Date().toLocaleDateString(), data.callSign, data.mode, data.location, crewList]],
-    theme: 'plain',
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: themeGrey, textColor: 50, fontStyle: 'bold' },
+      startY: yPos,
+      head: [['Received', 'Mobile', 'On Scene', 'Contact', 'Depart', 'Hospital', 'Clear']],
+      body: [[
+          data.times.callReceived || '-',
+          data.times.mobile || '-',
+          data.times.onScene || '-',
+          data.times.patientContact || '-',
+          data.times.departScene || '-',
+          data.times.atHospital || '-',
+          data.times.clear || '-'
+      ]],
+      theme: 'plain',
+      styles: { fontSize: 8, halign: 'center' },
+      headStyles: { fillColor: themeGrey, textColor: 50, fontStyle: 'bold' }
   });
   yPos = doc.lastAutoTable.finalY + 10;
 
-  // --- History ---
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text("CLINICAL HISTORY", 10, yPos);
-  doc.setDrawColor(200);
-  doc.line(10, yPos + 2, 200, yPos + 2);
-  yPos += 8;
-
-  const historyData = [
-      ['PC', data.history.presentingComplaint],
-      ['HPC', data.history.historyOfPresentingComplaint],
-      ['PMH', data.history.pastMedicalHistory],
+  // --- HISTORY & SAMPLE ---
+  printSectionHeader("Clinical History & SAMPLE");
+  const hxData = [
+      ['Presenting Complaint', data.history.presentingComplaint],
+      ['History of PC', data.history.historyOfPresentingComplaint],
+      ['Symptoms', data.history.sample?.symptoms || '-'],
       ['Allergies', data.history.allergies],
-      ['Meds', data.history.medications]
+      ['Medications', data.history.medications],
+      ['Past History', data.history.pastMedicalHistory],
+      ['Last Oral Intake', data.history.sample?.lastOralIntake || '-'],
+      ['Events Prior', data.history.sample?.eventsPrior || '-']
   ];
-
   doc.autoTable({
       startY: yPos,
-      body: historyData,
+      body: hxData,
       theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' },
-      columnStyles: { 0: { cellWidth: 30, fontStyle: 'bold', fillColor: themeGrey }, 1: { cellWidth: 'auto' } },
+      styles: { fontSize: 9, cellPadding: 3 },
+      columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: themeGrey }, 1: { cellWidth: 'auto' } }
   });
   yPos = doc.lastAutoTable.finalY + 10;
 
-  // --- Assessment (Primary Survey) ---
-  if (yPos > 250) { doc.addPage(); yPos = 20; }
-  doc.setFontSize(11);
-  doc.text("PRIMARY SURVEY (ABCDE)", 10, yPos);
-  doc.line(10, yPos + 2, 200, yPos + 2);
-  yPos += 8;
-
-  const prim = data.assessment.primary;
-  const primBody = [[
-      `Airway: ${prim.airway.status}\nIntervention: ${prim.airway.intervention || 'None'}`,
-      `Breathing:\nAir Entry L: ${prim.breathing.airEntryL} R: ${prim.breathing.airEntryR}\nSounds L: ${prim.breathing.soundsL} R: ${prim.breathing.soundsR}\nEffort: ${prim.breathing.effort}`,
-      `Circulation:\nRadial: ${prim.circulation.radialPulse}\nSkin: ${prim.circulation.skin} (${prim.circulation.temp})`,
-      `Disability:\nAVPU: ${prim.disability.avpu}\nPupils: ${prim.disability.pupils}\nBM: ${prim.disability.bloodGlucose}`,
-      `Exposure:\nInjuries: ${prim.exposure.injuriesFound ? 'Yes' : 'No'}\nRash: ${prim.exposure.rash ? 'Yes' : 'No'}`
-  ]];
-
+  // --- PRIMARY SURVEY ---
+  printSectionHeader("Primary Survey <C>ABCDE");
+  const ps = data.assessment.primary;
+  const psData = [
+      ['<C> Catastrophic Haemorrhage', ps.catastrophicHaemorrhage ? 'YES - MANAGED' : 'No'],
+      ['A - Airway', `${ps.airway.patency || ps.airway.status} (${ps.airway.notes || 'Clear'})`],
+      ['B - Breathing', `Effort: ${ps.breathing.effort}, Expansion: ${ps.breathing.chestExpansion || 'Equal'}, Sounds: ${ps.breathing.soundsL}/${ps.breathing.soundsR}`],
+      ['C - Circulation', `Pulse: ${ps.circulation.radialPulse}, Skin: ${ps.circulation.skin}, CRT: ${ps.circulation.capRefill}`],
+      ['D - Disability', `AVPU: ${ps.disability.avpu}, GCS: ${ps.disability.gcs || '-'}, Pupils: ${ps.disability.pupils}, BM: ${ps.disability.bloodGlucose}`],
+      ['E - Exposure', `Injuries: ${ps.exposure.injuriesFound ? 'Yes' : 'No'}, Temp: ${ps.exposure.temp}`]
+  ];
   doc.autoTable({
       startY: yPos,
-      body: primBody,
-      theme: 'striped',
-      styles: { fontSize: 8, cellPadding: 2 }
+      body: psData,
+      theme: 'grid',
+      styles: { fontSize: 9 },
+      columnStyles: { 0: { fontStyle: 'bold', width: 50 } }
   });
   yPos = doc.lastAutoTable.finalY + 10;
 
-  // --- Specialized Assessment Sections (Conditional) ---
-  
-  // 1. Cardiac
-  if (data.assessment.cardiac?.chestPainPresent || data.assessment.cardiac?.ecg?.rhythm) {
-      if (yPos > 240) { doc.addPage(); yPos = 20; }
-      doc.text("CARDIAC ASSESSMENT", 10, yPos);
-      doc.autoTable({
-          startY: yPos + 3,
-          head: [['Pain (SOCRATES)', 'ECG Analysis']],
-          body: [[
-              `Onset: ${data.assessment.cardiac?.socrates?.onset || '-'}\nSeverity: ${data.assessment.cardiac?.socrates?.severity}/10\nChar: ${data.assessment.cardiac?.socrates?.character}\nRad: ${data.assessment.cardiac?.socrates?.radiation}`,
-              `Rhythm: ${data.assessment.cardiac?.ecg?.rhythm}\nRate: ${data.assessment.cardiac?.ecg?.rate}\nSTEMI: ${data.assessment.cardiac?.ecg?.stElevation ? 'YES' : 'No'}\nNotes: ${data.assessment.cardiac?.ecg?.twelveLeadNotes}`
-          ]],
-          theme: 'grid',
-          styles: { fontSize: 8 }
-      });
-      yPos = doc.lastAutoTable.finalY + 8;
+  if (data.assessment.clinicalNarrative) {
+      checkPage(30);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Examination Narrative:", 10, yPos);
+      yPos += 5;
+      doc.setFont('helvetica', 'normal');
+      const splitText = doc.splitTextToSize(data.assessment.clinicalNarrative, 190);
+      doc.text(splitText, 10, yPos);
+      yPos += (splitText.length * 4) + 10;
   }
 
-  // 2. Respiratory
-  if (data.assessment.respiratory?.cough || data.assessment.respiratory?.peakFlowPre) {
-      if (yPos > 240) { doc.addPage(); yPos = 20; }
-      doc.text("RESPIRATORY ASSESSMENT", 10, yPos);
-      doc.autoTable({
-          startY: yPos + 3,
-          head: [['Cough / Sputum', 'Peak Flow', 'History']],
-          body: [[
-              `${data.assessment.respiratory?.cough} / ${data.assessment.respiratory?.sputumColor || '-'}`,
-              `Pre: ${data.assessment.respiratory?.peakFlowPre || '-'} L/min\nPost: ${data.assessment.respiratory?.peakFlowPost || '-'} L/min`,
-              data.assessment.respiratory?.history
-          ]],
-          theme: 'grid',
-          styles: { fontSize: 8 }
-      });
-      yPos = doc.lastAutoTable.finalY + 8;
-  }
-
-  // 3. GI / GU
-  if (data.assessment.gastrointestinal?.abdominalPain || data.assessment.gastrointestinal?.painLocation) {
-      if (yPos > 240) { doc.addPage(); yPos = 20; }
-      doc.text("GI / GU ASSESSMENT", 10, yPos);
-      doc.autoTable({
-          startY: yPos + 3,
-          head: [['Abdomen', 'Output / Intake']],
-          body: [[
-              `Pain: ${data.assessment.gastrointestinal?.painLocation}\nPalpation: ${data.assessment.gastrointestinal?.palpation}\nDistension: ${data.assessment.gastrointestinal?.distension ? 'Yes' : 'No'}`,
-              `Last Meal: ${data.assessment.gastrointestinal?.lastMeal}\nLast BM: ${data.assessment.gastrointestinal?.lastBowelMovement}\nUrine: ${data.assessment.gastrointestinal?.urineOutput}`
-          ]],
-          theme: 'grid',
-          styles: { fontSize: 8 }
-      });
-      yPos = doc.lastAutoTable.finalY + 8;
-  }
-
-  // 4. Obs/Gynae
-  if (data.assessment.obsGynae?.pregnant) {
-      if (yPos > 240) { doc.addPage(); yPos = 20; }
-      doc.text("MATERNITY ASSESSMENT", 10, yPos);
-      doc.autoTable({
-          startY: yPos + 3,
-          body: [[
-              `Gestation: ${data.assessment.obsGynae?.gestationWeeks || '?'} weeks\nGravida/Para: ${data.assessment.obsGynae?.gravida || '-'}/${data.assessment.obsGynae?.para || '-'}\nContractions: ${data.assessment.obsGynae?.contractions || 'None'}\nBleeding: ${data.assessment.obsGynae?.bleeding ? 'YES' : 'No'}`
-          ]],
-          theme: 'grid',
-          styles: { fontSize: 8 }
-      });
-      yPos = doc.lastAutoTable.finalY + 8;
-  }
-
-  // 5. Mental Health
-  if (data.assessment.mentalHealth?.appearance) {
-      if (yPos > 240) { doc.addPage(); yPos = 20; }
-      doc.text("MENTAL STATE EXAM", 10, yPos);
-      doc.autoTable({
-          startY: yPos + 3,
-          head: [['Appearance/Behaviour', 'Speech/Mood', 'Risk']],
-          body: [[
-              `${data.assessment.mentalHealth?.appearance}\n${data.assessment.mentalHealth?.behaviour}`,
-              `${data.assessment.mentalHealth?.speech}\n${data.assessment.mentalHealth?.mood}`,
-              `Self: ${data.assessment.mentalHealth?.riskToSelf ? 'High' : 'Low'}\nOthers: ${data.assessment.mentalHealth?.riskToOthers ? 'High' : 'Low'}`
-          ]],
-          theme: 'grid',
-          styles: { fontSize: 8 }
-      });
-      yPos = doc.lastAutoTable.finalY + 8;
-  }
-
-  // --- Vitals Grid (Detailed) ---
-  doc.text("OBSERVATIONS & TREND", 10, yPos);
-  const vitalsBody = data.vitals?.map((v) => [
-    v.time, 
-    v.hr, 
-    v.rr, 
-    `${v.bpSystolic}/${v.bpDiastolic}`, 
-    `${v.spo2}%`, 
-    v.oxygen ? `${v.oxygenFlow || 'O2'} ${v.oxygenDevice ? `(${v.oxygenDevice})` : ''}` : 'Air', 
-    v.temp, 
-    v.avpu === 'A' ? `GCS ${v.gcs}` : v.avpu, 
-    v.bloodGlucose || '-',
-    v.painScore || '0',
-    v.popsScore ? `POPS ${v.popsScore}` : `NEWS ${v.news2Score}`
-  ]) || [];
-
-  doc.autoTable({
-    startY: yPos + 3,
-    head: [['Time', 'HR', 'RR', 'BP', 'SpO2', 'O2', 'Temp', 'GCS/AVPU', 'BM', 'Pain', 'Score']],
-    body: vitalsBody,
-    theme: 'striped',
-    styles: { fontSize: 8, halign: 'center', cellPadding: 2 },
-    headStyles: { fillColor: themeDark, textColor: 255 }
-  });
-  yPos = doc.lastAutoTable.finalY + 10;
-
-  // --- Treatments & Interventions ---
-  if (data.treatments.drugs.length > 0 || data.treatments.procedures.length > 0) {
-      if (yPos > 230) { doc.addPage(); yPos = 20; }
-      doc.text("INTERVENTIONS, PROCEDURES & DRUGS", 10, yPos);
-      
-      const drugsBody = data.treatments.drugs.map((d) => [
-          d.time, 'Drug', `${d.drugName} ${d.dose} (${d.route})`, `Batch: ${d.batchNumber || '-'}`, d.administeredBy, d.witnessedBy ? `Wit: ${d.witnessedBy}` : '-'
+  // --- VITALS ---
+  if (data.vitals.length > 0) {
+      printSectionHeader("Observations");
+      const vitalsBody = data.vitals.map(v => [
+          v.time, v.rr, `${v.spo2}%`, v.oxygen ? 'Yes' : 'Air', `${v.bpSystolic}/${v.bpDiastolic}`, 
+          v.hr, v.temp, v.avpu === 'A' ? `GCS ${v.gcs}` : v.avpu, v.bloodGlucose || '-', v.painScore, v.news2Score
       ]);
-      const procBody = data.treatments.procedures.map((p) => [
-          p.time, 'Proc', `${p.type} - ${p.details || ''}`, `Site: ${p.site || '-'}`, p.performedBy, p.success ? 'Success' : 'Fail'
-      ]);
-
       doc.autoTable({
-          startY: yPos + 3,
-          head: [['Time', 'Type', 'Detail', 'Notes', 'Clinician', 'Status/Wit']],
-          body: [...drugsBody, ...procBody],
-          theme: 'grid',
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: themeBlue }
+          startY: yPos,
+          head: [['Time', 'RR', 'SpO2', 'O2', 'BP', 'HR', 'Temp', 'AVPU', 'BM', 'Pain', 'NEWS2']],
+          body: vitalsBody,
+          theme: 'striped',
+          styles: { fontSize: 8, halign: 'center' },
+          headStyles: { fillColor: themeDark }
       });
       yPos = doc.lastAutoTable.finalY + 10;
   }
 
-  // --- Handover ---
-  if (yPos > 220) { doc.addPage(); yPos = 20; }
-  doc.setFontSize(11);
-  doc.text("HANDOVER / SBAR", 10, yPos);
-  doc.line(10, yPos + 2, 200, yPos + 2);
-  yPos += 8;
-  
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  const sbarLines = doc.splitTextToSize(data.handover.sbar || "No narrative recorded.", 180);
-  doc.text(sbarLines, 10, yPos);
-  yPos += sbarLines.length * 5 + 15;
-
-  if (yPos > 200) { doc.addPage(); yPos = 20; }
-  
-  doc.setFillColor(245, 245, 245);
-  doc.rect(10, yPos, 190, 45, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(50);
-  doc.text("GOVERNANCE & DISCHARGE:", 15, yPos + 6);
-  doc.text(`Safeguarding: ${data.governance.safeguarding.concerns ? 'YES' : 'NO'}`, 15, yPos + 12);
-  doc.text(`Outcome: ${data.governance.discharge}`, 15, yPos + 18);
-  if (data.governance.destinationLocation) doc.text(`Destination: ${data.governance.destinationLocation}`, 90, yPos + 18);
-  
-  // --- Receiving Details ---
-  if (data.handover.receivingClinicianName) {
-      doc.text(`Handover To: ${data.handover.receivingClinicianName}`, 15, yPos + 30);
-      doc.text(`PIN/Reg: ${data.handover.receivingClinicianPin}`, 90, yPos + 30);
+  // --- INJURIES / BODY MAP IMAGE ---
+  if (data.bodyMapImage || (data.injuries && data.injuries.length > 0)) {
+      printSectionHeader("Injuries & Body Map");
+      
+      if (data.bodyMapImage) {
+          checkPage(80);
+          try {
+              doc.addImage(data.bodyMapImage, 'PNG', 10, yPos, 60, 120);
+              // If image exists, text table goes next to it
+              const injuryBody = data.injuries.filter(i => i.type !== 'IV' && i.type !== 'Other').map(i => [
+                  i.location || 'Unknown',
+                  i.type,
+                  i.subtype || '-',
+                  i.notes || '-'
+              ]);
+              if (injuryBody.length > 0) {
+                  doc.autoTable({
+                      startY: yPos,
+                      margin: { left: 80 },
+                      head: [['Location', 'Type', 'Description', 'Notes']],
+                      body: injuryBody,
+                      theme: 'striped',
+                      styles: { fontSize: 8 },
+                      headStyles: { fillColor: '#DC2626' }
+                  });
+              }
+              yPos += 125;
+          } catch (e) {
+              console.error("Error adding body map image", e);
+          }
+      } else {
+          // Just table
+          const injuryBody = data.injuries.filter(i => i.type !== 'IV' && i.type !== 'Other').map(i => [
+              i.location || 'Unknown',
+              i.type,
+              i.subtype || '-',
+              i.notes || '-'
+          ]);
+          doc.autoTable({
+              startY: yPos,
+              head: [['Location', 'Type', 'Description', 'Notes']],
+              body: injuryBody,
+              theme: 'striped',
+              styles: { fontSize: 8 },
+              headStyles: { fillColor: '#DC2626' }
+          });
+          yPos = doc.lastAutoTable.finalY + 10;
+      }
   }
 
-  yPos += 55;
+  // --- INTERVENTIONS & ACCESS MAP ---
+  if (data.treatments.drugs.length > 0 || data.treatments.procedures.length > 0) {
+      printSectionHeader("Interventions");
+      
+      if (data.accessMapImage) {
+          checkPage(80);
+          doc.addImage(data.accessMapImage, 'PNG', 140, yPos, 40, 80);
+      }
 
-  // --- Signatures ---
-  doc.setTextColor(0);
-  doc.setFontSize(8);
-  doc.text("I confirm that the clinical assessment and treatment recorded is accurate.", 10, yPos);
-  yPos += 10;
+      const combined = [
+          ...data.treatments.drugs.map(d => [d.time, 'Drug', `${d.drugName} ${d.dose} ${d.route}`, d.administeredBy, d.witnessedBy || '-']),
+          ...data.treatments.procedures.map(p => [p.time, 'Procedure', `${p.type} ${p.size || ''} ${p.site || ''}`, p.performedBy, '-'])
+      ].sort((a,b) => a[0].localeCompare(b[0]));
 
-  let sigStart = yPos;
+      doc.autoTable({
+          startY: yPos,
+          margin: { right: data.accessMapImage ? 60 : 10 },
+          head: [['Time', 'Type', 'Detail', 'Clinician', 'Witness']],
+          body: combined,
+          theme: 'striped',
+          styles: { fontSize: 8 }
+      });
+      
+      yPos = Math.max(doc.lastAutoTable.finalY + 10, yPos + (data.accessMapImage ? 85 : 0));
+  }
+
+  // --- DIAGNOSIS & PLAN ---
+  printSectionHeader("Diagnosis & Management");
+  const planData = [
+      ['Impression', data.clinicalDecision?.workingImpression || '-'],
+      ['Differentials', data.clinicalDecision?.differentialDiagnosis || '-'],
+      ['Management Plan', data.clinicalDecision?.managementPlan || '-'],
+      ['Outcome', data.governance.discharge || data.clinicalDecision?.finalDisposition || '-']
+  ];
+  doc.autoTable({
+      startY: yPos,
+      body: planData,
+      theme: 'grid',
+      styles: { fontSize: 9 },
+      columnStyles: { 0: { fontStyle: 'bold', width: 40 } }
+  });
+  yPos = doc.lastAutoTable.finalY + 10;
+
+  // --- GOVERNANCE ---
+  if (data.governance.capacity.status === 'Capacity Lacking' || data.governance.refusal.isRefusal || data.governance.safeguarding.concerns) {
+      printSectionHeader("Governance");
+      
+      const govBody = [];
+      if (data.governance.capacity.status === 'Capacity Lacking') {
+          govBody.push(['Mental Capacity', 'Patient LACKS capacity. Best interests acted upon.']);
+      }
+      if (data.governance.refusal.isRefusal) {
+          govBody.push(['Refusal', 'Patient refused care. Risks explained. Capacity confirmed.']);
+      }
+      if (data.governance.safeguarding.concerns) {
+          govBody.push(['Safeguarding', `Concerns raised: ${data.governance.safeguarding.category}. Referral form generated.`]);
+      }
+      
+      doc.autoTable({
+          startY: yPos,
+          body: govBody,
+          theme: 'grid',
+          styles: { fontSize: 8 },
+          columnStyles: { 0: { fontStyle: 'bold', textColor: 200 } }
+      });
+      yPos = doc.lastAutoTable.finalY + 10;
+  }
+
+  // --- SIGNATURES ---
+  checkPage(50); // Ensure space for sigs
   
-  // Clinician Sig
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  doc.text("Treating Clinician:", 10, sigStart);
+  // Physical Signature Image
   if (data.handover.clinicianSignature) {
-      try { doc.addImage(data.handover.clinicianSignature, 'PNG', 10, sigStart + 5, 40, 20); } catch(e) {}
-  }
-  doc.line(10, sigStart + 25, 60, sigStart + 25); 
-  doc.text(data.logs[0]?.author || "Clinician", 10, sigStart + 30);
-
-  // Receiving Sig
-  if (data.handover.receivingClinicianSignature) {
-      doc.text("Receiving Clinician:", 75, sigStart);
-      try { doc.addImage(data.handover.receivingClinicianSignature, 'PNG', 75, sigStart + 5, 40, 20); } catch(e) {}
-      doc.line(75, sigStart + 25, 125, sigStart + 25);
-      doc.text(data.handover.receivingClinicianName || "Receiver", 75, sigStart + 30);
+      if (data.handover.clinicianSignature.startsWith('data:image')) {
+          doc.addImage(data.handover.clinicianSignature, 'PNG', 20, yPos, 60, 20);
+          doc.setFontSize(8);
+          doc.text("Clinician Signature (Physical)", 20, yPos + 25);
+      }
   }
 
-  // Patient Sig
-  doc.text("Patient / Rep:", 140, sigStart);
-  if (data.handover.patientSignature) {
-      try { doc.addImage(data.handover.patientSignature, 'PNG', 140, sigStart + 5, 40, 20); } catch(e) {}
-  } else if (data.governance.refusal.patientSignature) {
-      try {
-         doc.addImage(data.governance.refusal.patientSignature, 'PNG', 140, sigStart + 5, 40, 20);
-         doc.setTextColor(200, 0, 0);
-         doc.text("(REFUSAL)", 180, sigStart);
-         doc.setTextColor(0);
-      } catch(e) {}
+  // Digital Stamp
+  if (data.status === 'Submitted') {
+      doc.setDrawColor(0, 100, 0);
+      doc.setLineWidth(0.5);
+      doc.rect(120, yPos, 70, 25);
+      
+      doc.setTextColor(0, 100, 0);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text("DIGITALLY VERIFIED", 155, yPos + 8, { align: 'center' });
+      
+      doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      // Assuming the first assisting clinician is the lead if not explicitly stored
+      const signer = data.assistingClinicians[0]?.name || "Clinician"; 
+      doc.text(`Signed by: ${signer}`, 155, yPos + 14, { align: 'center' });
+      doc.text(`Date: ${new Date(data.lastUpdated).toLocaleString()}`, 155, yPos + 20, { align: 'center' });
   }
-  doc.line(140, sigStart + 25, 190, sigStart + 25); 
 
-  doc.save(`ePRF-${data.incidentNumber}.pdf`);
+  // Footer Numbers
+  const pageCount = doc.internal.getNumberOfPages();
+  for(let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.text(`Page ${i} of ${pageCount} - Confidential Patient Record - Generated by Aegis`, 105, 290, { align: 'center' });
+  }
+
+  doc.save(`ePRF_${data.incidentNumber}.pdf`);
 };

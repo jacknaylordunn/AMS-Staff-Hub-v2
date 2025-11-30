@@ -163,7 +163,7 @@ const MajorIncidentPage = () => {
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
                 <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4"><AlertTriangle className="w-12 h-12 text-slate-400" /></div>
                 <h1 className="text-3xl font-bold text-slate-800 dark:text-white">Major Incident Standby</h1>
-                <p className="text-slate-500 dark:text-slate-400 max-w-md">No active major incident.</p>
+                <p className="text-slate-500 dark:text-slate-400 max-w-md">The METHANE reporting tool is ready for deployment.</p>
                 
                 {canDeclare ? (
                     <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-2xl border border-red-100 dark:border-red-900/30 w-full max-w-md animate-in fade-in">

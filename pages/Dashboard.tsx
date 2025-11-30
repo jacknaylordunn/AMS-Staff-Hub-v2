@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck } from 'lucide-react';
+import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc } from 'firebase/firestore';
 import { Shift, TimeRecord, Announcement, Role, ComplianceDoc } from '../types';
 import { useNavigate } from 'react-router-dom';
 import AnnouncementModal from '../components/AnnouncementModal';
@@ -49,9 +49,36 @@ const ComplianceItem: React.FC<ComplianceItemProps> = ({ name, date, status }) =
 
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
 
+const SYSTEM_STATUS_OPTS = [
+    { level: 'Operational', color: 'bg-green-500', text: 'Normal Operations' },
+    { level: 'Busy', color: 'bg-amber-500', text: 'High Demand' },
+    { level: 'Critical', color: 'bg-red-600', text: 'Critical Incident' },
+    { level: 'Outage', color: 'bg-slate-800', text: 'System Outage' },
+];
+
+// Haversine Distance Helper
+const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  var R = 6371; // Radius of the earth in km
+  var dLat = deg2rad(lat2-lat1);  
+  var dLon = deg2rad(lon2-lon1); 
+  var a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+    ; 
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  var d = R * c; // Distance in km
+  return d;
+}
+
+const deg2rad = (deg: number) => {
+  return deg * (Math.PI/180)
+}
+
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
   
   const [showClockModal, setShowClockModal] = useState(false);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
@@ -61,71 +88,102 @@ const Dashboard = () => {
   const [clockStep, setClockStep] = useState<'SELECT' | 'GPS' | 'CONFIRMED' | 'ERROR'>('SELECT');
   const [locationStr, setLocationStr] = useState('');
   const [gpsError, setGpsError] = useState('');
+  const [distanceToSite, setDistanceToSite] = useState<number | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  
+  // System Status
+  const [systemStatus, setSystemStatus] = useState({ level: 'Operational', message: 'All Systems Nominal' });
+  const [showStatusModal, setShowStatusModal] = useState(false);
 
-  // Load shifts & Check Active
+  // Live Tracking (Managers)
+  const [activeStaff, setActiveStaff] = useState<any[]>([]);
+
+  // System Status Listener
   useEffect(() => {
-    const fetchShifts = async () => {
-        if (!user) return;
+      const unsub = onSnapshot(doc(db, 'system', 'status'), (doc) => {
+          if (doc.exists()) {
+              setSystemStatus(doc.data() as any);
+          } else {
+              // Create default if missing
+              setDoc(doc.ref, { level: 'Operational', message: 'System Ready' });
+          }
+      });
+      return () => unsub();
+  }, []);
+
+  // Load shifts & Cross-Device Active Check
+  useEffect(() => {
+    if (!user) return;
+    
+    const now = new Date();
+    // Check window: Yesterday to +2 Days (covers active night shifts and next shifts)
+    const start = new Date(now); start.setDate(start.getDate() - 1); 
+    const end = new Date(now); end.setDate(end.getDate() + 2);
+
+    const q = query(
+        collection(db, 'shifts'),
+        where('start', '>=', Timestamp.fromDate(start)),
+        where('start', '<=', Timestamp.fromDate(end))
+    );
+    
+    const unsub = onSnapshot(q, (snap) => {
+        const shifts = snap.docs.map(d => ({ 
+            id: d.id, 
+            ...d.data(), 
+            start: d.data().start.toDate(), 
+            end: d.data().end.toDate() 
+        } as Shift));
         
-        const now = new Date();
-        // Check window: Yesterday to +2 Days (covers active night shifts and next shifts)
-        const start = new Date(now); start.setDate(start.getDate() - 1); 
-        const end = new Date(now); end.setDate(end.getDate() + 2);
+        // 1. Filter my shifts for display
+        const myShifts = shifts
+            .filter(s => s.slots && s.slots.some(slot => slot.userId === user.uid))
+            .sort((a, b) => a.start.getTime() - b.start.getTime());
+        
+        setTodayShifts(myShifts);
 
-        try {
-            const q = query(
-                collection(db, 'shifts'),
-                where('start', '>=', Timestamp.fromDate(start)),
-                where('start', '<=', Timestamp.fromDate(end))
-            );
-            
-            const snap = await getDocs(q);
-            const shifts = snap.docs
-                .map(d => {
-                    const data = d.data();
-                    return { 
-                        id: d.id, 
-                        ...data, 
-                        start: data.start.toDate(), 
-                        end: data.end.toDate() 
-                    } as Shift;
-                })
-                .filter(s => s.slots && s.slots.some(slot => slot.userId === user.uid));
-            
-            // Sort by start time
-            shifts.sort((a, b) => a.start.getTime() - b.start.getTime());
-            
-            setTodayShifts(shifts);
+        // 2. Find Next Shift (First one in future)
+        const upcoming = myShifts.find(s => s.start > now);
+        setNextShift(upcoming || null);
 
-            // Find Next Shift (First one in future)
-            const upcoming = shifts.find(s => s.start > now);
-            setNextShift(upcoming || null);
+        // 3. Determine Active Shift based on TimeRecords (Cross-Device Sync)
+        // Look for any shift where I have a clockInTime but NO clockOutTime
+        const currentActive = shifts.find(s => {
+            const record = s.timeRecords?.[user.uid];
+            return record && record.clockInTime && !record.clockOutTime;
+        });
+        
+        setActiveShift(currentActive || null);
 
-            // Check active clock-in
-            const storedShiftId = localStorage.getItem('active_shift_id');
-            if (storedShiftId) {
-                const shiftRef = doc(db, 'shifts', storedShiftId);
-                const shiftSnap = await getDoc(shiftRef);
-                if (shiftSnap.exists()) {
-                    const sData = shiftSnap.data();
-                    const s: Shift = { ...sData, id: shiftSnap.id, start: sData.start.toDate(), end: sData.end.toDate() } as Shift;
-                    
-                    const record = s.timeRecords?.[user.uid];
-                    if (record && !record.clockOutTime) {
-                        setActiveShift(s);
-                    } else {
-                        localStorage.removeItem('active_shift_id');
-                    }
+        // 4. For Managers: Aggregate Active Staff
+        if (isManager) {
+            const activePeople: any[] = [];
+            shifts.forEach(s => {
+                if (s.timeRecords) {
+                    Object.entries(s.timeRecords).forEach(([uid, rec]) => {
+                        const record = rec as TimeRecord;
+                        if (record.clockInTime && !record.clockOutTime) {
+                            // Find name from slot
+                            const slot = s.slots.find(sl => sl.userId === uid);
+                            activePeople.push({
+                                id: uid,
+                                name: slot?.userName || 'Unknown',
+                                role: slot?.role,
+                                location: s.location,
+                                address: s.address,
+                                since: record.clockInTime,
+                                gps: record.clockInLocation
+                            });
+                        }
+                    });
                 }
-            }
-        } catch (e) {
-            console.error("Error fetching shifts", e);
+            });
+            setActiveStaff(activePeople);
         }
-    };
-    fetchShifts();
-  }, [user]);
+    });
+
+    return () => unsub();
+  }, [user, isManager]);
 
   useEffect(() => {
       const q = query(collection(db, 'announcements'), orderBy('date', 'desc'), limit(5));
@@ -158,11 +216,20 @@ const Dashboard = () => {
       setActiveShift(shift); 
       setClockStep('GPS');
       setGpsError('');
+      setDistanceToSite(null);
 
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 setLocationStr(`${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`);
+                
+                // Calculate distance if site address is coordinates
+                if (shift.address && /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(shift.address)) {
+                    const [siteLat, siteLon] = shift.address.split(',').map(s => parseFloat(s.trim()));
+                    const dist = getDistanceFromLatLonInKm(position.coords.latitude, position.coords.longitude, siteLat, siteLon);
+                    setDistanceToSite(dist);
+                }
+
                 setClockStep('CONFIRMED');
             },
             () => {
@@ -192,7 +259,6 @@ const Dashboard = () => {
               [`timeRecords.${user.uid}`]: timeRecord
           });
 
-          localStorage.setItem('active_shift_id', activeShift.id);
           setShowClockModal(false);
       } catch (e) {
           console.error("Clock In Failed", e);
@@ -209,15 +275,23 @@ const Dashboard = () => {
           await updateDoc(doc(db, 'shifts', activeShift.id), {
               [`timeRecords.${user.uid}.clockOutTime`]: outTime
           });
-
-          localStorage.removeItem('active_shift_id');
           setActiveShift(null);
       } catch (e) {
           console.error("Clock Out Failed", e);
       }
   };
 
-  const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
+  const updateSystemStatus = async (level: string) => {
+      await setDoc(doc(db, 'system', 'status'), {
+          level,
+          message: SYSTEM_STATUS_OPTS.find(s => s.level === level)?.text || 'Updated'
+      });
+      setShowStatusModal(false);
+  };
+
+  // Determine late status
+  const isLate = !activeShift && nextShift && new Date() > nextShift.start && new Date() < nextShift.end;
+
   const isClinical = user ? CLINICAL_ROLES.includes(user.role) : false;
 
   // Build Action List based on Role
@@ -268,6 +342,11 @@ const Dashboard = () => {
                                                       {s.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                                                   </div>
                                               </div>
+                                              {s.address && (
+                                                  <div className="text-[10px] text-slate-400 mb-1 flex items-center gap-1 truncate">
+                                                      <MapPin className="w-3 h-3" /> {s.address}
+                                                  </div>
+                                              )}
                                               <div className="text-xs font-medium text-slate-400 flex items-center gap-1 mb-1">
                                                   Role: <span className="text-slate-600 dark:text-slate-300 font-bold">{mySlot?.role}</span>
                                               </div>
@@ -300,9 +379,20 @@ const Dashboard = () => {
                           </div>
                           <div>
                               <h3 className="text-lg font-bold text-slate-800 dark:text-white">Ready to Start</h3>
-                              <p className="text-xs text-slate-400">Location logged. Have a safe shift.</p>
+                              <p className="text-xs text-slate-400">Location logged successfully.</p>
+                              {distanceToSite !== null && (
+                                  <div className="mt-2 bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full text-xs font-bold inline-block">
+                                      {distanceToSite < 0.2 ? "✅ On Site" : `📍 ${distanceToSite.toFixed(1)}km from site`}
+                                  </div>
+                              )}
                           </div>
                           
+                          <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl text-left border border-slate-200 dark:border-slate-700">
+                              <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Target Site</p>
+                              <p className="text-sm font-bold text-slate-800 dark:text-white">{activeShift.location}</p>
+                              {activeShift.address && <p className="text-xs text-slate-500 dark:text-slate-400">{activeShift.address}</p>}
+                          </div>
+
                           <button 
                             onClick={confirmClockIn}
                             className="w-full py-4 bg-ams-blue text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 hover:bg-blue-900 transition-all active:scale-95"
@@ -311,6 +401,28 @@ const Dashboard = () => {
                           </button>
                       </div>
                   )}
+              </div>
+          </div>
+      )}
+
+      {/* System Status Manager Modal */}
+      {showStatusModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4 dark:text-white">Update System Status</h3>
+                  <div className="space-y-2">
+                      {SYSTEM_STATUS_OPTS.map(opt => (
+                          <button 
+                            key={opt.level} 
+                            onClick={() => updateSystemStatus(opt.level)}
+                            className={`w-full p-3 rounded-xl flex items-center justify-between font-bold text-sm text-white ${opt.color}`}
+                          >
+                              {opt.text}
+                              {systemStatus.level === opt.level && <CheckCircle className="w-5 h-5" />}
+                          </button>
+                      ))}
+                  </div>
+                  <button onClick={() => setShowStatusModal(false)} className="mt-4 w-full py-2 text-slate-500 font-bold text-sm">Cancel</button>
               </div>
           </div>
       )}
@@ -325,16 +437,34 @@ const Dashboard = () => {
                   <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-tight">
                       Hello, {user?.name.split(' ')[0]}
                   </h1>
-                  <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium flex items-center gap-2 text-sm">
-                      <span className="flex h-3 w-3 relative">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                      </span>
-                      System Status: <span className="text-green-600 dark:text-green-400 font-bold">OPERATIONAL</span>
-                  </p>
                   
-                  {/* Next Shift Indicator */}
-                  {!activeShift && nextShift && (
+                  {/* Dynamic System Status */}
+                  <div className="mt-2 flex items-center gap-3">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-white/50 dark:bg-black/30 rounded-full border border-white/20">
+                          <span className={`relative flex h-3 w-3`}>
+                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${SYSTEM_STATUS_OPTS.find(s=>s.level===systemStatus.level)?.color || 'bg-green-500'}`}></span>
+                            <span className={`relative inline-flex rounded-full h-3 w-3 ${SYSTEM_STATUS_OPTS.find(s=>s.level===systemStatus.level)?.color || 'bg-green-500'}`}></span>
+                          </span>
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                              {systemStatus.message}
+                          </span>
+                      </div>
+                      {isManager && (
+                          <button onClick={() => setShowStatusModal(true)} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-500 transition-colors">
+                              <Settings className="w-4 h-4" />
+                          </button>
+                      )}
+                  </div>
+                  
+                  {/* Next Shift Indicator & Alerts */}
+                  {!activeShift && isLate && (
+                      <div className="mt-6 flex items-center gap-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-200 p-3 rounded-2xl border border-red-200 dark:border-red-800 animate-pulse">
+                          <BellRing className="w-5 h-5" />
+                          <div className="text-sm font-bold">Shift Started! Please Clock In.</div>
+                      </div>
+                  )}
+
+                  {!activeShift && !isLate && nextShift && (
                       <div className="mt-6 flex items-center gap-4 bg-white/60 dark:bg-black/20 p-3 rounded-2xl backdrop-blur-sm border border-white/20">
                           <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
                               <CalendarCheck className="w-5 h-5 text-ams-blue" />
@@ -361,6 +491,9 @@ const Dashboard = () => {
                           <div className="flex flex-col text-right mr-2">
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Active Unit</span>
                               <span className="text-lg font-bold text-slate-800 dark:text-slate-200 leading-none truncate max-w-[120px]">{activeShift.location}</span>
+                              {activeShift.address && (
+                                  <span className="text-[10px] text-slate-500 flex justify-end items-center gap-1 mt-0.5 max-w-[120px] truncate"><MapPin className="w-2.5 h-2.5" /> {activeShift.address}</span>
+                              )}
                           </div>
                           <button 
                               onClick={handleClockOut}
@@ -382,6 +515,35 @@ const Dashboard = () => {
           </div>
       </div>
 
+      {/* Manager Live Operations View */}
+      {isManager && activeStaff.length > 0 && (
+          <div className="bg-slate-900 rounded-2xl p-6 shadow-xl border border-slate-800 text-white">
+              <h3 className="font-bold flex items-center gap-2 mb-4">
+                  <Activity className="w-5 h-5 text-green-400" /> Live Personnel ({activeStaff.length})
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeStaff.map(s => (
+                      <div key={s.id} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold">
+                                  {s.name.charAt(0)}
+                              </div>
+                              <div className="overflow-hidden">
+                                  <div className="text-sm font-bold truncate">{s.name}</div>
+                                  <div className="text-xs text-slate-400 flex items-center gap-1 truncate">
+                                      <MapPin className="w-3 h-3" /> {s.location}
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="text-right">
+                              <span className="text-[10px] bg-green-900/50 text-green-400 px-2 py-1 rounded">Active</span>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
       {/* Quick Actions Grid */}
       <div>
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 px-2">Quick Actions</h2>
@@ -402,7 +564,7 @@ const Dashboard = () => {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Compliance Card (Real Data) */}
+        {/* Compliance Card */}
         <div className="glass-panel rounded-2xl p-6 flex flex-col h-full shadow-sm">
              <div className="flex items-center gap-3 mb-6">
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl">

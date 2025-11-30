@@ -1,8 +1,14 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Initialize the client with the API Key directly
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Use process.env.API_KEY as per guidelines.
+const apiKey = process.env.API_KEY;
+
+if (!apiKey) {
+    console.warn("Gemini API Key is missing. AI features will not work.");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || '' });
 
 export const analyzeSafeguarding = async (narrative: string): Promise<{ detected: boolean; type?: string; reasoning?: string }> => {
   try {
@@ -151,6 +157,37 @@ export const generateSBAR = async (eprfData: any): Promise<string> => {
   }
 };
 
+export const generateClinicalNarrative = async (eprfData: any): Promise<string> => {
+  try {
+    const model = 'gemini-2.5-flash';
+    const prompt = `
+      Act as an experienced Paramedic. Write a comprehensive, professional clinical narrative (History of Presenting Complaint & Assessment) based on the structured data provided below.
+      
+      Rules:
+      1. Use standard UK ambulance terminology (e.g., "On arrival...", "Patient states...", "O/E:").
+      2. Synthesize the vitals, assessment findings (Primary Survey, Neuro, etc.), and treatments into a chronological flow.
+      3. Highlight positive findings and pertinent negatives.
+      4. Do not invent facts, but smooth out the structured data into readable prose.
+      
+      Structured Data:
+      ${JSON.stringify(eprfData)}
+    `;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+      }
+    });
+
+    return response.text || "";
+  } catch (error) {
+    console.error("Narrative Gen Error", error);
+    return "";
+  }
+};
+
 export const getMedicalGuidance = async (query: string, context?: string): Promise<string> => {
   try {
     const model = 'gemini-2.5-flash';
@@ -179,5 +216,44 @@ export const getMedicalGuidance = async (query: string, context?: string): Promi
   } catch (error) {
     console.error("Medical Guidance Error", error);
     return "Unable to retrieve guidance at this time.";
+  }
+};
+
+export const generateDashboardBriefing = async (userName: string, shifts: any[], announcements: any[]): Promise<string> => {
+  try {
+    const model = 'gemini-2.5-flash';
+    const prompt = `
+      Act as an Operational Commander for an Ambulance Service.
+      Generate a concise, motivating start-of-shift briefing for ${userName}.
+      
+      Context:
+      - Next 3 Shifts: ${JSON.stringify(shifts.slice(0,3))}
+      - Recent Announcements: ${JSON.stringify(announcements.slice(0,3))}
+      
+      Format:
+      **Welcome [Name]**
+      
+      **Operational Update:**
+      [1-2 bullet points on announcements or "No critical updates"]
+      
+      **Upcoming Duty:**
+      [Summary of next shift]
+      
+      **Safety Focus:**
+      [A generic, short safety tip relevant to ambulance operations e.g. Manual handling, driving, or hygiene]
+    `;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        temperature: 0.4,
+      }
+    });
+
+    return response.text || "Welcome. System ready.";
+  } catch (error) {
+    console.error("Briefing Error", error);
+    return "Welcome to Aegis Staff Hub. Stay safe.";
   }
 };

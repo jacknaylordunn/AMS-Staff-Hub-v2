@@ -5,13 +5,14 @@ import {
   Calendar as CalendarIcon, Filter, Plus, X, Repeat, Loader2, 
   Briefcase, Truck, Users, Search, Trash2, UserPlus, 
   Sparkles, Save, Edit3, UserCheck, AlertCircle, ArrowRight, Bell,
-  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange, Hand, MousePointerClick
+  Palmtree, AlertOctagon, RefreshCw, MoreHorizontal, UserMinus, Flame, Ban, Copy, CalendarRange, Hand, MousePointerClick, Navigation
 } from 'lucide-react';
 import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, Timestamp, getDocs, writeBatch } from 'firebase/firestore';
 import { sendNotification } from '../services/notificationService';
+import { analyzeRotaCoverage } from '../services/geminiService';
 
 const RotaPage = () => {
   const { user } = useAuth();
@@ -35,6 +36,10 @@ const RotaPage = () => {
   const [isBriefingOpen, setIsBriefingOpen] = useState(false); // For Staff
   const [isNewShift, setIsNewShift] = useState(false);
   const [isOperating, setIsOperating] = useState(false);
+
+  // AI Rota Analysis
+  const [rotaAnalysis, setRotaAnalysis] = useState<string | null>(null);
+  const [analyzingRota, setAnalyzingRota] = useState(false);
 
   // Editor Form State
   const [formData, setFormData] = useState<Partial<Shift>>({});
@@ -154,8 +159,6 @@ const RotaPage = () => {
   }, [currentDate, viewMode, isManager]);
 
   // --- Real-time Sync for Staff Modal ---
-  // Keeps the selectedShift up to date with Firestore changes (e.g. after bidding)
-  // DISABLED when Editor is open to prevent overwriting unsaved manager edits
   useEffect(() => {
       if (selectedShift && !isEditorOpen) {
           const freshData = shifts.find(s => s.id === selectedShift.id);
@@ -164,7 +167,6 @@ const RotaPage = () => {
   }, [shifts, isEditorOpen]);
 
   // --- Form Synchronization Effect ---
-  // This ensures form data is populated whenever the editor opens or selected shift changes
   useEffect(() => {
       if (isEditorOpen && selectedShift && !isNewShift) {
           setFormData({
@@ -172,13 +174,13 @@ const RotaPage = () => {
               start: selectedShift.start,
               end: selectedShift.end,
               location: selectedShift.location,
+              address: selectedShift.address || '',
               notes: selectedShift.notes,
               status: selectedShift.status,
               tags: selectedShift.tags || [],
               resources: selectedShift.resources || []
           });
           setFormSlots(selectedShift.slots || []);
-          // Reset Repeat
           setIsRepeating(false);
           setRepeatUntil('');
       }
@@ -225,6 +227,7 @@ const RotaPage = () => {
           start: base,
           end: end,
           location: '',
+          address: '',
           notes: '',
           tags: [],
           status: 'Open',
@@ -238,8 +241,6 @@ const RotaPage = () => {
       setIsNewShift(true);
       setSelectedShift(null);
       setIsRepeating(false);
-      
-      // Clear assignments for duplicated shift to avoid accidental double booking
       const cleanSlots = formSlots.map(s => {
           const copy = { ...s, bids: [] };
           delete copy.userId;
@@ -247,17 +248,26 @@ const RotaPage = () => {
           return copy;
       });
       setFormSlots(cleanSlots);
-      
       alert("Shift Duplicated. Please review Date/Time and Save.");
   };
 
-  // Helper to remove undefined values for Firestore
+  const useCurrentLocation = () => {
+      if ("geolocation" in navigator) {
+          navigator.geolocation.getCurrentPosition(
+              (position) => {
+                  const coords = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
+                  setFormData(prev => ({...prev, address: coords }));
+              },
+              () => { alert("Unable to get location"); }
+          );
+      }
+  };
+
   const sanitizeSlots = (slots: ShiftSlot[]) => {
       return slots.map(slot => {
           const clean = { ...slot };
           if (clean.userId === undefined) delete clean.userId;
           if (clean.userName === undefined) delete clean.userName;
-          // Ensure bids is always an array
           if (!clean.bids) clean.bids = [];
           return clean;
       });
@@ -265,7 +275,7 @@ const RotaPage = () => {
 
   const handleSaveShift = async () => {
       if (!formData.start || !formData.end || !formData.location) {
-          alert("Please fill in Start, End and Location.");
+          alert("Please fill in Start, End and Shift Name.");
           return;
       }
       
@@ -275,13 +285,13 @@ const RotaPage = () => {
           finalStatus = allFilled ? 'Filled' : 'Open';
       }
 
-      // Sanitize slots to prevent "undefined" error in Firestore
       const sanitizedSlots = sanitizeSlots(formSlots);
 
       const basePayload = {
           start: Timestamp.fromDate(formData.start),
           end: Timestamp.fromDate(formData.end),
-          location: formData.location,
+          location: formData.location, // Shift Name
+          address: formData.address || '', // Physical Address
           notes: formData.notes || '',
           slots: sanitizedSlots,
           status: finalStatus,
@@ -294,8 +304,6 @@ const RotaPage = () => {
       setIsOperating(true);
       try {
           const batch = writeBatch(db);
-          
-          // 1. Main Shift Operation
           const mainRef = isNewShift ? doc(collection(db, 'shifts')) : doc(db, 'shifts', selectedShift!.id);
           if (isNewShift) {
               batch.set(mainRef, basePayload);
@@ -303,97 +311,38 @@ const RotaPage = () => {
               batch.update(mainRef, basePayload);
           }
 
-          // 2. Notifications Logic
           if (!isNewShift && selectedShift) {
-              // Check for assignments (New assignments)
               sanitizedSlots.forEach(newSlot => {
                   const oldSlot = selectedShift.slots?.find(s => s.id === newSlot.id);
-                  // If assigned to a new person
                   if (newSlot.userId && (!oldSlot || oldSlot.userId !== newSlot.userId)) {
-                      sendNotification(
-                          newSlot.userId,
-                          "Shift Assignment",
-                          `You have been assigned to a shift on ${formData.start?.toLocaleDateString()} at ${formData.location}.`,
-                          "success",
-                          "/rota"
-                      );
+                      sendNotification(newSlot.userId, "Shift Assignment", `Assigned to ${formData.location} on ${formData.start?.toLocaleDateString()}.`, "success", "/rota");
                   }
               });
-
-              // Check for significant updates (Time/Location)
-              const timeChanged = selectedShift.start.getTime() !== formData.start.getTime() || selectedShift.end.getTime() !== formData.end.getTime();
-              const locChanged = selectedShift.location !== formData.location;
-              
-              if (timeChanged || locChanged) {
-                  // Notify all assigned staff
-                  const notifiedUsers = new Set<string>();
-                  sanitizedSlots.forEach(slot => {
-                      if (slot.userId && !notifiedUsers.has(slot.userId)) {
-                          sendNotification(
-                              slot.userId,
-                              "Shift Update",
-                              `Shift details changed for ${formData.start?.toLocaleDateString()}. Please check the rota.`,
-                              "info",
-                              "/rota"
-                          );
-                          notifiedUsers.add(slot.userId);
-                      }
-                  });
-              }
           }
 
-          // 3. Repeats
           if (isRepeating && repeatUntil) {
               const untilDate = new Date(repeatUntil);
               untilDate.setHours(23, 59, 59);
-              
               let nextStart = new Date(formData.start);
               let nextEnd = new Date(formData.end);
-              
-              // Clean slots for repeats (Open shifts, no user assigned)
-              const repeatSlots = sanitizedSlots.map(s => {
-                  const copy = { ...s, bids: [] };
-                  delete copy.userId;
-                  delete copy.userName;
-                  return copy;
-              });
+              const repeatSlots = sanitizedSlots.map(s => { const copy = { ...s, bids: [] }; delete copy.userId; delete copy.userName; return copy; });
               
               let iterations = 0;
-              while (iterations < 52) { // Safety limit 52 weeks
-                  if (repeatFrequency === 'Daily') {
-                      nextStart.setDate(nextStart.getDate() + 1);
-                      nextEnd.setDate(nextEnd.getDate() + 1);
-                  } else {
-                      nextStart.setDate(nextStart.getDate() + 7);
-                      nextEnd.setDate(nextEnd.getDate() + 7);
-                  }
-                  
+              while (iterations < 52) { 
+                  if (repeatFrequency === 'Daily') { nextStart.setDate(nextStart.getDate() + 1); nextEnd.setDate(nextEnd.getDate() + 1); } 
+                  else { nextStart.setDate(nextStart.getDate() + 7); nextEnd.setDate(nextEnd.getDate() + 7); }
                   if (nextStart > untilDate) break;
-                  
                   const repeatRef = doc(collection(db, 'shifts'));
-                  batch.set(repeatRef, {
-                      ...basePayload,
-                      start: Timestamp.fromDate(new Date(nextStart)),
-                      end: Timestamp.fromDate(new Date(nextEnd)),
-                      slots: repeatSlots,
-                      status: 'Open',
-                      timeRecords: {}
-                  });
+                  batch.set(repeatRef, { ...basePayload, start: Timestamp.fromDate(new Date(nextStart)), end: Timestamp.fromDate(new Date(nextEnd)), slots: repeatSlots, status: 'Open', timeRecords: {} });
                   iterations++;
               }
           }
 
           await batch.commit();
-          
-          // Close modal immediately upon success
-          setIsEditorOpen(false);
-          setSelectedShift(null);
-          setIsRepeating(false);
-          setIsNewShift(false);
-
+          setIsEditorOpen(false); setSelectedShift(null); setIsRepeating(false); setIsNewShift(false);
       } catch (e) {
           console.error("Save failed", e);
-          alert("Failed to save shift. Please check connection.");
+          alert("Failed to save shift.");
       } finally {
           setIsOperating(false);
       }
@@ -401,59 +350,21 @@ const RotaPage = () => {
 
   const handleCancelShift = async () => {
       if (!selectedShift) return;
-      if (!confirm("Are you sure you want to CANCEL this shift? This will notify assigned staff.")) return;
-      
+      if (!confirm("Cancel this shift? Assigned staff will be notified.")) return;
       setIsOperating(true);
       try {
           const currentTags = selectedShift.tags || [];
-          const newTags = currentTags.includes('Cancelled') ? currentTags : [...currentTags, 'Cancelled'];
-          
-          await updateDoc(doc(db, 'shifts', selectedShift.id), {
-              status: 'Cancelled',
-              tags: newTags
-          });
-
-          // Notify assigned staff
-          selectedShift.slots?.forEach(slot => {
-              if (slot.userId) {
-                  sendNotification(
-                      slot.userId,
-                      "Shift Cancelled",
-                      `The shift on ${selectedShift.start.toLocaleDateString()} at ${selectedShift.location} has been CANCELLED.`,
-                      "alert",
-                      "/rota"
-                  );
-              }
-          });
-
-          setIsEditorOpen(false);
-          setSelectedShift(null);
-      } catch (e: any) {
-          console.error("Cancellation failed", e);
-          alert(`Failed to cancel: ${e.message}`);
-      } finally {
-          setIsOperating(false);
-      }
+          await updateDoc(doc(db, 'shifts', selectedShift.id), { status: 'Cancelled', tags: [...currentTags, 'Cancelled'] });
+          selectedShift.slots?.forEach(slot => { if (slot.userId) sendNotification(slot.userId, "Shift Cancelled", `${selectedShift.location} shift cancelled.`, "alert", "/rota"); });
+          setIsEditorOpen(false); setSelectedShift(null);
+      } catch (e) { alert("Failed to cancel."); } finally { setIsOperating(false); }
   };
 
   const handleDeleteShift = async () => {
-      if (!selectedShift) return;
-      if (!confirm("WARNING: PERMANENTLY delete this shift? This action cannot be undone.")) return;
-      
+      if (!selectedShift || !confirm("Delete permanently?")) return;
       setIsOperating(true);
-      try {
-          await deleteDoc(doc(db, 'shifts', selectedShift.id));
-          setIsEditorOpen(false);
-          setSelectedShift(null);
-      } catch(e: any) {
-          console.error("Delete failed", e);
-          alert(`Failed to delete: ${e.message}`);
-      } finally {
-          setIsOperating(false);
-      }
+      try { await deleteDoc(doc(db, 'shifts', selectedShift.id)); setIsEditorOpen(false); setSelectedShift(null); } catch(e) { alert("Failed to delete."); } finally { setIsOperating(false); }
   };
-
-  // --- Staff Action Handlers ---
 
   const handleBid = async (slotIndex: number) => {
       if (!selectedShift || !user) return;
@@ -461,121 +372,80 @@ const RotaPage = () => {
       try {
           const updatedSlots = [...selectedShift.slots];
           const currentBids = updatedSlots[slotIndex].bids || [];
-          
           if (currentBids.some(b => b.userId === user.uid)) return;
-
-          updatedSlots[slotIndex] = {
-              ...updatedSlots[slotIndex],
-              bids: [...currentBids, {
-                  userId: user.uid,
-                  userName: user.name,
-                  userRole: user.role,
-                  timestamp: new Date().toISOString()
-              }]
-          };
-
-          await updateDoc(doc(db, 'shifts', selectedShift.id), {
-              slots: updatedSlots
-          });
-      } catch (e) {
-          console.error("Bid failed", e);
-          alert("Failed to place bid.");
-      } finally {
-          setIsOperating(false);
-      }
+          updatedSlots[slotIndex] = { ...updatedSlots[slotIndex], bids: [...currentBids, { userId: user.uid, userName: user.name, userRole: user.role, timestamp: new Date().toISOString() }] };
+          await updateDoc(doc(db, 'shifts', selectedShift.id), { slots: updatedSlots });
+      } catch (e) { alert("Failed to place bid."); } finally { setIsOperating(false); }
   };
 
   const handleReportSick = async () => {
-      if (!selectedShift || !user) return;
-      if(!confirm("Report Sick? This will remove you from the shift and flag it for cover.")) return;
-      
+      if (!selectedShift || !user || !confirm("Report Sick? You will be removed from shift.")) return;
       setIsOperating(true);
       try {
-          // Remove user from slot
-          const newSlots = selectedShift.slots.map(s => 
-              s.userId === user.uid ? { ...s, userId: undefined, userName: undefined } : s
-          );
-          
-          // Add 'Cover Needed' tag
+          const newSlots = selectedShift.slots.map(s => s.userId === user.uid ? { ...s, userId: undefined, userName: undefined } : s);
           const currentTags = selectedShift.tags || [];
-          const newTags = currentTags.includes('Cover Needed') ? currentTags : [...currentTags, 'Cover Needed'];
-
-          await updateDoc(doc(db, 'shifts', selectedShift.id), {
-              slots: newSlots,
-              tags: newTags,
-              status: 'Open'
-          });
+          await updateDoc(doc(db, 'shifts', selectedShift.id), { slots: newSlots, tags: [...currentTags, 'Cover Needed'], status: 'Open' });
           setIsBriefingOpen(false);
-      } catch (e) {
-          alert("Failed to report sick.");
-      } finally {
-          setIsOperating(false);
-      }
+      } catch (e) { alert("Failed to report sick."); } finally { setIsOperating(false); }
   };
 
   const handleRequestSwap = async () => {
-      if (!selectedShift) return;
+      if (!selectedShift || !user) return;
+      if (!confirm("Request a shift swap? This will flag the shift for others to see.")) return;
+      setIsOperating(true);
       try {
-          const tags = selectedShift.tags || [];
-          if(!tags.includes('Swap Requested')) {
-              await updateDoc(doc(db, 'shifts', selectedShift.id), {
-                  tags: [...tags, 'Swap Requested']
-              });
-              alert("Swap requested. This is now visible to other staff.");
+          const currentTags = selectedShift.tags || [];
+          if (!currentTags.includes('Swap Requested')) {
+              await updateDoc(doc(db, 'shifts', selectedShift.id), { tags: [...currentTags, 'Swap Requested'] });
           }
-      } catch (e) {
-          alert("Error requesting swap.");
-      }
+          setIsBriefingOpen(false);
+      } catch (e) { alert("Failed to request swap."); } finally { setIsOperating(false); }
   };
 
   const handleOfferShift = async () => {
-      if (!selectedShift) return;
+      if (!selectedShift || !user) return;
+      if (!confirm("Offer this shift to the pool?")) return;
+      setIsOperating(true);
       try {
-          const tags = selectedShift.tags || [];
-          if(!tags.includes('Offer Pending')) {
-              await updateDoc(doc(db, 'shifts', selectedShift.id), {
-                  tags: [...tags, 'Offer Pending']
-              });
-              alert("Shift offered to pool.");
+          const currentTags = selectedShift.tags || [];
+          if (!currentTags.includes('Offer Pending')) {
+              await updateDoc(doc(db, 'shifts', selectedShift.id), { tags: [...currentTags, 'Offer Pending'] });
           }
-      } catch (e) {
-          alert("Error offering shift.");
-      }
+          setIsBriefingOpen(false);
+      } catch (e) { alert("Failed to offer shift."); } finally { setIsOperating(false); }
+  };
+
+  const handleRunAiAnalysis = async () => {
+      if (!shifts.length) return;
+      setAnalyzingRota(true);
+      const summary = shifts.map(s => ({
+          date: s.start.toLocaleDateString(),
+          location: s.location,
+          status: s.status,
+          slotsTotal: s.slots.length,
+          slotsFilled: s.slots.filter(sl => sl.userId).length,
+          rolesNeeded: s.slots.filter(sl => !sl.userId).map(sl => sl.role)
+      }));
+      const result = await analyzeRotaCoverage(JSON.stringify(summary));
+      setRotaAnalysis(result);
+      setAnalyzingRota(false);
   };
 
   const handleAcceptBid = async (slotIndex: number, bidIndex: number) => {
       const slot = formSlots[slotIndex];
       if (!slot.bids || !slot.bids[bidIndex]) return;
-      
       const winner = slot.bids[bidIndex];
-      
-      // Update the slot with the winner's details and clear bids
-      // Note: We don't save to Firestore yet, the manager must click "Save Changes"
       const newSlots = [...formSlots];
-      newSlots[slotIndex] = {
-          ...newSlots[slotIndex],
-          userId: winner.userId,
-          userName: winner.userName,
-          bids: [] // Clear bids after acceptance
-      };
+      newSlots[slotIndex] = { ...newSlots[slotIndex], userId: winner.userId, userName: winner.userName, bids: [] };
       setFormSlots(newSlots);
-      
-      // Notify the winner immediately that they've been selected (optional, or wait for save)
-      // We'll wait for save to be robust, but visual feedback in UI happens via setFormSlots
   };
 
   const updateSlot = (index: number, field: keyof ShiftSlot, val: any) => {
       const newSlots = [...formSlots];
       newSlots[index] = { ...newSlots[index], [field]: val };
       if (field === 'userId') {
-          if (val === '') {
-              // Explicitly delete/set null for local state to avoid UI issues
-              delete newSlots[index].userId;
-              delete newSlots[index].userName;
-          } else {
-              const staff = allStaff.find(s => s.uid === val);
-              newSlots[index].userName = staff?.name;
-          }
+          if (val === '') { delete newSlots[index].userId; delete newSlots[index].userName; } 
+          else { const staff = allStaff.find(s => s.uid === val); newSlots[index].userName = staff?.name; }
       }
       setFormSlots(newSlots);
   };
@@ -586,25 +456,13 @@ const RotaPage = () => {
   const addResource = () => {
       if (!selectedAssetId) return;
       let resourceToAdd: ShiftResource | undefined;
-      if (resourceType === 'Vehicle') {
-          const v = allVehicles.find(v => v.id === selectedAssetId);
-          if (v) resourceToAdd = { id: v.id, type: 'Vehicle', name: `${v.callSign} (${v.registration})` };
-      } else {
-          const k = allKits.find(k => k.id === selectedAssetId);
-          if (k) resourceToAdd = { id: k.id, type: 'Kit', name: k.name };
-      }
-      if (resourceToAdd) {
-          const current = formData.resources || [];
-          if (!current.some(r => r.id === resourceToAdd!.id)) {
-              setFormData({ ...formData, resources: [...current, resourceToAdd] });
-          }
-      }
+      if (resourceType === 'Vehicle') { const v = allVehicles.find(v => v.id === selectedAssetId); if (v) resourceToAdd = { id: v.id, type: 'Vehicle', name: `${v.callSign} (${v.registration})` }; } 
+      else { const k = allKits.find(k => k.id === selectedAssetId); if (k) resourceToAdd = { id: k.id, type: 'Kit', name: k.name }; }
+      if (resourceToAdd) { const current = formData.resources || []; if (!current.some(r => r.id === resourceToAdd!.id)) setFormData({ ...formData, resources: [...current, resourceToAdd] }); }
       setSelectedAssetId('');
   };
 
-  const removeResource = (id: string) => {
-      setFormData({ ...formData, resources: (formData.resources || []).filter(r => r.id !== id) });
-  };
+  const removeResource = (id: string) => setFormData({ ...formData, resources: (formData.resources || []).filter(r => r.id !== id) });
 
   // --- Renderers ---
   const renderMonthView = () => {
@@ -615,9 +473,7 @@ const RotaPage = () => {
       return (
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden animate-in fade-in">
               <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
-                  {weekDays.map(wd => (
-                      <div key={wd} className="py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">{wd}</div>
-                  ))}
+                  {weekDays.map(wd => ( <div key={wd} className="py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">{wd}</div> ))}
               </div>
               <div className="grid grid-cols-7 auto-rows-fr bg-slate-200 dark:bg-slate-700 gap-px border-b border-l border-slate-200 dark:border-slate-700">
                   {gridDays.map((day, idx) => {
@@ -636,6 +492,7 @@ const RotaPage = () => {
                                       <div key={s.id} onClick={(e) => handleShiftClick(s, e)} className={`text-[10px] px-2 py-1 rounded-md border-l-2 truncate cursor-pointer shadow-sm hover:shadow-md transition-all ${getShiftColor(s)}`}>
                                           <div className="font-bold flex justify-between"><span>{s.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
                                           <div className="truncate font-medium opacity-90">{s.location}</div>
+                                          {s.address && <div className="truncate opacity-75 text-[9px] flex items-center gap-0.5"><MapPin size={8} /> {s.address}</div>}
                                       </div>
                                   ))}
                                   {dayShifts.length > 4 && <div className="text-[10px] text-slate-400 text-center font-bold mt-1 bg-slate-100 dark:bg-slate-700 rounded py-0.5">+{dayShifts.length - 4} more</div>}
@@ -670,7 +527,8 @@ const RotaPage = () => {
                                       <div className="flex justify-between items-start mb-2 pb-2 border-b border-black/5 dark:border-white/5">
                                           <div className="font-bold text-sm">{s.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                                       </div>
-                                      <div className="font-bold truncate opacity-90 mb-2 text-[11px] flex items-center gap-1"><MapPin className="w-3 h-3" /> {s.location}</div>
+                                      <div className="font-bold truncate opacity-90 mb-1 text-[11px] flex items-center gap-1"><Briefcase className="w-3 h-3" /> {s.location}</div>
+                                      {s.address && <div className="truncate opacity-75 mb-2 text-[10px] flex items-center gap-1"><MapPin className="w-3 h-3" /> {s.address}</div>}
                                       <div className="space-y-1">
                                           {s.slots.map((slot, i) => (
                                               <div key={i} className="flex items-center gap-1.5 bg-white/40 dark:bg-black/20 p-1 rounded">
@@ -702,6 +560,7 @@ const RotaPage = () => {
                           </div>
                           <div>
                               <h3 className="font-bold text-slate-800 dark:text-white text-lg">{s.location}</h3>
+                              {s.address && <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3"/> {s.address}</p>}
                               <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-1"><Clock className="w-3 h-3" /> {s.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {s.end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
                           </div>
                       </div>
@@ -713,6 +572,20 @@ const RotaPage = () => {
 
   return (
     <div className="space-y-6 pb-20">
+      {/* AI Analysis Widget */}
+      {isManager && rotaAnalysis && (
+          <div className="bg-gradient-to-r from-purple-900 to-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden animate-in fade-in slide-in-from-top-4 border border-purple-500/30">
+              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none"><Sparkles className="w-48 h-48" /></div>
+              <div className="flex justify-between items-start relative z-10">
+                  <div>
+                      <h3 className="text-lg font-bold flex items-center gap-2 mb-2"><Sparkles className="w-5 h-5 text-purple-400" /> AI Rota Insight</h3>
+                      <div className="text-sm text-purple-100 whitespace-pre-line leading-relaxed max-w-2xl">{rotaAnalysis}</div>
+                  </div>
+                  <button onClick={() => setRotaAnalysis(null)} className="text-purple-300 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+          </div>
+      )}
+
       <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-center gap-4 sticky top-0 z-20">
           <div className="flex items-center gap-4 w-full lg:w-auto">
               <h1 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2"><CalendarIcon className="w-6 h-6 text-ams-blue" /> Rota</h1>
@@ -734,7 +607,12 @@ const RotaPage = () => {
                   <button onClick={() => setFilterMode('Available')} className={`flex-1 px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${filterMode === 'Available' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>Available</button>
               </div>
               {isManager && (
-                  <button onClick={() => handleCreateInit()} className="px-4 py-2 bg-ams-blue text-white text-xs font-bold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-1 shadow-sm"><Plus className="w-4 h-4" /> Add</button>
+                  <>
+                    <button onClick={handleRunAiAnalysis} disabled={analyzingRota} className="px-3 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center justify-center gap-1 shadow-sm border border-purple-200 dark:border-purple-800">
+                        {analyzingRota ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Analyze
+                    </button>
+                    <button onClick={() => handleCreateInit()} className="px-4 py-2 bg-ams-blue text-white text-xs font-bold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-1 shadow-sm"><Plus className="w-4 h-4" /> Add</button>
+                  </>
               )}
           </div>
       </div>
@@ -771,11 +649,23 @@ const RotaPage = () => {
                           </div>
                       </div>
 
-                      <div>
-                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Location / Event</label>
-                          <div className="relative">
-                              <MapPin className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-                              <input className="w-full p-3 pl-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" placeholder="e.g. Glastonbury Festival - Medical Centre 1" value={formData.location || ''} onChange={e => setFormData({...formData, location: e.target.value})} />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Shift Name / Event</label>
+                              <div className="relative">
+                                  <Briefcase className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                                  <input className="w-full p-3 pl-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" placeholder="e.g. Glastonbury Team 1" value={formData.location || ''} onChange={e => setFormData({...formData, location: e.target.value})} />
+                              </div>
+                          </div>
+                          <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 flex justify-between">
+                                  Site Address
+                                  <button onClick={useCurrentLocation} className="text-[10px] text-ams-blue flex items-center gap-1 hover:underline"><Navigation className="w-3 h-3" /> Get Current Location</button>
+                              </label>
+                              <div className="relative">
+                                  <MapPin className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                                  <input className="w-full p-3 pl-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" placeholder="e.g. 123 Farm Lane, Pilton, BA4 4AZ" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
+                              </div>
                           </div>
                       </div>
 
@@ -924,7 +814,8 @@ const RotaPage = () => {
                   <div className={`p-6 text-white bg-slate-900 dark:bg-black flex justify-between items-start`}>
                       <div>
                           <h2 className="text-xl font-bold">{selectedShift.location}</h2>
-                          <div className="flex items-center gap-2 mt-1 opacity-80 text-sm">
+                          {selectedShift.address && <p className="text-xs opacity-75 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {selectedShift.address}</p>}
+                          <div className="flex items-center gap-2 mt-2 opacity-80 text-sm">
                               <Clock className="w-4 h-4" />
                               {selectedShift.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {selectedShift.end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                           </div>

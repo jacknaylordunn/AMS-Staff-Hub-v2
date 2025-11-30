@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, FileText, Calendar, Truck, AlertTriangle, LogOut,
-  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info
+  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info, Sparkles
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import EPRFPage from './pages/EPRFPage';

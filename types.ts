@@ -44,6 +44,8 @@ export interface User {
   address?: string;
   compliance: ComplianceDoc[];
   roleChangeRequest?: RoleChangeRequest;
+  approvedAt?: string;
+  approvedBy?: string;
 }
 
 export interface ComplianceDoc {
@@ -111,6 +113,14 @@ export interface Procedure {
   notes?: string;
 }
 
+export interface ResusEvent {
+    id: string;
+    timestamp: string;
+    action: string;
+    type: 'Shock' | 'Drug' | 'Airway' | 'Mechanical' | 'Procedure' | 'Status' | 'Other';
+    user: string;
+}
+
 export interface InjuryMark {
   id: string;
   x: number;
@@ -118,9 +128,17 @@ export interface InjuryMark {
   view: 'Anterior' | 'Posterior';
   type: 'Injury' | 'IV' | 'Pain' | 'Other'; 
   subtype?: string;
+  location?: string;
   description?: string;
   notes?: string;
   success?: boolean;
+}
+
+export interface CranialNerveStatus {
+    nerve: string; 
+    test: string; 
+    status: 'Normal' | 'Abnormal' | 'Not Tested';
+    notes?: string;
 }
 
 export interface NeuroAssessment {
@@ -149,6 +167,7 @@ export interface NeuroAssessment {
     leftLeg: { power: string; sensation: string; };
     rightLeg: { power: string; sensation: string; };
   };
+  cranialNerves?: CranialNerveStatus[];
 }
 
 export interface TraumaTriageResult {
@@ -161,8 +180,10 @@ export interface TraumaTriageResult {
 }
 
 export interface PrimarySurvey {
+    catastrophicHaemorrhage?: boolean;
     airway: {
         status: string;
+        patency?: 'Patent' | 'Partial' | 'Complete' | 'Managed';
         notes: string;
         intervention?: string;
     };
@@ -176,6 +197,7 @@ export interface PrimarySurvey {
         soundsL: string;
         soundsR: string;
         oxygenSats: string;
+        chestExpansion?: 'Equal' | 'Unequal';
     };
     circulation: {
         radialPulse: string;
@@ -183,9 +205,12 @@ export interface PrimarySurvey {
         capRefill: string;
         skin: string;
         temp: string;
+        systolicBP?: string;
+        diastolicBP?: string;
     };
     disability: {
         avpu: string;
+        gcs?: string;
         pupils: string;
         bloodGlucose: string;
     };
@@ -235,6 +260,7 @@ export interface AbdominalAssessment {
     lastBowelMovement: string;
     urineOutput: string;
     nauseaVomiting: boolean;
+    fastScan?: 'Positive' | 'Negative' | 'Indeterminate' | 'Not Performed';
 }
 
 export interface ObsGynaeAssessment {
@@ -245,6 +271,7 @@ export interface ObsGynaeAssessment {
     contractions?: string;
     membranesRuptured?: boolean;
     bleeding?: boolean;
+    foetalMovements?: boolean;
     notes?: string;
 }
 
@@ -253,6 +280,7 @@ export interface MentalHealthAssessment {
     behaviour: string;
     speech: string;
     mood: string;
+    perception?: string;
     riskToSelf: boolean;
     riskToOthers: boolean;
     capacityStatus: string;
@@ -264,10 +292,50 @@ export interface BurnsAssessment {
     site: string;
 }
 
+export interface WoundAssessment {
+    id: string;
+    site: string;
+    classification: string;
+    length?: string;
+    width?: string;
+    dimensions?: string;
+    contamination: string;
+    tetanusStatus: string;
+    closure?: string;
+}
+
+export interface SepsisAssessment {
+    screeningTrigger: boolean; 
+    suspectedSource: string[];
+    redFlags: string[];
+    riskFactors: string[];
+    outcome: 'Monitor' | 'Red Flag Sepsis' | 'Likely Sepsis' | 'Clear';
+}
+
+export interface FallsAssessment {
+    historyOfFalls: boolean;
+    unsteadyWalk: boolean;
+    visualImpairment: boolean;
+    alteredMentalState: boolean;
+    medications: boolean;
+    anticoagulants?: boolean;
+}
+
+export interface MobilityAssessment {
+    preMorbidMobility: string;
+    currentMobility: string;
+    transferAbility: string;
+    aidsUsed: string;
+}
+
 export interface Assessment {
+    clinicalNarrative: string;
     primary: PrimarySurvey;
     neuro: NeuroAssessment;
     traumaTriage?: TraumaTriageResult;
+    falls?: FallsAssessment;
+    mobility?: MobilityAssessment;
+    cfsScore?: number;
     minorInjuryAssessment?: string;
     cardiac?: CardiacAssessment;
     respiratory?: RespiratoryAssessment;
@@ -275,12 +343,17 @@ export interface Assessment {
     obsGynae?: ObsGynaeAssessment;
     mentalHealth?: MentalHealthAssessment;
     burns?: BurnsAssessment;
+    sepsis?: SepsisAssessment;
+    wounds?: WoundAssessment[];
 }
 
-export interface Consumable {
-    id: string;
-    name: string;
-    quantity: number;
+export interface ClinicalDecision {
+    workingImpression: string; 
+    differentialDiagnosis: string; 
+    managementPlan: string; 
+    finalDisposition: string; 
+    destinationLocation?: string;
+    receivingUnit?: string;
 }
 
 export interface MediaAttachment {
@@ -325,6 +398,8 @@ export interface EPRF {
   lastUpdated: string;
   accessUids: string[];
   assistingClinicians: AssistingClinician[];
+  
+  // Timings
   times: {
     callReceived: string;
     mobile: string;
@@ -332,7 +407,10 @@ export interface EPRF {
     patientContact: string;
     departScene: string;
     atHospital: string;
+    clear?: string;
   };
+
+  // Patient
   patient: {
     firstName: string;
     lastName: string;
@@ -342,26 +420,49 @@ export interface EPRF {
     gender: string;
     chronicHypoxia: boolean;
   };
+
+  // History & SAMPLE
   history: {
     presentingComplaint: string;
     historyOfPresentingComplaint: string;
     pastMedicalHistory: string;
     allergies: string;
     medications: string;
+    sample?: {
+        symptoms: string;
+        allergies: string;
+        medications: string;
+        pastHistory: string;
+        lastOralIntake: string;
+        eventsPrior: string;
+    };
   };
+
   assessment: Assessment;
+  clinicalDecision: ClinicalDecision;
   vitals: VitalsEntry[];
+  
+  // Body Maps
   injuries: InjuryMark[];
+  bodyMapImage?: string; 
+  accessMapImage?: string;
+
   treatments: {
     drugs: DrugAdministration[];
     procedures: Procedure[];
+    resusLog?: ResusEvent[];
     minorTreatment?: string;
   };
+
+  // Governance & Safeguarding
   governance: {
     safeguarding: {
         concerns: boolean;
-        type: string;
+        category?: 'Child' | 'Adult at Risk';
+        type: string[]; // e.g. Physical, Sexual, Neglect
         details: string;
+        referralMade?: boolean;
+        referralReference?: string;
     };
     capacity: {
         status: 'Capacity Present' | 'Capacity Lacking';
@@ -374,10 +475,9 @@ export interface EPRF {
         };
         bestInterestsRationale?: string;
     };
-    discharge: string;
-    destinationLocation?: string;
     handoverClinician?: string;
     worseningAdviceDetails?: string;
+    discharge?: string;
     refusal: {
         isRefusal: boolean;
         witnessName?: string;
@@ -390,6 +490,7 @@ export interface EPRF {
         signatureType?: 'Signed' | 'Unable' | 'Refused';
     };
   };
+
   handover: {
       sbar: string;
       clinicianSignature: string;
@@ -399,7 +500,9 @@ export interface EPRF {
       patientSignature: string;
       patientSignatureType?: 'Signed' | 'Unable' | 'Refused';
       media: MediaAttachment[];
+      digitalToken?: string;
   };
+  
   logs: LogEntry[];
   reviewNotes?: ReviewNote[];
 }
@@ -438,7 +541,8 @@ export interface Shift {
   id: string;
   start: Date;
   end: Date;
-  location: string;
+  location: string; // Used as Shift Name / Title
+  address?: string; // Physical Address / Coordinates
   slots: ShiftSlot[]; 
   status: 'Open' | 'Filled' | 'Cancelled' | 'Completed';
   resources?: ShiftResource[];
@@ -486,6 +590,7 @@ export interface KitItem {
   quantity: number;
   batchNumber?: string;
   expiryDate?: string;
+  earliestExpiry?: string; 
 }
 
 export interface MedicalKit {

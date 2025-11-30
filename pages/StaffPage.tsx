@@ -1,252 +1,467 @@
 
-// ... Imports ...
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, CheckCircle, XCircle, MoreVertical, BadgeCheck, UserCog, BarChart2, Users, Loader2, Key, ArrowUpCircle, AlertTriangle, Copy, Check, X, FileText, Eye, ChevronRight, ShieldCheck, Edit3 } from 'lucide-react';
+import { Search, Filter, Users, Loader2, Edit3, AlertTriangle, ArrowRight, CheckCircle, XCircle, Shield, X, Save, FileText, Lock, Calendar, Trash2 } from 'lucide-react';
 import { Role, User, ComplianceDoc } from '../types';
 import StaffAnalytics from '../components/StaffAnalytics';
 import { db } from '../services/firebase';
-import { collection, query, getDocs, doc, updateDoc, orderBy, where, deleteDoc } from 'firebase/firestore';
+import { collection, query, getDocs, doc, updateDoc, orderBy, limit, startAfter, where, arrayRemove } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
 
 const StaffPage = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'Directory' | 'Analytics'>('Directory');
-  const [filter, setFilter] = useState<'All' | 'Pending' | 'RoleRequest'>('All');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [staffList, setStaffList] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
   
-  // Edit State
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'Directory' | 'Analytics'>('Directory');
+  const [staffList, setStaffList] = useState<User[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<User[]>([]);
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Modals
+  const [showApproveModal, setShowApproveModal] = useState<User | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<User | null>(null);
+  const [assignRole, setAssignRole] = useState<Role>(Role.Paramedic);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Edit Form State - Split Name for UI
   const [editForm, setEditForm] = useState<Partial<User>>({});
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
 
   useEffect(() => {
-      fetchStaff();
+      fetchStaff(true);
+      fetchPending();
   }, []);
 
-  const fetchStaff = async () => {
-      setIsLoading(true);
+  useEffect(() => {
+      if (selectedStaff) {
+          setEditForm(selectedStaff);
+          // Split existing name for the edit fields
+          const nameParts = selectedStaff.name.split(' ');
+          setFirstName(nameParts[0] || '');
+          setLastName(nameParts.slice(1).join(' ') || '');
+      }
+  }, [selectedStaff]);
+
+  const fetchPending = async () => {
       try {
-          const q = query(collection(db, 'users'), orderBy('name'));
+          const q = query(collection(db, 'users'), where('status', '==', 'Pending'));
+          const snap = await getDocs(q);
+          setPendingUsers(snap.docs.map(d => d.data() as User));
+      } catch (e) {
+          console.error("Error fetching pending", e);
+      }
+  };
+
+  const fetchStaff = async (isInitial = false) => {
+      if (isInitial) setIsLoading(true);
+      else setLoadingMore(true);
+
+      try {
+          let q = query(collection(db, 'users'), where('status', 'in', ['Active', 'Suspended']), orderBy('name'), limit(20));
+          
+          if (!isInitial && lastDoc) {
+              q = query(collection(db, 'users'), where('status', 'in', ['Active', 'Suspended']), orderBy('name'), startAfter(lastDoc), limit(20));
+          }
+
           const snapshot = await getDocs(q);
           const users = snapshot.docs.map(d => d.data() as User);
-          setStaffList(users);
+          
+          if (snapshot.docs.length < 20) setHasMore(false);
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+
+          setStaffList(prev => isInitial ? users : [...prev, ...users]);
       } catch (e) {
           console.error("Error fetching staff", e);
       } finally {
           setIsLoading(false);
+          setLoadingMore(false);
       }
   };
 
-  const filteredStaff = staffList.filter(staff => {
-      const matchesSearch = staff.name.toLowerCase().includes(searchTerm.toLowerCase()) || staff.email.toLowerCase().includes(searchTerm.toLowerCase());
-      let matchesFilter = true;
-      if (filter === 'Pending') matchesFilter = staff.status === 'Pending';
-      if (filter === 'RoleRequest') matchesFilter = staff.roleChangeRequest?.status === 'Pending';
-      return matchesSearch && matchesFilter;
-  });
-
-  const handleEditClick = (staff: User) => {
-      setEditingUser(staff);
-      setEditForm({
-          name: staff.name,
-          role: staff.role,
-          employeeId: staff.employeeId || '',
-          phone: staff.phone || '',
-          address: staff.address || '',
-          status: staff.status
-      });
-      setShowEditModal(true);
-  };
-
-  const handleUpdateStaff = async () => {
-      if (!editingUser || !editForm.name) return;
-      
+  const handleApprove = async () => {
+      if (!showApproveModal) return;
+      setIsProcessing(true);
       try {
-          await updateDoc(doc(db, 'users', editingUser.uid), editForm);
-          setShowEditModal(false);
-          setEditingUser(null);
-          fetchStaff(); // Refresh list
-          alert("User updated successfully.");
+          const now = new Date();
+          const yy = now.getFullYear().toString().slice(-2);
+          const mm = (now.getMonth() + 1).toString().padStart(2, '0');
+          const rand = Math.floor(1000 + Math.random() * 9000);
+          const badgeId = `AMS${yy}${mm}${rand}`;
+
+          await updateDoc(doc(db, 'users', showApproveModal.uid), {
+              role: assignRole,
+              status: 'Active',
+              employeeId: badgeId,
+              approvedAt: new Date().toISOString(),
+              approvedBy: user?.uid
+          });
+
+          setPendingUsers(prev => prev.filter(u => u.uid !== showApproveModal.uid));
+          const newUser = { ...showApproveModal, role: assignRole, status: 'Active', employeeId: badgeId } as User;
+          setStaffList(prev => [newUser, ...prev]);
+
+          setShowApproveModal(null);
       } catch (e) {
-          console.error("Update failed", e);
-          alert("Failed to update user.");
+          console.error("Approval failed", e);
+          alert("Failed to approve user.");
+      } finally {
+          setIsProcessing(false);
       }
   };
 
-  const handleResetPin = async () => {
-      if (!editingUser || !confirm("Reset PIN to 0000?")) return;
+  const handleSaveEdit = async () => {
+      if (!selectedStaff || !editForm) return;
+      setIsProcessing(true);
       try {
-          await updateDoc(doc(db, 'users', editingUser.uid), { pin: '0000' });
-          alert("PIN reset to 0000.");
+          const fullName = `${firstName.trim()} ${lastName.trim()}`;
+          
+          const payload: Partial<User> = {
+              name: fullName,
+              role: editForm.role,
+              status: editForm.status,
+              employeeId: editForm.employeeId,
+              regNumber: editForm.regNumber,
+              phone: editForm.phone,
+              address: editForm.address
+          };
+          
+          await updateDoc(doc(db, 'users', selectedStaff.uid), payload);
+          setStaffList(prev => prev.map(s => s.uid === selectedStaff.uid ? { ...s, ...payload } : s));
+          setSelectedStaff(null);
+          alert("Staff details updated.");
       } catch (e) {
-          alert("Failed to reset PIN");
+          console.error("Edit failed", e);
+          alert("Failed to save changes.");
+      } finally {
+          setIsProcessing(false);
       }
   };
 
-  const handleDeleteUser = async () => {
-      if (!editingUser || !confirm("Are you sure? This will remove access immediately.")) return;
+  const handleDeleteDoc = async (docToDelete: ComplianceDoc) => {
+      if (!selectedStaff || !confirm("Delete this document?")) return;
       try {
-          // Soft delete or status change usually safer, but prompt implies full control
-          await updateDoc(doc(db, 'users', editingUser.uid), { status: 'Suspended' });
-          setShowEditModal(false);
-          fetchStaff();
-          alert("User suspended.");
+          await updateDoc(doc(db, 'users', selectedStaff.uid), {
+              compliance: arrayRemove(docToDelete)
+          });
+          // Update local state
+          const updatedDocs = selectedStaff.compliance.filter(d => d.id !== docToDelete.id);
+          setSelectedStaff({ ...selectedStaff, compliance: updatedDocs });
+          // Also update the main list
+          setStaffList(prev => prev.map(s => s.uid === selectedStaff.uid ? { ...s, compliance: updatedDocs } : s));
       } catch (e) {
-          alert("Failed to suspend user.");
+          console.error("Delete failed", e);
       }
   };
+
+  const filteredStaff = staffList.filter(staff => 
+      staff.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      staff.email.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="space-y-6 relative">
-      {/* Header */}
+    <div className="space-y-6 relative pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Staff Administration</h1>
-            <p className="text-slate-500 dark:text-slate-400">Manage workforce, approvals, and view operational metrics.</p>
+            <p className="text-slate-500 dark:text-slate-400">Manage workforce and view operational metrics.</p>
         </div>
         <div className="flex gap-2">
-            <button onClick={() => setActiveTab('Directory')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Directory' ? 'bg-white dark:bg-slate-800 text-ams-blue dark:text-white shadow-sm border border-slate-200 dark:border-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Users className="w-4 h-4" /> Directory</button>
-            <button onClick={() => setActiveTab('Analytics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Analytics' ? 'bg-white dark:bg-slate-800 text-ams-blue dark:text-white shadow-sm border border-slate-200 dark:border-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><BarChart2 className="w-4 h-4" /> Analytics</button>
+            <button onClick={() => setActiveTab('Directory')} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Directory' ? 'bg-ams-blue text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Directory</button>
+            <button onClick={() => setActiveTab('Analytics')} className={`px-4 py-2 rounded-lg font-bold transition-all ${activeTab === 'Analytics' ? 'bg-ams-blue text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Analytics</button>
         </div>
       </div>
 
       {activeTab === 'Directory' ? (
         <>
+            {/* Pending Approvals Section */}
+            {pendingUsers.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 p-6 animate-in slide-in-from-top-2">
+                    <h3 className="font-bold text-amber-800 dark:text-amber-200 mb-4 flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5" /> Pending Approvals ({pendingUsers.length})
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {pendingUsers.map(u => (
+                            <div key={u.uid} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-amber-100 dark:border-amber-900/50 shadow-sm flex flex-col gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                                        {u.name.charAt(0)}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                        <p className="font-bold text-slate-800 dark:text-white truncate">{u.name}</p>
+                                        <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 mt-auto">
+                                    <button 
+                                        onClick={() => setShowApproveModal(u)}
+                                        className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                                    >
+                                        <CheckCircle className="w-3 h-3" /> Approve
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
-                <div className="flex flex-col md:flex-row gap-4 justify-between">
-                    <div className="relative flex-1 max-w-md">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input type="text" placeholder="Search staff..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-ams-blue outline-none transition-all dark:text-white" />
-                    </div>
-                    {/* Filters */}
-                    <div className="flex gap-2">
-                        <button onClick={() => setFilter('All')} className={`px-3 py-2 rounded-lg text-xs font-bold ${filter === 'All' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-500'}`}>All</button>
-                        <button onClick={() => setFilter('Pending')} className={`px-3 py-2 rounded-lg text-xs font-bold ${filter === 'Pending' ? 'bg-amber-100 text-amber-800' : 'text-slate-500'}`}>Pending Approval</button>
-                        <button onClick={() => setFilter('RoleRequest')} className={`px-3 py-2 rounded-lg text-xs font-bold ${filter === 'RoleRequest' ? 'bg-purple-100 text-purple-800' : 'text-slate-500'}`}>Role Requests</button>
-                    </div>
+                <div className="relative max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="text" placeholder="Search staff..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-ams-blue dark:text-white" />
                 </div>
             </div>
 
             {isLoading ? <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-ams-blue" /></div> : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in">
-                    {filteredStaff.map(staff => (
-                        <div 
-                            key={staff.uid} 
-                            onClick={() => handleEditClick(staff)}
-                            className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm hover:shadow-md transition-all relative group cursor-pointer"
-                        >
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg text-white ${staff.status === 'Pending' ? 'bg-amber-400' : 'bg-ams-blue'}`}>{staff.name.charAt(0)}</div>
-                                    <div className="overflow-hidden">
-                                        <h3 className="font-bold text-slate-800 dark:text-white truncate">{staff.name}</h3>
-                                        <a href={`mailto:${staff.email}`} onClick={e => e.stopPropagation()} className="text-xs text-slate-500 dark:text-slate-400 truncate hover:text-ams-blue hover:underline block">{staff.email}</a>
-                                        {staff.phone && <a href={`tel:${staff.phone}`} onClick={e => e.stopPropagation()} className="text-xs text-slate-500 dark:text-slate-400 truncate hover:text-ams-blue hover:underline block">{staff.phone}</a>}
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredStaff.map(staff => (
+                            <div 
+                                key={staff.uid} 
+                                onClick={() => setSelectedStaff(staff)}
+                                className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm group hover:border-ams-blue transition-colors cursor-pointer"
+                            >
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${staff.status === 'Active' ? 'bg-ams-blue' : 'bg-slate-400'}`}>{staff.name.charAt(0)}</div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-ams-blue transition-colors">{staff.name}</h3>
+                                        <p className="text-xs text-slate-500">{staff.role}</p>
                                     </div>
+                                    <Edit3 className="w-4 h-4 ml-auto text-slate-300 group-hover:text-ams-blue" />
                                 </div>
-                                <Edit3 className="w-4 h-4 text-slate-300 hover:text-ams-blue" />
-                            </div>
-                            <div className="space-y-3 mb-4">
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="text-slate-500 dark:text-slate-400">Role</span>
-                                    <span className="font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">{staff.role}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="text-slate-500 dark:text-slate-400">ID</span>
-                                    <span className="font-medium text-slate-700 dark:text-slate-300 font-mono">{staff.employeeId || '-'}</span>
+                                <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-3">
+                                    <span className="font-mono bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded border border-slate-200 dark:border-slate-600">{staff.employeeId || 'NO ID'}</span>
+                                    <span className={staff.status === 'Active' ? 'text-green-600 font-bold' : 'text-slate-400'}>{staff.status}</span>
                                 </div>
                             </div>
-                            
-                            {staff.status !== 'Active' && (
-                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 text-center">
-                                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${staff.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                                        <AlertTriangle className="w-3 h-3" /> {staff.status}
-                                    </span>
-                                </div>
-                            )}
+                        ))}
+                    </div>
+                    {hasMore && !searchTerm && (
+                        <div className="text-center pt-4">
+                            <button onClick={() => fetchStaff()} disabled={loadingMore} className="px-6 py-2 bg-slate-100 dark:bg-slate-800 rounded-full font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50">
+                                {loadingMore ? 'Loading...' : 'Load More'}
+                            </button>
                         </div>
-                    ))}
+                    )}
                 </div>
             )}
         </>
       ) : <StaffAnalytics />}
-      
-      {/* Edit Staff Modal */}
-      {showEditModal && editingUser && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
-                  <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                          <UserCog className="w-6 h-6 text-ams-blue" /> Edit Staff Member
-                      </h3>
-                      <button onClick={() => setShowEditModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+
+      {/* Approval Modal */}
+      {showApproveModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Approve Access</h3>
+                  <div className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                      Authorizing: <strong className="text-slate-800 dark:text-white">{showApproveModal.name}</strong>
                   </div>
                   
                   <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="input-label">Full Name</label>
-                              <input className="input-field" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
-                          </div>
-                          <div>
-                              <label className="input-label">Role</label>
-                              <select className="input-field" value={editForm.role} onChange={e => setEditForm({...editForm, role: e.target.value as Role})}>
-                                  {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-                              </select>
-                          </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Assign Role</label>
+                          <select 
+                              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none dark:text-white"
+                              value={assignRole}
+                              onChange={e => setAssignRole(e.target.value as Role)}
+                          >
+                              {Object.values(Role).filter(r => r !== Role.Pending).map(r => (
+                                  <option key={r} value={r}>{r}</option>
+                              ))}
+                          </select>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="input-label">Employee ID</label>
-                              <input className="input-field" value={editForm.employeeId} onChange={e => setEditForm({...editForm, employeeId: e.target.value})} />
-                          </div>
-                          <div>
-                              <label className="input-label">Account Status</label>
-                              <select className="input-field" value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value as any})}>
-                                  <option value="Active">Active</option>
-                                  <option value="Pending">Pending</option>
-                                  <option value="Suspended">Suspended</option>
-                              </select>
-                          </div>
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2">
+                          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <span>
+                              A unique <strong>Employee ID</strong> will be generated automatically.
+                          </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="input-label">Phone</label>
-                              <input className="input-field" value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} />
-                          </div>
-                          <div>
-                              <label className="input-label">Address</label>
-                              <input className="input-field" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} />
-                          </div>
-                      </div>
-
-                      {/* Admin Actions */}
-                      <div className="border-t border-slate-100 dark:border-slate-700 pt-4 mt-4 grid grid-cols-2 gap-4">
-                          <button onClick={handleResetPin} className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg hover:bg-slate-200">
-                              Reset PIN to 0000
+                      <div className="flex gap-2 pt-2">
+                          <button onClick={() => setShowApproveModal(null)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-700 font-bold text-slate-600 dark:text-slate-300 rounded-lg text-sm">Cancel</button>
+                          <button 
+                              onClick={handleApprove}
+                              disabled={isProcessing}
+                              className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                          >
+                              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Approval'}
                           </button>
-                          <button onClick={handleDeleteUser} className="px-4 py-2 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">
-                              Suspend / Delete User
-                          </button>
-                      </div>
-
-                      <div className="flex gap-3 pt-2">
-                          <button onClick={() => setShowEditModal(false)} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">Cancel</button>
-                          <button onClick={handleUpdateStaff} className="flex-1 py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-900 shadow-lg">Save Changes</button>
                       </div>
                   </div>
               </div>
           </div>
       )}
 
-      <style>{`
-        .input-label { @apply block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1; }
-        .input-field { @apply w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white transition-all; }
-      `}</style>
+      {/* Detail / Edit Modal */}
+      {selectedStaff && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  
+                  {/* Header */}
+                  <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
+                      <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-full bg-ams-blue flex items-center justify-center text-white font-bold text-xl">
+                              {selectedStaff.name.charAt(0)}
+                          </div>
+                          <div>
+                              <h3 className="font-bold text-xl text-slate-800 dark:text-white">{selectedStaff.name}</h3>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">{selectedStaff.email}</p>
+                          </div>
+                      </div>
+                      <button onClick={() => setSelectedStaff(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
+                          <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                  </div>
+
+                  {/* Body */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                      
+                      {/* Status Banner */}
+                      <div className="flex gap-4">
+                          <div className="flex-1">
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Account Status</label>
+                              <select 
+                                  className={`w-full p-2.5 rounded-lg border font-bold text-sm ${editForm.status === 'Active' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}
+                                  value={editForm.status}
+                                  onChange={e => setEditForm({...editForm, status: e.target.value as any})}
+                                  disabled={!isManager}
+                              >
+                                  <option value="Active">Active</option>
+                                  <option value="Suspended">Suspended</option>
+                                  <option value="Pending">Pending</option>
+                              </select>
+                          </div>
+                          <div className="flex-1">
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">System Role</label>
+                              <select 
+                                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium dark:text-white outline-none"
+                                  value={editForm.role}
+                                  onChange={e => setEditForm({...editForm, role: e.target.value as any})}
+                                  disabled={!isManager}
+                              >
+                                  {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                          </div>
+                      </div>
+
+                      {/* Main Details */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                              <label className="input-label">First Name</label>
+                              <input 
+                                className="input-field" 
+                                value={firstName} 
+                                onChange={e => setFirstName(e.target.value)}
+                                disabled={!isManager}
+                              />
+                          </div>
+                          <div>
+                              <label className="input-label">Last Name</label>
+                              <input 
+                                className="input-field" 
+                                value={lastName} 
+                                onChange={e => setLastName(e.target.value)}
+                                disabled={!isManager}
+                              />
+                          </div>
+                          <div>
+                              <label className="input-label">Employee ID</label>
+                              <input 
+                                className="input-field font-mono" 
+                                value={editForm.employeeId || ''} 
+                                onChange={e => setEditForm({...editForm, employeeId: e.target.value})}
+                                disabled={!isManager}
+                              />
+                          </div>
+                          <div>
+                              <label className="input-label">Professional Reg (HCPC/NMC)</label>
+                              <input 
+                                className="input-field" 
+                                value={editForm.regNumber || ''} 
+                                onChange={e => setEditForm({...editForm, regNumber: e.target.value})}
+                                disabled={!isManager}
+                              />
+                          </div>
+                          <div>
+                              <label className="input-label">Phone Number</label>
+                              <input 
+                                className="input-field" 
+                                value={editForm.phone || ''} 
+                                onChange={e => setEditForm({...editForm, phone: e.target.value})}
+                                disabled={!isManager}
+                              />
+                          </div>
+                      </div>
+                      
+                      <div>
+                          <label className="input-label">Address</label>
+                          <textarea 
+                              className="input-field resize-none" 
+                              rows={2}
+                              value={editForm.address || ''} 
+                              onChange={e => setEditForm({...editForm, address: e.target.value})}
+                              disabled={!isManager}
+                          />
+                      </div>
+
+                      {/* Compliance Section */}
+                      <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+                          <h4 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+                              <Shield className="w-4 h-4 text-ams-blue" /> Compliance Documents
+                          </h4>
+                          <div className="space-y-2">
+                              {selectedStaff.compliance && selectedStaff.compliance.length > 0 ? (
+                                  selectedStaff.compliance.map((doc, idx) => (
+                                      <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
+                                          <div className="flex items-center gap-3">
+                                              <FileText className="w-4 h-4 text-slate-400" />
+                                              <div>
+                                                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{doc.name}</p>
+                                                  <p className="text-xs text-slate-500">Expires: {new Date(doc.expiryDate).toLocaleDateString()}</p>
+                                              </div>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                                  doc.status === 'Valid' ? 'bg-green-100 text-green-700' : 
+                                                  doc.status === 'Expiring' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                              }`}>{doc.status}</span>
+                                              {doc.fileUrl && (
+                                                  <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline font-bold">View</a>
+                                              )}
+                                              {isManager && (
+                                                  <button onClick={() => handleDeleteDoc(doc)} className="text-red-500 p-1 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+                                              )}
+                                          </div>
+                                      </div>
+                                  ))
+                              ) : (
+                                  <p className="text-slate-400 italic text-sm">No documents uploaded.</p>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Footer */}
+                  {isManager && (
+                      <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3">
+                          <button onClick={() => setSelectedStaff(null)} className="px-6 py-2.5 font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancel</button>
+                          <button 
+                              onClick={handleSaveEdit} 
+                              disabled={isProcessing}
+                              className="px-8 py-2.5 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 transition-all flex items-center gap-2 disabled:opacity-50"
+                          >
+                              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save Changes
+                          </button>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
     </div>
   );
 };

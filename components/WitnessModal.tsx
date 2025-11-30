@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { Lock, UserCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { User } from '../types';
 
 interface WitnessModalProps {
@@ -18,13 +19,17 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
     const [loading, setLoading] = useState(true);
     const [verifying, setVerifying] = useState(false);
 
+    // 1. Fetch Staff List (Names ONLY)
     useEffect(() => {
         const fetchStaff = async () => {
             try {
-                // Fetch active staff for the dropdown
                 const q = query(collection(db, 'users'), where('status', '==', 'Active'));
                 const snapshot = await getDocs(q);
-                const users = snapshot.docs.map(doc => doc.data() as User);
+                // Map only public info, do NOT map 'pin'
+                const users = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { uid: doc.id, name: data.name, role: data.role } as User;
+                });
                 setActiveStaff(users);
             } catch (e) {
                 console.error("Error loading staff", e);
@@ -36,7 +41,7 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
         fetchStaff();
     }, []);
 
-    const handleVerify = () => {
+    const handleVerify = async () => {
         if (!selectedWitnessId || pin.length !== 4) {
             setError("Please select a witness and enter a 4-digit PIN.");
             return;
@@ -45,25 +50,34 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
         setVerifying(true);
         setError('');
 
-        const witness = activeStaff.find(u => u.uid === selectedWitnessId);
-        
-        if (witness) {
-            // Verify PIN
-            if (witness.pin === pin) {
-                onWitnessConfirmed(witness.name, witness.uid);
+        try {
+            // 2. On-Demand Fetch: Get the specific witness doc to check PIN
+            const witnessRef = doc(db, 'users', selectedWitnessId);
+            const witnessSnap = await getDoc(witnessRef);
+
+            if (witnessSnap.exists()) {
+                const witnessData = witnessSnap.data();
+                // Check against the PIN in the database
+                if (witnessData.pin === pin) {
+                    onWitnessConfirmed(witnessData.name, selectedWitnessId);
+                } else {
+                    setError("Incorrect PIN. Verification failed.");
+                    setPin('');
+                }
             } else {
-                setError("Incorrect PIN. Verification failed.");
-                setPin('');
+                setError("Witness profile not found.");
             }
-        } else {
-            setError("Witness not found.");
+        } catch (e) {
+            console.error("Verification error", e);
+            setError("Verification failed due to network error.");
+        } finally {
+            setVerifying(false);
         }
-        setVerifying(false);
     };
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in zoom-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200 dark:border-slate-700">
                 <div className="bg-purple-600 p-6 text-white text-center">
                     <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
                         <Lock className="w-6 h-6" />
@@ -84,9 +98,9 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
                     ) : (
                         <div className="space-y-3">
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Witness</label>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Select Witness</label>
                                 <select 
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-3 font-medium outline-none focus:ring-2 focus:ring-purple-500"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-3 font-medium outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
                                     value={selectedWitnessId}
                                     onChange={e => setSelectedWitnessId(e.target.value)}
                                 >
@@ -97,28 +111,29 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Secure PIN</label>
+                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Secure PIN</label>
                                 <input 
                                     type="password"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-3 font-bold tracking-widest outline-none focus:ring-2 focus:ring-purple-500"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-3 font-bold tracking-widest outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
                                     placeholder="••••"
                                     maxLength={4}
                                     value={pin}
                                     onChange={e => setPin(e.target.value)}
                                 />
-                                <p className="text-[10px] text-slate-400 mt-1">Witness must enter their 4-digit ID PIN.</p>
                             </div>
                         </div>
                     )}
 
-                    <button 
-                        onClick={handleVerify}
-                        disabled={verifying}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg shadow-purple-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                        {verifying ? <Loader2 className="animate-spin w-5 h-5" /> : <UserCheck className="w-5 h-5" />} Verify & Sign
-                    </button>
-                    <button onClick={onCancel} className="w-full py-2 text-slate-500 font-bold hover:text-slate-800 text-sm">Cancel</button>
+                    <div className="flex gap-2">
+                        <button onClick={onCancel} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors">Cancel</button>
+                        <button 
+                            onClick={handleVerify}
+                            disabled={verifying}
+                            className="flex-[2] py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {verifying ? <Loader2 className="animate-spin w-5 h-5" /> : <UserCheck className="w-5 h-5" />} Verify
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

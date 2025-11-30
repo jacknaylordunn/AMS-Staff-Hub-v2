@@ -1,8 +1,10 @@
+
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import EmailVerification from './EmailVerification';
 import PendingApproval from './PendingApproval';
+import PinSetup from './PinSetup';
 import { Loader2 } from 'lucide-react';
 import { Role } from '../types';
 
@@ -22,8 +24,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
     );
   }
 
-  // Safety Check: Authenticated technically but profile not loaded yet.
-  // Prevents premature redirect to login page.
+  // Safety Check
   if (firebaseUser && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -48,12 +49,17 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   }
   
   if (user.status === 'Suspended' || user.status === 'Rejected') {
-      return <Navigate to="/login" replace />; // Login page handles error display
+      return <Navigate to="/login" replace />; 
   }
 
-  // 4. Check Role Permission (if specific roles required)
+  // 4. Check PIN Setup (New Requirement)
+  // If user is Active but has no PIN, force setup
+  if (user.status === 'Active' && !user.pin) {
+      return <PinSetup />;
+  }
+
+  // 5. Check Role Permission
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-      // Redirect to Dashboard if unauthorized for specific page
       return <Navigate to="/" replace />;
   }
 
