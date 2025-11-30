@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import SignaturePad from '../SignaturePad';
-import { ShieldCheck, Info, Users, ShieldAlert, FileText, Sparkles, Loader2 } from 'lucide-react';
+import { ShieldCheck, Info, Users, ShieldAlert, FileText, Sparkles, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { generateSafeguardingPDF } from '../../utils/pdfGenerator';
 import { analyzeSafeguarding } from '../../services/geminiService';
 
@@ -17,6 +17,7 @@ const SAFETY_NETS = [
 const GovernanceTab = () => {
     const { activeDraft, handleNestedUpdate } = useEPRF();
     const [analyzing, setAnalyzing] = useState(false);
+    const [scanResult, setScanResult] = useState<{detected: boolean, message: string} | null>(null);
     
     if (!activeDraft) return null;
 
@@ -36,19 +37,29 @@ const GovernanceTab = () => {
 
     const handleAiScan = async () => {
         setAnalyzing(true);
+        setScanResult(null);
+        
         const narrative = `
             Complaint: ${activeDraft.history.presentingComplaint}
             History: ${activeDraft.history.historyOfPresentingComplaint}
             Exam: ${activeDraft.assessment.clinicalNarrative}
         `;
         const result = await analyzeSafeguarding(narrative);
+        
         if (result.detected) {
             handleNestedUpdate(['governance', 'safeguarding', 'concerns'], true);
             if (result.type) toggleSafeguardingType(result.type);
             handleNestedUpdate(['governance', 'safeguarding', 'details'], (activeDraft.governance.safeguarding.details || '') + `\n[AI FLAG]: ${result.reasoning}`);
-            alert(`Potential Safeguarding Risk Detected:\n${result.reasoning}`);
+            
+            setScanResult({
+                detected: true,
+                message: `Risk Identified: ${result.type}\nReason: ${result.reasoning}\n\nSafeguarding form has been triggered.`
+            });
         } else {
-            alert("No obvious safeguarding triggers found in narrative. Clinical judgement remains paramount.");
+            setScanResult({
+                detected: false,
+                message: "No obvious safeguarding triggers found in the current narrative."
+            });
         }
         setAnalyzing(false);
     };
@@ -83,6 +94,16 @@ const GovernanceTab = () => {
                         </label>
                     </div>
                 </div>
+
+                {scanResult && (
+                    <div className={`mb-4 p-4 rounded-xl text-sm whitespace-pre-line border flex items-start gap-3 animate-in fade-in slide-in-from-top-2 ${scanResult.detected ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200' : 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/30 dark:border-green-800 dark:text-green-200'}`}>
+                        {scanResult.detected ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <CheckCircle className="w-5 h-5 flex-shrink-0" />}
+                        <div>
+                            <p className="font-bold mb-1">{scanResult.detected ? 'AI Analysis: Risks Detected' : 'AI Analysis: Clear'}</p>
+                            {scanResult.message}
+                        </div>
+                    </div>
+                )}
 
                 {activeDraft.governance.safeguarding.concerns && (
                     <div className="space-y-4 animate-in fade-in">

@@ -248,7 +248,7 @@ const AssessmentTab = () => {
                             <h3 className="font-bold mb-4 text-slate-800 dark:text-white flex items-center gap-2">
                                 <PersonStanding className="w-5 h-5 text-ams-blue" /> Clinical Frailty Scale
                             </h3>
-                            <p className="text-xs text-slate-500 mb-4">Assess for patients > 65. Used to determine reserve and outcomes.</p>
+                            <p className="text-xs text-slate-500 mb-4">Assess for patients &gt; 65. Used to determine reserve and outcomes.</p>
                             <ClinicalFrailtyScale 
                                 value={assessment.cfsScore || 0}
                                 onChange={(val) => update(['cfsScore'], val)}
@@ -503,7 +503,7 @@ const AssessmentTab = () => {
                                     checked={assessment.obsGynae?.pregnant}
                                     onChange={e => update(['obsGynae', 'pregnant'], e.target.checked)}
                                 />
-                                Patient is Pregnant (Confirm > 20 weeks)
+                                Patient is Pregnant (Confirm &gt; 20 weeks)
                             </label>
                         </div>
 

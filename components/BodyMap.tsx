@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { RefreshCcw, Plus, X } from 'lucide-react';
 import { InjuryMark } from '../types';
@@ -48,11 +49,15 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
       ));
 
       relevantMarks.forEach(mark => {
+          // Backward compatibility: If coordinate > 1, assume pixels. Else assume percentage.
+          const drawX = mark.x <= 1 ? mark.x * width : mark.x;
+          const drawY = mark.y <= 1 ? mark.y * height : mark.y;
+
           ctx.beginPath();
           ctx.fillStyle = mark.type === 'Injury' ? '#ef4444' : mark.type === 'Pain' ? '#f59e0b' : '#3b82f6';
           
           const size = 8;
-          ctx.arc(mark.x, mark.y, size, 0, 2 * Math.PI);
+          ctx.arc(drawX, drawY, size, 0, 2 * Math.PI);
           ctx.fill();
           
           ctx.strokeStyle = '#fff';
@@ -63,20 +68,23 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
               ctx.font = "bold 10px Arial";
               ctx.fillStyle = "#000";
               ctx.textAlign = "center";
-              ctx.fillText(mark.subtype.substring(0, 2).toUpperCase(), mark.x, mark.y + 4);
+              ctx.fillText(mark.subtype.substring(0, 2).toUpperCase(), drawX, drawY + 4);
           }
       });
 
       if (pendingMark) {
+          const pmX = pendingMark.x * width;
+          const pmY = pendingMark.y * height;
+
           ctx.beginPath();
           ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-          ctx.arc(pendingMark.x, pendingMark.y, 10, 0, 2 * Math.PI);
+          ctx.arc(pmX, pmY, 10, 0, 2 * Math.PI);
           ctx.fill();
           
           ctx.beginPath();
           ctx.strokeStyle = mode === 'injury' ? '#ef4444' : '#3b82f6';
           ctx.lineWidth = 2;
-          ctx.arc(pendingMark.x, pendingMark.y, 10, 0, 2 * Math.PI);
+          ctx.arc(pmX, pmY, 10, 0, 2 * Math.PI);
           ctx.stroke();
       }
 
@@ -104,39 +112,38 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
     if (!canvas) return;
     
     const rect = canvas.getBoundingClientRect();
-    const scaleX = 300 / rect.width; 
-    const scaleY = 600 / rect.height;
+    // Calculate percentage (0-1) relative to displayed size
+    // This makes the click independent of CSS scaling vs internal resolution
+    const xPct = (e.clientX - rect.left) / rect.width;
+    const yPct = (e.clientY - rect.top) / rect.height;
 
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-
-    setPendingMark({ x, y });
+    setPendingMark({ x: xPct, y: yPct });
     setShowTypeModal(true);
   };
 
-  const getLocationName = (x: number, y: number, view: 'Anterior' | 'Posterior') => {
-      // Rough mapping for 300x600 canvas
+  const getLocationName = (xPct: number, yPct: number, view: 'Anterior' | 'Posterior') => {
+      // Relative Coordinate Mapping (0-1)
       let location = 'Unknown';
       
-      // Head
-      if (y < 70) location = 'Head/Face';
-      // Neck
-      else if (y >= 70 && y < 100) location = 'Neck';
-      // Torso vs Arms
-      else if (y >= 100 && y < 250) {
-          if (x < 75) location = view === 'Anterior' ? 'Right Arm' : 'Left Arm';
-          else if (x > 225) location = view === 'Anterior' ? 'Left Arm' : 'Right Arm';
+      // Head (Top 11.6%)
+      if (yPct < 0.116) location = 'Head/Face';
+      // Neck (11.6% - 16.6%)
+      else if (yPct >= 0.116 && yPct < 0.166) location = 'Neck';
+      // Torso vs Arms (16.6% - 41.6%)
+      else if (yPct >= 0.166 && yPct < 0.416) {
+          if (xPct < 0.25) location = view === 'Anterior' ? 'Right Arm' : 'Left Arm';
+          else if (xPct > 0.75) location = view === 'Anterior' ? 'Left Arm' : 'Right Arm';
           else location = view === 'Anterior' ? 'Chest' : 'Back';
       }
-      // Abdomen/Pelvis
-      else if (y >= 250 && y < 320) {
-          if (x < 75) location = view === 'Anterior' ? 'Right Forearm' : 'Left Forearm';
-          else if (x > 225) location = view === 'Anterior' ? 'Left Forearm' : 'Right Forearm';
+      // Abdomen/Pelvis/Forearms (41.6% - 53.3%)
+      else if (yPct >= 0.416 && yPct < 0.533) {
+          if (xPct < 0.25) location = view === 'Anterior' ? 'Right Forearm' : 'Left Forearm';
+          else if (xPct > 0.75) location = view === 'Anterior' ? 'Left Forearm' : 'Right Forearm';
           else location = view === 'Anterior' ? 'Abdomen/Pelvis' : 'Lower Back';
       }
-      // Legs
+      // Legs (> 53.3%)
       else {
-          if (x < 150) location = view === 'Anterior' ? 'Right Leg' : 'Left Leg';
+          if (xPct < 0.5) location = view === 'Anterior' ? 'Right Leg' : 'Left Leg';
           else location = view === 'Anterior' ? 'Left Leg' : 'Right Leg';
       }
       
@@ -150,8 +157,8 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
 
       const newMark: InjuryMark = {
           id: Date.now().toString(),
-          x: pendingMark.x,
-          y: pendingMark.y,
+          x: pendingMark.x, // Store percentage
+          y: pendingMark.y, // Store percentage
           view,
           type: type as any,
           subtype: subtype,

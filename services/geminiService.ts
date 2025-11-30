@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -177,37 +178,6 @@ export const generateClinicalNarrative = async (eprfData: any): Promise<string> 
   } catch (error) {
     console.error("Narrative Gen Error", error);
     return "";
-  }
-};
-
-export const getMedicalGuidance = async (query: string, context?: string): Promise<string> => {
-  try {
-    const model = 'gemini-2.5-flash';
-    const prompt = `
-      Act as a Clinical Support Assistant based on JRCALC guidelines (UK Ambulance Services).
-      
-      User Query: ${query}
-      ${context ? `Patient Context: ${context}` : ''}
-
-      Provide a concise, clinically accurate summary suitable for a paramedic or clinician in the field. 
-      If the query is about drug dosages, always state the route and contraindications.
-      If the query is about an algorithm, outline the key steps.
-      
-      Disclaimer: Remind the user to verify with their official pocket book if critical.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        temperature: 0.2
-      }
-    });
-
-    return response.text || "Guidance unavailable.";
-  } catch (error) {
-    console.error("Medical Guidance Error", error);
-    return "Unable to retrieve guidance at this time.";
   }
 };
 

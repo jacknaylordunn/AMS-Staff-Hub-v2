@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation } from 'lucide-react';
+import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation, Sparkles, Bot } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc } from 'firebase/firestore';
 import { Shift, TimeRecord, Announcement, Role, ComplianceDoc } from '../types';
 import { useNavigate } from 'react-router-dom';
 import AnnouncementModal from '../components/AnnouncementModal';
+import { generateDashboardBriefing } from '../services/geminiService';
 
 const QuickAction = ({ icon: Icon, label, onClick, color, desc }: any) => (
     <button 
@@ -75,6 +76,24 @@ const deg2rad = (deg: number) => {
   return deg * (Math.PI/180)
 }
 
+// Simple Markdown Parser for Briefing
+const renderBriefingContent = (text: string) => {
+    return text.split('\n').map((line, i) => {
+        // Parse **bold**
+        const parts = line.split(/(\*\*.*?\*\*)/g);
+        return (
+            <p key={i} className={`min-h-[1em] ${line.trim().startsWith('-') ? 'ml-4 list-disc display-list-item' : ''}`}>
+                {parts.map((part, j) => {
+                    if (part.startsWith('**') && part.endsWith('**')) {
+                        return <strong key={j} className="font-extrabold text-indigo-700 dark:text-indigo-300">{part.slice(2, -2)}</strong>;
+                    }
+                    return part;
+                })}
+            </p>
+        );
+    });
+};
+
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -91,6 +110,10 @@ const Dashboard = () => {
   const [distanceToSite, setDistanceToSite] = useState<number | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  
+  // Briefing
+  const [briefing, setBriefing] = useState<string | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
   
   // System Status
   const [systemStatus, setSystemStatus] = useState({ level: 'Operational', message: 'All Systems Nominal' });
@@ -211,6 +234,19 @@ const Dashboard = () => {
       }
       return () => clearInterval(interval);
   }, [activeShift, user]);
+
+  const handleGenerateBriefing = async () => {
+      if (!user) return;
+      setBriefingLoading(true);
+      try {
+          const text = await generateDashboardBriefing(user.name, todayShifts, announcements);
+          setBriefing(text);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setBriefingLoading(false);
+      }
+  };
 
   const initiateClockIn = (shift: Shift) => {
       setActiveShift(shift); 
@@ -433,10 +469,20 @@ const Dashboard = () => {
           <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-ams-blue/10 to-transparent rounded-bl-full -mr-20 -mt-20 pointer-events-none"></div>
           
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 relative z-10">
-              <div>
-                  <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-                      Hello, {user?.name.split(' ')[0]}
-                  </h1>
+              <div className="flex-1">
+                  <div className="flex items-center gap-4">
+                      <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-tight">
+                          Hello, {user?.name.split(' ')[0]}
+                      </h1>
+                      <button 
+                        onClick={handleGenerateBriefing} 
+                        disabled={briefingLoading}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-xs font-bold hover:bg-indigo-200 dark:hover:bg-indigo-800 transition-colors shadow-sm disabled:opacity-50"
+                      >
+                          {briefingLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          Brief Me
+                      </button>
+                  </div>
                   
                   {/* Dynamic System Status */}
                   <div className="mt-2 flex items-center gap-3">
@@ -455,6 +501,18 @@ const Dashboard = () => {
                           </button>
                       )}
                   </div>
+
+                  {briefing && (
+                      <div className="mt-4 p-4 bg-white/60 dark:bg-black/20 rounded-xl backdrop-blur-sm border border-white/20 relative animate-in fade-in slide-in-from-top-2 max-w-2xl">
+                          <button onClick={() => setBriefing(null)} className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white"><X className="w-4 h-4" /></button>
+                          <div className="flex items-center gap-2 mb-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
+                              <Bot className="w-4 h-4" /> Operational Briefing
+                          </div>
+                          <div className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+                              {renderBriefingContent(briefing)}
+                          </div>
+                      </div>
+                  )}
                   
                   {/* Next Shift Indicator & Alerts */}
                   {!activeShift && isLate && (
@@ -465,7 +523,7 @@ const Dashboard = () => {
                   )}
 
                   {!activeShift && !isLate && nextShift && (
-                      <div className="mt-6 flex items-center gap-4 bg-white/60 dark:bg-black/20 p-3 rounded-2xl backdrop-blur-sm border border-white/20">
+                      <div className="mt-6 flex items-center gap-4 bg-white/60 dark:bg-black/20 p-3 rounded-2xl backdrop-blur-sm border border-white/20 inline-flex">
                           <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
                               <CalendarCheck className="w-5 h-5 text-ams-blue" />
                           </div>

@@ -13,12 +13,22 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
   const [error, setError] = useState<string>('');
   const [manualCode, setManualCode] = useState('');
   const [isManual, setIsManual] = useState(false);
+  const [isSupported, setIsSupported] = useState(true);
 
   useEffect(() => {
+    // Immediate check for support
+    if (!('BarcodeDetector' in window)) {
+        setIsSupported(false);
+        setIsManual(true);
+    }
+
     let stream: MediaStream | null = null;
     let interval: any = null;
 
     const startCamera = async () => {
+      // Don't start camera if we forced manual mode due to lack of support
+      if (isManual) return;
+
       try {
         const constraints = { video: { facingMode: 'environment' } };
         stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -42,8 +52,6 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
                 }
               }
             }, 500);
-          } else {
-             console.warn("BarcodeDetector not supported. Use manual entry or simulate.");
           }
         }
         setHasPermission(true);
@@ -51,6 +59,7 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
         console.error("Camera Error: ", err);
         setHasPermission(false);
         setError('Camera access denied or unavailable.');
+        setIsManual(true); // Fallback if camera fails
       }
     };
 
@@ -85,9 +94,11 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
             <div className="px-4 py-1 bg-black/40 backdrop-blur-md rounded-full text-sm font-medium">
                 {isManual ? 'Enter Asset ID' : 'Scan Asset QR'}
             </div>
-            <button onClick={() => setIsManual(!isManual)} className="p-2 bg-black/40 backdrop-blur-md rounded-full hover:bg-white/10 transition-colors">
-                {isManual ? <Camera className="w-6 h-6" /> : <Keyboard className="w-6 h-6" />}
-            </button>
+            {isSupported && (
+                <button onClick={() => setIsManual(!isManual)} className="p-2 bg-black/40 backdrop-blur-md rounded-full hover:bg-white/10 transition-colors">
+                    {isManual ? <Camera className="w-6 h-6" /> : <Keyboard className="w-6 h-6" />}
+                </button>
+            )}
         </div>
 
         {/* Content */}
@@ -99,7 +110,9 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
                              <Keyboard className="w-8 h-8 text-ams-blue" />
                          </div>
                          <h3 className="text-white font-bold text-xl">Manual Entry</h3>
-                         <p className="text-slate-400 text-sm">Enter the alphanumeric code found on the asset tag.</p>
+                         <p className="text-slate-400 text-sm">
+                             {isSupported ? 'Enter the alphanumeric code found on the asset tag.' : 'Scanner not supported on this device. Please enter code manually.'}
+                         </p>
                      </div>
                      <input 
                         autoFocus
@@ -126,7 +139,6 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
                             <AlertCircle className="w-12 h-12 text-red-500" />
                             <p className="font-bold">Camera Access Required</p>
                             <p className="text-sm text-slate-400">{error}</p>
-                            <button onClick={() => setIsManual(true)} className="mt-4 px-4 py-2 bg-slate-800 rounded-lg text-xs font-bold border border-slate-700">Switch to Manual Entry</button>
                         </div>
                     )}
 
@@ -156,9 +168,9 @@ const QrScannerModal: React.FC<QrScannerModalProps> = ({ onScan, onClose }) => {
                         </div>
                     )}
                     
-                    {hasPermission === true && !('BarcodeDetector' in window) && (
+                    {hasPermission === true && (
                         <div className="absolute bottom-24 text-white text-center text-sm font-medium bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
-                            Demo Mode: Tap box to simulate
+                            Tap box to simulate scan (Demo)
                         </div>
                     )}
                  </>
