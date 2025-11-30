@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Activity, User, AlertTriangle, Bot, Pill, FileText, ClipboardList, Plus, Lock, Search, Cloud, ShieldCheck, Sparkles, Loader2, Camera, Trash2, X, Eye, Gauge, Brain, Stethoscope, Syringe, Briefcase, FilePlus, Zap, Clock, MessageSquare, Menu, CheckCircle, AlertOctagon, UserPlus, Coffee, Moon, ThumbsUp, ThumbsDown, Droplets, ChevronRight, ShieldAlert, MoreVertical, Key, Users, WifiOff, Wifi, PenTool, ClipboardCheck, ArrowRight, UserCheck, Calculator } from 'lucide-react';
+import { Save, Activity, User, AlertTriangle, Bot, Pill, FileText, ClipboardList, Plus, Lock, Search, Cloud, ShieldCheck, Sparkles, Loader2, Camera, Trash2, X, Eye, Gauge, Brain, Stethoscope, Syringe, Briefcase, FilePlus, Zap, Clock, MessageSquare, Menu, CheckCircle, AlertOctagon, UserPlus, Coffee, Moon, ThumbsUp, ThumbsDown, Droplets, ChevronRight, ShieldAlert, MoreVertical, Key, Users, WifiOff, Wifi, PenTool, ClipboardCheck, ArrowRight, UserCheck, Calculator, Thermometer, Wind, Baby, Heart, Bone, Smile } from 'lucide-react';
 import BodyMap from '../components/BodyMap';
 import SignaturePad from '../components/SignaturePad';
 import VitalsChart from '../components/VitalsChart';
@@ -11,13 +11,13 @@ import WitnessModal from '../components/WitnessModal';
 import NeuroAssessment from '../components/NeuroAssessment';
 import TraumaTriage from '../components/TraumaTriage';
 import { generateSBAR, auditEPRF, analyzeSafeguarding } from '../services/geminiService';
-import { VitalsEntry, EPRF, Role, NeuroAssessment as NeuroType, DrugAdministration, Consumable, MediaAttachment, LogEntry, Patient, AssistingClinician, User as UserType, PrimarySurvey } from '../types';
+import { VitalsEntry, EPRF, Role, NeuroAssessment as NeuroType, DrugAdministration, Procedure, PrimarySurvey, Patient, AssistingClinician, User as UserType } from '../types';
 import { DRUG_DATABASE, CONTROLLED_DRUGS } from '../data/drugDatabase';
 import { generateEPRF_PDF } from '../utils/pdfGenerator';
 import { useAuth } from '../hooks/useAuth';
 import { useDataSync } from '../hooks/useDataSync';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, addDoc, onSnapshot, updateDoc, doc, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
 const DEFAULT_NEURO: NeuroType = {
@@ -28,16 +28,21 @@ const DEFAULT_NEURO: NeuroType = {
         leftArm: { power: 'Normal', sensation: 'Normal' },
         rightArm: { power: 'Normal', sensation: 'Normal' },
         leftLeg: { power: 'Normal', sensation: 'Normal' },
-        rightLeg: { power: 'Normal', sensation: 'Normal' },
+        rightLeg: { power: 'Normal', sensation: 'Normal' }
     }
 };
 
 const DEFAULT_PRIMARY: PrimarySurvey = {
-    airway: { status: 'Patent', notes: '' },
-    breathing: { rate: '', rhythm: 'Regular', depth: 'Normal', effort: 'Normal', airEntry: 'Equal', addedSounds: 'Nil' },
+    airway: { status: 'Patent', notes: '', intervention: '' },
+    breathing: { 
+        rate: '', rhythm: 'Regular', depth: 'Normal', effort: 'Normal', 
+        airEntryL: 'Normal', airEntryR: 'Normal', 
+        soundsL: 'Clear', soundsR: 'Clear',
+        oxygenSats: '' 
+    },
     circulation: { radialPulse: 'Present', character: 'Regular', capRefill: '< 2s', skin: 'Normal', temp: 'Warm' },
     disability: { avpu: 'A', pupils: 'PERRLA', bloodGlucose: '' },
-    exposure: { injuriesFound: false, rash: false }
+    exposure: { injuriesFound: false, rash: false, temp: '' }
 };
 
 const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber'> = {
@@ -49,19 +54,28 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber'> = {
     accessUids: [],
     assistingClinicians: [],
     times: { callReceived: '', mobile: '', onScene: '', patientContact: '', departScene: '', atHospital: '' },
-    patient: { firstName: '', lastName: '', dob: '', nhsNumber: '', address: '', gender: '' },
+    patient: { firstName: '', lastName: '', dob: '', nhsNumber: '', address: '', gender: '', chronicHypoxia: false },
     history: { presentingComplaint: '', historyOfPresentingComplaint: '', pastMedicalHistory: '', allergies: 'NKDA', medications: '' },
-    assessment: { primary: DEFAULT_PRIMARY, neuro: DEFAULT_NEURO },
+    assessment: { 
+        primary: DEFAULT_PRIMARY, 
+        neuro: DEFAULT_NEURO,
+        cardiac: { chestPainPresent: false, socrates: { site: '', onset: '', character: '', radiation: '', associations: '', timeCourse: '', exacerbatingRelieving: '', severity: '' }, ecg: { rhythm: '', rate: '', stElevation: false, twelveLeadNotes: '' } },
+        respiratory: { cough: '', sputumColor: '', peakFlowPre: '', peakFlowPost: '', nebulisersGiven: false, history: '' },
+        gastrointestinal: { abdominalPain: false, painLocation: '', palpation: '', distension: false, bowelSounds: '', lastMeal: '', lastBowelMovement: '', urineOutput: '', nauseaVomiting: false },
+        obsGynae: { pregnant: false },
+        mentalHealth: { appearance: '', behaviour: '', speech: '', mood: '', riskToSelf: false, riskToOthers: false, capacityStatus: '' },
+        burns: { estimatedPercentage: '', depth: '', site: '' }
+    },
     vitals: [],
     injuries: [],
-    treatments: { drugs: [] },
+    treatments: { drugs: [], procedures: [] },
     governance: { 
         safeguarding: { concerns: false, type: '', details: '' }, 
         capacity: { status: 'Capacity Present', stage1Impairment: false, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true } }, 
         discharge: '',
         refusal: { isRefusal: false, risksExplained: false, alternativesOffered: false, capacityConfirmed: false, worseningAdviceGiven: false }
     },
-    handover: { sbar: '', clinicianSignature: '', patientSignature: '', media: [] },
+    handover: { sbar: '', clinicianSignature: '', patientSignature: '', receivingClinicianName: '', receivingClinicianPin: '', receivingClinicianSignature: '', media: [] },
     logs: []
 };
 
@@ -72,49 +86,75 @@ const TABS = [
     { id: 'vitals', label: 'Vitals', icon: Activity },
     { id: 'treatment', label: 'Treatment', icon: Pill },
     { id: 'governance', label: 'Governance', icon: Lock },
-    { id: 'handover', label: 'Handover', icon: FileText },
+    { id: 'handover', label: 'Handover', icon: FileText }
 ];
 
-const calculateNEWS2 = (v: Partial<VitalsEntry>): number => {
+const ASSESSMENT_SUBTABS = [
+    { id: 'general', label: 'General', icon: Stethoscope },
+    { id: 'nervous', label: 'Nervous System', icon: Brain },
+    { id: 'cardiac', label: 'Cardiac', icon: Heart },
+    { id: 'resp', label: 'Respiratory', icon: Wind },
+    { id: 'gi_gu', label: 'GI / GU', icon: Coffee },
+    { id: 'obs', label: 'Obs/Gynae', icon: Baby },
+    { id: 'msk', label: 'MSK / Wounds', icon: Bone },
+    { id: 'mental', label: 'Mental Health', icon: Smile }
+];
+
+const calculateNEWS2 = (v: Partial<VitalsEntry>, isCOPD: boolean): number => {
     let score = 0;
-    // RR
     if (v.rr) { 
-        if (v.rr <= 8) score += 3;
-        else if (v.rr >= 25) score += 3; 
-        else if (v.rr >= 21) score += 2; 
-        else if (v.rr <= 11) score += 1; 
+        if (v.rr <= 8) score += 3; else if (v.rr >= 25) score += 3; else if (v.rr >= 21) score += 2; else if (v.rr <= 11) score += 1; 
     }
-    // SpO2 (Scale 1 Standard)
-    if (v.spo2) { 
-        if (v.spo2 <= 91) score += 3; 
-        else if (v.spo2 <= 93) score += 2; 
-        else if (v.spo2 <= 95) score += 1; 
+    if (v.spo2) {
+        if (isCOPD) {
+            if (v.spo2 <= 83) score += 3;
+            else if (v.spo2 <= 85) score += 2;
+            else if (v.spo2 <= 87) score += 1;
+            else if (v.spo2 >= 93 && v.spo2 <= 94) score += 1;
+            else if (v.spo2 >= 95 && v.spo2 <= 96) score += 2;
+            else if (v.spo2 >= 97) score += 3;
+        } else {
+            if (v.spo2 <= 91) score += 3; 
+            else if (v.spo2 <= 93) score += 2; 
+            else if (v.spo2 <= 95) score += 1; 
+        }
     }
-    // Air or Oxygen
     if (v.oxygen) score += 2;
-    // Systolic BP
     if (v.bpSystolic) { 
-        if (v.bpSystolic <= 90) score += 3;
-        else if (v.bpSystolic >= 220) score += 3; 
-        else if (v.bpSystolic <= 100) score += 2; 
-        else if (v.bpSystolic <= 110) score += 1; 
+        if (v.bpSystolic <= 90) score += 3; else if (v.bpSystolic >= 220) score += 3; else if (v.bpSystolic <= 100) score += 2; else if (v.bpSystolic <= 110) score += 1; 
     }
-    // Pulse
     if (v.hr) { 
-        if (v.hr <= 40) score += 3;
-        else if (v.hr >= 131) score += 3; 
-        else if (v.hr >= 111) score += 2; 
-        else if (v.hr <= 50 || v.hr >= 91) score += 1; 
+        if (v.hr <= 40) score += 3; else if (v.hr >= 131) score += 3; else if (v.hr >= 111) score += 2; else if (v.hr <= 50 || v.hr >= 91) score += 1; 
     }
-    // Consciousness
     if (v.avpu && v.avpu !== 'A') score += 3;
-    // Temp
     if (v.temp) { 
-        if (v.temp <= 35.0) score += 3; 
-        else if (v.temp >= 39.1) score += 2; 
-        else if (v.temp <= 36.0 || v.temp >= 38.1) score += 1; 
+        if (v.temp <= 35.0) score += 3; else if (v.temp >= 39.1) score += 2; else if (v.temp <= 36.0 || v.temp >= 38.1) score += 1; 
     }
     return score;
+};
+
+const calculatePOPS = (v: Partial<VitalsEntry>, age: number): number => {
+    let score = 0;
+    if (v.spo2 && v.spo2 < 90) score += 2; else if (v.spo2 && v.spo2 < 95) score += 1;
+    if (v.avpu && v.avpu !== 'A') score += 2;
+    if (v.rr) {
+        if (age < 1 && (v.rr > 60 || v.rr < 20)) score += 2;
+        else if (age >= 1 && age < 5 && (v.rr > 40 || v.rr < 15)) score += 2;
+        else if (age >= 5 && (v.rr > 30 || v.rr < 10)) score += 2;
+    }
+    if (v.hr) {
+        if (age < 1 && (v.hr > 170 || v.hr < 90)) score += 2;
+        else if (age >= 5 && (v.hr > 130 || v.hr < 60)) score += 2;
+    }
+    if (v.temp && (v.temp > 38.5 || v.temp < 35.5)) score += 1;
+    return score;
+}
+
+const calculateAge = (dob: string) => {
+    if (!dob) return 0;
+    const birthDate = new Date(dob);
+    const difference = Date.now() - birthDate.getTime();
+    return Math.abs(new Date(difference).getUTCFullYear() - 1970);
 };
 
 const EPRFPage = () => {
@@ -122,207 +162,114 @@ const EPRFPage = () => {
   const { saveEPRF, syncStatus, pendingChanges, isOnline } = useDataSync();
   const navigate = useNavigate();
   
-  // -- State: Draft Management --
   const [drafts, setDrafts] = useState<EPRF[]>([]);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
-  
-  // -- Refs for Optimization --
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // -- State: UI Control --
   const [activeTab, setActiveTab] = useState('incident');
+  const [activeSubTab, setActiveSubTab] = useState('general');
+
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditResult, setAuditResult] = useState<any>(null);
-  const [showLogModal, setShowLogModal] = useState(false);
-  const [newLogMsg, setNewLogMsg] = useState('');
-  const [managerNote, setManagerNote] = useState('');
-  
-  // -- State: Safeguarding AI --
-  const [isScanningSafety, setIsScanningSafety] = useState(false);
-  const [safetyAlert, setSafetyAlert] = useState<{type: string, reason: string} | null>(null);
-
-  // -- State: Modals & Inputs --
-  const [showLookup, setShowLookup] = useState(false);
-  const [lookupQuery, setLookupQuery] = useState('');
-  const [foundPatients, setFoundPatients] = useState<Patient[]>([]);
   
   const [showDrugModal, setShowDrugModal] = useState(false);
+  const [showProcModal, setShowProcModal] = useState(false);
   const [showWitnessModal, setShowWitnessModal] = useState(false);
-  const [newDrug, setNewDrug] = useState({ 
-      name: '', dose: '', route: '', batch: '', expiry: '', authorisation: 'JRCALC', authName: '', authPin: ''
-  });
   
-  // New Vital State
+  const [newDrug, setNewDrug] = useState({ name: '', dose: '', route: '', batch: '', expiry: '', authorisation: 'JRCALC', authName: '', authPin: '' });
+  const [newProc, setNewProc] = useState<Partial<Procedure>>({ type: 'IV Cannulation', details: '', site: '', success: true, attempts: 1 });
   const [newVital, setNewVital] = useState<Partial<VitalsEntry>>({
       time: '', hr: undefined, rr: undefined, bpSystolic: undefined, bpDiastolic: undefined, 
-      spo2: undefined, oxygen: false, temp: undefined, gcs: 15, news2Score: 0, avpu: 'A', bloodGlucose: undefined
+      spo2: undefined, oxygen: false, oxygenFlow: '', oxygenDevice: '', temp: undefined, gcs: 15, news2Score: 0, popsScore: 0, avpu: 'A', bloodGlucose: undefined, painScore: 0
   });
   
-  const [badgeInput, setBadgeInput] = useState('');
-  const [crewLookupLoading, setCrewLookupLoading] = useState(false);
-
-  // -- State: Submission --
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitPin, setSubmitPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // -- State: Clock In Guard --
-  const [showClockInGuard, setShowClockInGuard] = useState(false);
 
-  // -- Load Drafts (Sync with Firestore for Shared Drafts) --
   useEffect(() => {
     if (!user) return;
-
-    // Load local first for immediate render
     const localSaved = localStorage.getItem('aegis_eprfs');
     let localDrafts: EPRF[] = [];
     if (localSaved) {
         try { localDrafts = JSON.parse(localSaved); } catch(e) {}
     }
-
     if (localDrafts.length > 0) {
         setDrafts(localDrafts);
         if (!activeDraftId) setActiveDraftId(localDrafts[0].id);
     }
-
     const q = query(collection(db, 'eprfs'), where('accessUids', 'array-contains', user.uid));
-    
     const unsub = onSnapshot(q, (snapshot) => {
         const serverDrafts = snapshot.docs.map(doc => doc.data() as EPRF);
         const mergedMap = new Map<string, EPRF>();
-        
         localDrafts.forEach(d => mergedMap.set(d.id, d));
         serverDrafts.forEach(d => mergedMap.set(d.id, d));
-        
         const finalDrafts = Array.from(mergedMap.values());
-        
-        // Sort by timestamp desc to show newest first
         finalDrafts.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
-        
         if (finalDrafts.length > 0) {
             setDrafts(finalDrafts);
             localStorage.setItem('aegis_eprfs', JSON.stringify(finalDrafts));
-            if (!activeDraftId) {
-                setActiveDraftId(finalDrafts[0].id);
-            }
+            if (!activeDraftId) setActiveDraftId(finalDrafts[0].id);
         }
-    }, (err) => {
-        console.error("ePRF sync error", err);
-        // Do not clear drafts on permission error (offline fallback)
     });
-
     return () => unsub();
   }, [user]);
 
   const activeDraft = drafts.find(d => d.id === activeDraftId) || drafts[0];
   const isReadOnly = activeDraft?.status === 'Submitted' && user?.role !== Role.Manager;
-  const isManagerReview = activeDraft?.status === 'Submitted' && user?.role === Role.Manager;
   const isProvisional = activeDraft?.incidentNumber?.startsWith('PROVISIONAL');
+  
+  const age = calculateAge(activeDraft?.patient.dob);
+  const isPaed = age < 16;
+  const isCOPD = activeDraft?.patient.chronicHypoxia || false;
 
-  // Auto-redirect if mode changes and hides current tab
   useEffect(() => {
-      if (!activeDraft) return;
-      if (activeDraft.mode === 'Welfare' && activeTab === 'treatment') {
-          setActiveTab('incident');
-      }
-  }, [activeDraft?.mode, activeTab]);
-
-  // Auto-calc NEWS2 when newVital changes
-  useEffect(() => {
-      const score = calculateNEWS2(newVital);
-      if (score !== newVital.news2Score) {
-          setNewVital(prev => ({ ...prev, news2Score: score }));
-      }
-  }, [newVital.hr, newVital.rr, newVital.bpSystolic, newVital.spo2, newVital.oxygen, newVital.temp, newVital.avpu]);
+      const news = calculateNEWS2(newVital, isCOPD);
+      const pops = calculatePOPS(newVital, age);
+      setNewVital(prev => ({ ...prev, news2Score: news, popsScore: pops }));
+  }, [newVital.hr, newVital.rr, newVital.bpSystolic, newVital.spo2, newVital.oxygen, newVital.temp, newVital.avpu, isCOPD, age]);
 
   const updateDraft = (updates: Partial<EPRF>) => {
       if (!activeDraftId || isReadOnly) return;
-
       const updatedDraft = { ...activeDraft, ...updates, lastUpdated: new Date().toISOString() };
-
       setDrafts(prev => {
           const newDrafts = prev.map(d => d.id === activeDraftId ? updatedDraft : d);
           localStorage.setItem('aegis_eprfs', JSON.stringify(newDrafts));
           return newDrafts;
       });
-
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-          saveEPRF(updatedDraft);
-      }, 1000); 
+      saveTimeoutRef.current = setTimeout(() => saveEPRF(updatedDraft), 1000); 
   };
 
   const updatePrimary = (cat: keyof PrimarySurvey, field: string, val: any) => {
       const current = activeDraft.assessment.primary || DEFAULT_PRIMARY;
       const updatedCategory = { ...current[cat], [field]: val };
-      updateDraft({ 
-          assessment: { 
-              ...activeDraft.assessment, 
-              primary: { ...current, [cat]: updatedCategory } 
-          } 
-      });
+      updateDraft({ assessment: { ...activeDraft.assessment, primary: { ...current, [cat]: updatedCategory } } });
   };
 
-  const generateNextIncidentNumber = async () => {
-      const date = new Date();
-      const yy = date.getFullYear().toString().slice(-2);
-      const mm = (date.getMonth()+1).toString().padStart(2,'0');
-      const prefix = `AMS${yy}${mm}`;
-      
-      try {
-          const q = query(
-              collection(db, 'eprfs'),
-              where('incidentNumber', '>=', prefix),
-              where('incidentNumber', '<=', prefix + '\uf8ff'),
-              orderBy('incidentNumber', 'desc'),
-              limit(1)
-          );
-          const snap = await getDocs(q);
-          let nextSeq = 1;
-          if (!snap.empty) {
-              const lastId = snap.docs[0].data().incidentNumber;
-              if (lastId.length >= 10) {
-                  const sequencePart = lastId.slice(-3);
-                  if (/^\d+$/.test(sequencePart)) {
-                      nextSeq = parseInt(sequencePart) + 1;
-                  }
-              }
-          }
-          return `${prefix}${nextSeq.toString().padStart(3, '0')}`;
-      } catch (e) {
-          console.error("Error generating ID", e);
-          // Fallback random if query fails (e.g. index missing)
-          return `${prefix}${Math.floor(Math.random() * 900) + 100}`;
-      }
+  const updateBurns = (field: string, value: any) => {
+      const current = activeDraft.assessment.burns || { estimatedPercentage: '', depth: '', site: '' };
+      updateDraft({ assessment: { ...activeDraft.assessment, burns: { ...current, [field]: value } } });
   };
 
-  const initiateCreateDraft = () => {
-      const shiftId = localStorage.getItem('active_shift_id');
-      if (!shiftId) {
-          setShowClockInGuard(true);
-      } else {
-          createNewDraft(shiftId);
-      }
+  const updateMentalHealth = (field: string, value: any) => {
+      const current = activeDraft.assessment.mentalHealth || { appearance: '', behaviour: '', speech: '', mood: '', riskToSelf: false, riskToOthers: false, capacityStatus: '' };
+      updateDraft({ assessment: { ...activeDraft.assessment, mentalHealth: { ...current, [field]: value } } });
   };
 
   const createNewDraft = async (shiftId?: string | null) => {
       if (!user) return;
-      
-      // Use crypto.randomUUID for stronger uniqueness
       let uniqueId = crypto.randomUUID ? crypto.randomUUID() : `draft_${Date.now()}`;
       let newIncidentNumber = `PROVISIONAL-${Date.now().toString().slice(-6)}`;
-      
       const newDraft: EPRF = {
           id: uniqueId,
           incidentNumber: newIncidentNumber,
           shiftId: shiftId || undefined,
           ...DEFAULT_EPRF,
-          location: '',
-          callSign: user?.role === Role.Paramedic ? 'RRV-01' : 'MEDIC-01', // Should fetch from Shift resource
+          callSign: user?.role === Role.Paramedic ? 'RRV-01' : 'MEDIC-01',
           accessUids: [user.uid], 
       };
-      
       setDrafts(prev => {
           const updated = [newDraft, ...prev];
           localStorage.setItem('aegis_eprfs', JSON.stringify(updated));
@@ -330,36 +277,9 @@ const EPRFPage = () => {
       });
       setActiveDraftId(newDraft.id);
       setActiveTab('incident');
-      setShowClockInGuard(false);
-      saveEPRF(newDraft); // Initial save
+      saveEPRF(newDraft);
   };
 
-  const closeDraft = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (confirm('Are you sure you want to close this draft tab? Unsaved data might be lost if offline.')) {
-          const newDrafts = drafts.filter(d => d.id !== id);
-          setDrafts(newDrafts);
-          localStorage.setItem('aegis_eprfs', JSON.stringify(newDrafts));
-          if (activeDraftId === id && newDrafts.length > 0) setActiveDraftId(newDrafts[0].id);
-          else if (newDrafts.length === 0) setActiveDraftId(null);
-      }
-  };
-
-  const handleCrewLookup = async () => { if (!isOnline) { alert("Crew lookup requires an internet connection."); return; } if (!badgeInput) return; const fullId = badgeInput.toUpperCase().startsWith('AMS') ? badgeInput.toUpperCase() : `AMS${badgeInput}`; setCrewLookupLoading(true); try { const q = query(collection(db, 'users'), where('employeeId', '==', fullId)); const snap = await getDocs(q); if (snap.empty) { alert("Clinician not found. Please check Badge ID."); } else { const crewUser = snap.docs[0].data() as UserType; if (activeDraft.assistingClinicians.some(c => c.uid === crewUser.uid) || crewUser.uid === user?.uid) { alert("Clinician already assigned to this incident."); setCrewLookupLoading(false); return; } const newClinician: AssistingClinician = { uid: crewUser.uid, name: crewUser.name, role: crewUser.role, badgeNumber: crewUser.employeeId || fullId }; updateDraft({ assistingClinicians: [...activeDraft.assistingClinicians, newClinician], accessUids: [...activeDraft.accessUids, crewUser.uid] }); setBadgeInput(''); } } catch (e) { console.error("Lookup failed", e); alert("Error verifying badge ID."); } finally { setCrewLookupLoading(false); } };
-  const removeCrewMember = (uid: string) => { updateDraft({ assistingClinicians: activeDraft.assistingClinicians.filter(c => c.uid !== uid), accessUids: activeDraft.accessUids.filter(id => id !== uid) }); };
-  const handleValidation = () => { const missing = []; if (!activeDraft.patient.lastName) missing.push("Patient Name"); if (activeDraft.vitals.length === 0 && activeDraft.mode === 'Clinical') missing.push("Vitals"); if (!activeDraft.history.presentingComplaint && activeDraft.mode !== 'Minor') missing.push("Presenting Complaint"); if (activeDraft.governance.discharge.includes('Conveyed') && !activeDraft.governance.destinationLocation) missing.push("Destination Hospital"); if (activeDraft.governance.discharge.includes('Handover') && !activeDraft.governance.handoverClinician) missing.push("Handover Crew Details"); if ((activeDraft.governance.discharge.includes('Discharged') || activeDraft.governance.discharge.includes('Refusal')) && !activeDraft.governance.worseningAdviceDetails) { missing.push("Worsening Advice Details"); } if (missing.length > 0) { alert(`Cannot submit. Missing: ${missing.join(', ')}`); return false; } return true; };
-  const initiateSubmit = () => { if (!handleValidation()) return; if (!isOnline && activeDraft.incidentNumber.startsWith('PROVISIONAL')) { alert("You are currently OFFLINE. \n\nYou can sign this form now, but it will be queued. A final Incident Number will be generated when you reconnect."); } setShowSubmitModal(true); };
-  const finalizeSubmit = async () => { setIsSubmitting(true); const verified = await verifyPin(submitPin); if (!verified) { alert("Incorrect PIN. Signature Failed."); setIsSubmitting(false); return; } let finalId = activeDraft.incidentNumber; if (isOnline && activeDraft.incidentNumber.startsWith('PROVISIONAL')) { try { finalId = await generateNextIncidentNumber(); } catch (e) { alert("Error generating official Incident Number. Please try again."); setIsSubmitting(false); return; } } updateDraft({ status: 'Submitted', incidentNumber: finalId }); setShowSubmitModal(false); setSubmitPin(''); if (isOnline) alert(`ePRF ${finalId} Submitted Successfully.`); setIsSubmitting(false); };
-  const handleManagerAction = async (action: 'Approved' | 'Returned') => { if (!managerNote) { alert("Please enter a review note."); return; } const newStatus = action === 'Approved' ? 'Approved' : 'Draft'; const newNote = { id: Date.now().toString(), timestamp: new Date().toISOString(), managerName: user?.name || 'Manager', note: managerNote, action }; const updatedDraft = { ...activeDraft, status: newStatus as any, reviewNotes: [...(activeDraft.reviewNotes || []), newNote] }; setDrafts(prev => prev.map(d => d.id === activeDraftId ? updatedDraft : d)); saveEPRF(updatedDraft); setManagerNote(''); if (action === 'Approved') { await generateEPRF_PDF(updatedDraft); } };
-  const handleTimeNow = (field: keyof EPRF['times']) => { const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}); updateDraft({ times: { ...activeDraft.times, [field]: time } }); };
-  const handlePatientLookup = async () => { if (!isOnline) { alert("Spine lookup requires an internet connection."); return; } if (!lookupQuery) return; try { const q = query(collection(db, 'patients'), where('nhsNumber', '==', lookupQuery)); const snap = await getDocs(q); const results = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient)); setFoundPatients(results); } catch (error) { console.error("Lookup failed", error); } };
-  const selectPatient = (p: Patient) => { updateDraft({ patient: { ...activeDraft.patient, firstName: p.firstName, lastName: p.lastName, dob: p.dob, nhsNumber: p.nhsNumber || '', address: p.address || '' } }); setShowLookup(false); setFoundPatients([]); setLookupQuery(''); };
-  const initiateDrugAdd = () => { if (!newDrug.name) return; if (newDrug.authorisation === 'Out of Scope') { if (!newDrug.authName || !newDrug.authPin) { alert("Authorising Clinician Name and PIN are required."); return; } } if (CONTROLLED_DRUGS.includes(newDrug.name)) { setShowWitnessModal(true); } else { completeDrugAdd(undefined, undefined); } };
-  const completeDrugAdd = (witnessName?: string, witnessUid?: string) => { const drug: DrugAdministration = { id: Date.now().toString(), time: new Date().toLocaleTimeString(), drugName: newDrug.name, dose: newDrug.dose, route: newDrug.route, batchNumber: newDrug.batch, expiryDate: newDrug.expiry, authorisation: newDrug.authorisation, authClinician: newDrug.authorisation === 'Out of Scope' ? newDrug.authName : undefined, administeredBy: user?.name || 'Unknown', witnessedBy: witnessName, witnessUid: witnessUid }; const drugs = [...activeDraft.treatments.drugs, drug]; updateDraft({ treatments: { ...activeDraft.treatments, drugs } }); setShowDrugModal(false); setShowWitnessModal(false); setNewDrug({ name: '', dose: '', route: '', batch: '', expiry: '', authorisation: 'JRCALC', authName: '', authPin: '' }); };
-  const handleGenerateSBAR = async () => { if (!isOnline) { alert("AI features require an internet connection."); return; } const sbar = await generateSBAR(activeDraft); updateDraft({ handover: { ...activeDraft.handover, sbar } }); };
-  const runAudit = async () => { if (!isOnline) { alert("Clinical Audit requires internet access to process."); return; } setIsAuditing(true); const res = await auditEPRF(activeDraft); setAuditResult(res); setIsAuditing(false); setShowAuditModal(true); };
-  const handleSafeguardingScan = async () => { if (!isOnline) { alert("AI Scanning is unavailable offline."); return; } setIsScanningSafety(true); setSafetyAlert(null); const narrative = `PC: ${activeDraft.history.presentingComplaint} HPC: ${activeDraft.history.historyOfPresentingComplaint} PMH: ${activeDraft.history.pastMedicalHistory} Logs: ${activeDraft.logs.map(l => l.message).join('. ')}`; const result = await analyzeSafeguarding(narrative); if (result.detected) { setSafetyAlert({ type: result.type || 'General Concern', reason: result.reasoning || 'AI detected risk factors in narrative.' }); updateDraft({ governance: { ...activeDraft.governance, safeguarding: { ...activeDraft.governance.safeguarding, concerns: true } } }); } else { alert("No obvious safeguarding keywords detected in narrative."); } setIsScanningSafety(false); };
-  
   const addVitalEntry = () => {
       const entry: VitalsEntry = {
           time: newVital.time || new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
@@ -369,877 +289,609 @@ const EPRFPage = () => {
           bpDiastolic: newVital.bpDiastolic || 0,
           spo2: newVital.spo2 || 0,
           oxygen: newVital.oxygen || false,
+          oxygenFlow: newVital.oxygenFlow,
+          oxygenDevice: newVital.oxygenDevice,
           temp: newVital.temp || 36.5,
           gcs: newVital.gcs || 15,
-          news2Score: calculateNEWS2(newVital),
+          news2Score: calculateNEWS2(newVital, isCOPD),
+          popsScore: calculatePOPS(newVital, age),
           avpu: newVital.avpu || 'A',
           bloodGlucose: newVital.bloodGlucose,
           painScore: newVital.painScore
       };
       updateDraft({ vitals: [...activeDraft.vitals, entry] });
-      setNewVital({ time: '', hr: undefined, rr: undefined, bpSystolic: undefined, bpDiastolic: undefined, spo2: undefined, oxygen: false, temp: undefined, gcs: 15, news2Score: 0, avpu: 'A', bloodGlucose: undefined });
+      setNewVital({ time: '', hr: undefined, rr: undefined, bpSystolic: undefined, bpDiastolic: undefined, spo2: undefined, oxygen: false, oxygenFlow: '', oxygenDevice: '', temp: undefined, gcs: 15, news2Score: 0, popsScore: 0, avpu: 'A', bloodGlucose: undefined, painScore: 0 });
   };
 
-  const getTabStatus = (tabId: string) => {
-      if (!activeDraft) return 'neutral';
-      switch(tabId) {
-          case 'incident': return activeDraft.times.callReceived ? 'complete' : 'incomplete';
-          case 'patient': return activeDraft.patient.lastName ? 'complete' : 'incomplete';
-          case 'assessment': return activeDraft.assessment.primary?.airway.status ? 'complete' : 'incomplete';
-          case 'vitals': return activeDraft.vitals.length > 0 ? 'complete' : 'incomplete';
-          case 'governance': return activeDraft.governance.discharge ? 'complete' : 'incomplete';
-          case 'handover': return activeDraft.handover.clinicianSignature ? 'complete' : 'incomplete';
-          default: return 'neutral';
+  const deleteVitalEntry = (index: number) => {
+      if(confirm("Delete this entry?")) {
+          const updated = activeDraft.vitals.filter((_, i) => i !== index);
+          updateDraft({ vitals: updated });
       }
   };
 
-  if (drafts.length === 0) {
-      return (
-          <>
-            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
-                <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl max-w-md w-full border border-slate-200 dark:border-slate-700">
-                    <div className="w-20 h-20 bg-ams-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <FilePlus className="w-10 h-10 text-ams-blue" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">No Active ePRF</h2>
-                    <p className="text-slate-500 mb-8">Start a new clinical record to begin.</p>
-                    <button onClick={initiateCreateDraft} className="w-full py-4 bg-ams-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-900 transition-transform active:scale-95 flex items-center justify-center gap-2">
-                        <Plus className="w-6 h-6" /> Create New ePRF
-                    </button>
-                </div>
-            </div>
+  const completeDrugAdd = (witnessName?: string, witnessUid?: string) => {
+      const drug: DrugAdministration = { id: Date.now().toString(), time: new Date().toLocaleTimeString(), drugName: newDrug.name, dose: newDrug.dose, route: newDrug.route, batchNumber: newDrug.batch, expiryDate: newDrug.expiry, authorisation: newDrug.authorisation, authClinician: newDrug.authorisation === 'Out of Scope' ? newDrug.authName : undefined, administeredBy: user?.name || 'Unknown', witnessedBy: witnessName, witnessUid: witnessUid };
+      updateDraft({ treatments: { ...activeDraft.treatments, drugs: [...activeDraft.treatments.drugs, drug] } });
+      setShowDrugModal(false); setShowWitnessModal(false); setNewDrug({ name: '', dose: '', route: '', batch: '', expiry: '', authorisation: 'JRCALC', authName: '', authPin: '' });
+  };
 
-            {/* Clock In Guard Modal */}
-            {showClockInGuard && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 border-l-8 border-amber-500">
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-                            <Clock className="w-6 h-6 text-amber-500" /> Not Clocked In
-                        </h3>
-                        <p className="text-slate-600 dark:text-slate-300 mb-6 text-sm">
-                            You are not currently clocked into a shift. To ensure accurate audit trails and resource tracking, please clock in first.
-                        </p>
-                        <div className="flex flex-col gap-3">
-                            <button onClick={() => navigate('/')} className="w-full py-3 bg-ams-blue text-white font-bold rounded-xl shadow-md hover:bg-blue-900">
-                                Go to Dashboard & Clock In
-                            </button>
-                            <button onClick={() => createNewDraft(null)} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-200 dark:border-slate-600">
-                                Continue as Emergency / Ad-Hoc
-                            </button>
-                            <button onClick={() => setShowClockInGuard(false)} className="text-slate-400 text-sm font-bold hover:underline">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-          </>
-      );
-  }
+  const completeProcedureAdd = () => {
+      const proc: Procedure = {
+          id: Date.now().toString(),
+          time: new Date().toLocaleTimeString(),
+          type: newProc.type || 'Other',
+          details: newProc.details || '',
+          site: newProc.site || '',
+          attempts: newProc.attempts || 1,
+          success: newProc.success || false,
+          performedBy: user?.name || 'Unknown'
+      };
+      updateDraft({ treatments: { ...activeDraft.treatments, procedures: [...activeDraft.treatments.procedures, proc] } });
+      setShowProcModal(false); setNewProc({ type: 'IV Cannulation', details: '', site: '', success: true, attempts: 1 });
+  };
 
-  if (!activeDraft) return <div className="p-8 text-center flex flex-col items-center justify-center h-full"><Loader2 className="animate-spin mb-2 text-ams-blue" /> <span className="text-slate-500">Retrieving ePRF Data...</span></div>;
+  const generatePDF = () => generateEPRF_PDF(activeDraft);
+  const finalizeSubmit = async () => { setIsSubmitting(true); const verified = await verifyPin(submitPin); if (!verified) { alert("Incorrect PIN."); setIsSubmitting(false); return; } updateDraft({ status: 'Submitted' }); setShowSubmitModal(false); setIsSubmitting(false); };
 
-  const visibleTabs = TABS.filter(tab => {
-      if (activeDraft.mode === 'Welfare' && tab.id === 'treatment') return false;
-      return true;
-  });
+  if (drafts.length === 0) return <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6"><div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-xl max-w-md w-full border border-slate-200 dark:border-slate-700"><div className="w-20 h-20 bg-ams-blue/10 rounded-full flex items-center justify-center mx-auto mb-4"><FilePlus className="w-10 h-10 text-ams-blue" /></div><h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">No Active ePRF</h2><button onClick={() => createNewDraft(null)} className="w-full py-4 bg-ams-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-900 transition-transform active:scale-95 flex items-center justify-center gap-2"><Plus className="w-6 h-6" /> Create New ePRF</button></div></div>;
+  if (!activeDraft) return <div className="p-8 text-center flex flex-col items-center justify-center h-full"><Loader2 className="animate-spin mb-2 text-ams-blue" /> Loading...</div>;
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-[#0F1115] overflow-hidden relative font-sans">
       
-      {/* --- Manager Review Bar --- */}
-      {isManagerReview && (
-          <div className="bg-purple-600 text-white p-3 flex flex-col md:flex-row items-center justify-between shadow-md z-20 gap-3">
-              <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-purple-200" />
-                  <div>
-                      <h3 className="font-bold text-sm">Manager Review Mode</h3>
-                      <p className="text-purple-200 text-xs">Reviewing submission from {activeDraft.logs[0]?.author || 'Clinician'}</p>
-                  </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                  <input 
-                    className="bg-white/10 border border-white/30 rounded-lg px-3 py-2 text-sm w-full md:w-64 text-white placeholder-white/60 outline-none focus:bg-white/20 transition-all"
-                    placeholder="Review notes..."
-                    value={managerNote}
-                    onChange={e => setManagerNote(e.target.value)}
-                  />
-                  <button onClick={() => handleManagerAction('Returned')} className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg text-xs transition-colors">Return</button>
-                  <button onClick={() => handleManagerAction('Approved')} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg text-xs transition-colors">Approve</button>
-              </div>
-          </div>
-      )}
-
-      {/* --- Tab Bar (Drafts) --- */}
-      <div className="flex items-center bg-white dark:bg-[#172030] border-b border-slate-200 dark:border-slate-800 px-2 pt-2 gap-1 overflow-x-auto no-scrollbar">
-          {drafts.map(draft => (
-              <div 
-                key={draft.id}
-                onClick={() => setActiveDraftId(draft.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-bold cursor-pointer transition-all border-t border-x min-w-[140px] max-w-[200px] ${
-                    activeDraftId === draft.id 
-                    ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-ams-blue dark:text-white relative z-10' 
-                    : 'bg-slate-100 dark:bg-[#0F1115] border-transparent text-slate-500 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                }`}
-              >
-                  <span className="truncate flex-1 font-mono tracking-tight flex items-center gap-1">
-                      {draft.incidentNumber}
-                      {draft.incidentNumber.startsWith('PROVISIONAL') && <span className="w-2 h-2 rounded-full bg-amber-500"></span>}
-                  </span>
-                  {draft.status === 'Submitted' && <Lock className="w-3 h-3 text-slate-400" />}
-                  {pendingChanges > 0 && activeDraftId === draft.id && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title="Changes pending sync" />}
-                  <button onClick={(e) => closeDraft(draft.id, e)} className="hover:text-red-500 p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800"><X className="w-3 h-3" /></button>
-              </div>
-          ))}
-          <button onClick={initiateCreateDraft} className="px-3 py-2 text-slate-400 hover:text-ams-blue hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
-              <Plus className="w-5 h-5" />
-          </button>
-      </div>
-
-      {/* --- Header Toolbar --- */}
+      {/* Header Toolbar */}
       <div className="px-4 md:px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap justify-between items-center bg-white dark:bg-[#172030] shadow-sm z-10 gap-4">
           <div className="flex flex-col gap-1 w-full md:w-auto">
               <h2 className="text-xl md:text-2xl font-extrabold text-slate-800 dark:text-white flex items-center gap-3 flex-wrap tracking-tight">
                   {activeDraft.incidentNumber}
-                  {isProvisional && (
-                      <span className="text-xs font-bold px-2 py-1 bg-amber-100 text-amber-800 rounded border border-amber-200 uppercase tracking-wider flex items-center gap-1">
-                          <WifiOff className="w-3 h-3" /> Provisional ID
-                      </span>
-                  )}
-                  <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide border ${
-                      activeDraft.mode === 'Welfare' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                      activeDraft.mode === 'Minor' ? 'bg-green-50 border-green-200 text-green-700' :
-                      'bg-blue-50 border-blue-200 text-blue-700'
-                  }`}>
-                      {activeDraft.mode} Mode
-                  </span>
+                  {isProvisional && <span className="text-xs font-bold px-2 py-1 bg-amber-100 text-amber-800 rounded border border-amber-200 flex items-center gap-1"><WifiOff className="w-3 h-3" /> Provisional ID</span>}
+                  <span className="text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide border bg-blue-50 border-blue-200 text-blue-700">{activeDraft.mode} Mode</span>
               </h2>
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
                   <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">{activeDraft.callSign}</span> 
                   <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
                   <span className="max-w-[150px] truncate">{activeDraft.location || 'No location set'}</span>
-                  
-                  {/* Sync Status Badge */}
-                  <div className={`ml-2 px-2 py-0.5 rounded-full flex items-center gap-1.5 font-bold transition-all ${
-                      syncStatus === 'Syncing' ? 'bg-blue-100 text-blue-600' :
-                      syncStatus === 'Offline' ? 'bg-amber-100 text-amber-600' :
-                      'bg-green-100 text-green-600'
-                  }`}>
-                      {syncStatus === 'Syncing' && <><Cloud className="w-3 h-3 animate-pulse" /> Saving...</>}
-                      {syncStatus === 'Offline' && <><Cloud className="w-3 h-3" /> Offline ({pendingChanges})</>}
-                      {syncStatus === 'Synced' && <><CheckCircle className="w-3 h-3" /> All Saved</>}
-                  </div>
+                  <div className={`ml-2 px-2 py-0.5 rounded-full flex items-center gap-1.5 font-bold transition-all ${syncStatus === 'Synced' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>{syncStatus === 'Synced' ? <CheckCircle className="w-3 h-3" /> : <Cloud className="w-3 h-3" />} {syncStatus}</div>
               </div>
           </div>
           <div className="flex flex-wrap gap-4 w-full md:w-auto justify-start md:justify-end items-center">
-              <button onClick={() => setShowLogModal(true)} className="btn-secondary flex items-center gap-2 px-4 py-2"><MessageSquare className="w-4 h-4" /> Log</button>
-              <button onClick={runAudit} disabled={isAuditing || !isOnline} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                  {isAuditing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />} Audit
-              </button>
-              {!isReadOnly && !isManagerReview && (
-                  <button onClick={initiateSubmit} className="btn-primary flex items-center gap-2 px-6 py-3 shadow-md hover:shadow-lg transform active:scale-95 transition-all bg-ams-blue text-white rounded-lg font-bold text-md">
-                      {isOnline ? <Lock className="w-4 h-4" /> : <Save className="w-4 h-4" />} 
-                      {isOnline ? 'Sign & Submit' : 'Save Draft (Offline)'}
-                  </button>
-              )}
+              <button onClick={generatePDF} className="btn-secondary hidden md:flex"><FileText className="w-4 h-4" /> PDF Preview</button>
+              {!isReadOnly && <button onClick={() => setShowSubmitModal(true)} className="btn-primary flex items-center gap-2 px-6 py-3 shadow-md hover:shadow-lg transform active:scale-95 transition-all bg-ams-blue text-white rounded-lg font-bold text-md"><Lock className="w-4 h-4" /> Sign & Submit</button>}
           </div>
       </div>
 
-      {/* ... (rest of the file content matches previous version, Tabs and Main Content) ... */}
-      
-      {/* Navigation Tabs */}
+      {/* Tabs */}
       <div className="bg-white dark:bg-[#172030] border-b border-slate-200 dark:border-slate-800 shadow-sm z-10 w-full">
           <div className="flex overflow-x-auto no-scrollbar px-2 w-full">
-            {visibleTabs.map(tab => {
-                const status = getTabStatus(tab.id);
-                return (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`relative flex-shrink-0 flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-all whitespace-nowrap outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${
-                            activeTab === tab.id 
-                            ? 'border-ams-blue text-ams-blue bg-blue-50/50 dark:bg-blue-900/10' 
-                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-                        }`}
-                    >
-                        <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-ams-blue' : 'text-slate-400'}`} />
-                        {tab.label}
-                        {status === 'incomplete' && <span className="w-1.5 h-1.5 rounded-full bg-red-500 absolute top-3 right-3" />}
-                        {status === 'complete' && <span className="w-1.5 h-1.5 rounded-full bg-green-500 absolute top-3 right-3" />}
-                    </button>
-                );
-            })}
+            {TABS.map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`relative flex-shrink-0 flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-all whitespace-nowrap outline-none hover:bg-slate-50 dark:hover:bg-slate-800 ${activeTab === tab.id ? 'border-ams-blue text-ams-blue bg-blue-50/50 dark:bg-blue-900/10' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'}`}>
+                    <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-ams-blue' : 'text-slate-400'}`} />
+                    {tab.label}
+                </button>
+            ))}
           </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50 dark:bg-[#0F1115] scroll-smooth">
         <div className="max-w-full mx-auto space-y-8 pb-32">
-            {/* The rest of the content (Incidents, Patients, Vitals, etc.) is implicitly included here from the previous full implementation.
-                I am ensuring the wrapping div structure is correct. */}
             
-            {/* Incident */}
             {activeTab === 'incident' && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="card">
-                            <h3 className="card-title">Event Configuration</h3>
-                            <div className="space-y-6">
-                                <div>
-                                    <label className="input-label">Operational Mode</label>
-                                    <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl">
-                                        <button onClick={() => updateDraft({ mode: 'Clinical' })} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all shadow-sm ${activeDraft.mode === 'Clinical' ? 'bg-white dark:bg-slate-700 text-ams-blue dark:text-white ring-1 ring-black/5' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>Clinical</button>
-                                        <button onClick={() => updateDraft({ mode: 'Minor' })} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all shadow-sm ${activeDraft.mode === 'Minor' ? 'bg-white dark:bg-slate-700 text-green-600 dark:text-green-400 ring-1 ring-black/5' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>Minor</button>
-                                        <button onClick={() => updateDraft({ mode: 'Welfare' })} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all shadow-sm ${activeDraft.mode === 'Welfare' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 ring-1 ring-black/5' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>Welfare</button>
-                                    </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 px-1">
-                                        {activeDraft.mode === 'Clinical' && "Standard full assessment protocol."}
-                                        {activeDraft.mode === 'Minor' && "Simplified flow for minor injuries/OTC meds."}
-                                        {activeDraft.mode === 'Welfare' && "Safety & welfare checks only."}
-                                    </p>
-                                </div>
-                                <div>
-                                    <label className="input-label">Location / Scene</label>
-                                    <input className="input-field" value={activeDraft.location} onChange={e => updateDraft({ location: e.target.value })} placeholder="e.g. 123 High Street" />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="card">
-                            <h3 className="card-title">Timeline</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                {Object.entries(activeDraft.times).map(([key, val]) => (
-                                    <div key={key} className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-ams-blue/50 dark:hover:border-ams-blue/50 transition-colors">
-                                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase block mb-1.5 tracking-wide">{key.replace(/([A-Z])/g, ' $1').trim()}</label>
-                                        <div className="flex gap-2">
-                                            <input type="time" className="bg-transparent font-mono font-bold text-slate-900 dark:text-white w-full outline-none text-sm" value={val} onChange={(e) => updateDraft({ times: { ...activeDraft.times, [key]: e.target.value } })} />
-                                            <button onClick={() => handleTimeNow(key as any)} className="text-ams-blue hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded p-1"><Clock className="w-4 h-4" /></button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                <div className="card">
+                    <h3 className="card-title">Incident Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label className="input-label">Location</label><input className="input-field" value={activeDraft.location} onChange={e => updateDraft({ location: e.target.value })} /></div>
+                        <div><label className="input-label">Call Sign</label><input className="input-field" value={activeDraft.callSign} onChange={e => updateDraft({ callSign: e.target.value })} /></div>
                     </div>
-                    {/* ... Crew, Timeline ... */}
-                    <div className="card">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="card-title flex items-center gap-2 mb-1"><Users className="w-5 h-5 text-ams-blue" /> Clinical Crew & Access</h3>
-                                <p className="text-xs text-slate-500">Add other treating staff to this incident.</p>
-                            </div>
-                            {!isOnline && (
-                                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold border border-amber-200 flex items-center gap-1">
-                                    <WifiOff className="w-3 h-3" /> Offline - Lookup Disabled
-                                </span>
-                            )}
-                        </div>
-                        
-                        <div className="flex gap-2 mb-4">
-                            <div className="relative flex-1">
-                                <div className="absolute left-0 top-0 bottom-0 w-16 bg-slate-100 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 rounded-l-xl flex items-center justify-center text-slate-500 font-bold text-xs">
-                                    AMS
-                                </div>
-                                <input 
-                                    className="input-field pl-20" 
-                                    placeholder="Badge ID (e.g. 25031234)" 
-                                    value={badgeInput}
-                                    onChange={e => setBadgeInput(e.target.value.replace(/\D/g, ''))}
-                                    disabled={!isOnline}
-                                />
-                            </div>
-                            <button 
-                                onClick={handleCrewLookup}
-                                disabled={crewLookupLoading || !badgeInput || !isOnline}
-                                className="btn-primary w-32 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {crewLookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add
-                            </button>
-                        </div>
-
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 bg-ams-blue rounded-full flex items-center justify-center text-white font-bold text-xs">
-                                        {user?.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <span className="block text-sm font-bold text-slate-800 dark:text-white">{user?.name} (You)</span>
-                                        <span className="text-xs text-slate-500">{user?.role} • {user?.employeeId}</span>
-                                    </div>
-                                </div>
-                                <span className="text-xs font-bold bg-slate-200 dark:bg-slate-800 px-2 py-1 rounded text-slate-600 dark:text-slate-300">Lead</span>
-                            </div>
-                            
-                            {activeDraft.assistingClinicians?.map(crew => (
-                                <div key={crew.uid} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-xs">
-                                            {crew.name.charAt(0)}
-                                        </div>
-                                        <div>
-                                            <span className="block text-sm font-bold text-slate-800 dark:text-white">{crew.name}</span>
-                                            <span className="text-xs text-slate-500">{crew.role} • {crew.badgeNumber}</span>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => removeCrewMember(crew.uid)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-2 rounded-lg transition-colors">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="card-title mb-0">Event Log</h3>
-                            <button onClick={() => setShowLogModal(true)} className="btn-secondary text-xs"><Plus className="w-3 h-3" /> Add Log Entry</button>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 max-h-[400px] overflow-y-auto">
-                            <Timeline data={activeDraft} />
-                        </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                        {Object.entries(activeDraft.times).map(([key, val]) => (
+                            <div key={key}><label className="input-label">{key.replace(/([A-Z])/g, ' $1').trim()}</label><input type="time" className="input-field font-mono" value={val} onChange={e => updateDraft({ times: { ...activeDraft.times, [key]: e.target.value } })} /></div>
+                        ))}
                     </div>
                 </div>
             )}
-            
-            {/* The other tabs logic remains identical to previous, just ensuring they render */}
+
             {activeTab === 'patient' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="card">
-                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
-                            <h3 className="card-title mb-0">Demographics</h3>
-                            <div className="flex gap-3 w-full md:w-auto">
-                                <button 
-                                    onClick={() => setShowLookup(true)} 
-                                    disabled={!isOnline}
-                                    className="btn-secondary text-xs flex-1 md:flex-none justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {!isOnline ? <WifiOff className="w-3 h-3" /> : <Search className="w-3 h-3" />} 
-                                    {isOnline ? 'Spine Lookup' : 'Lookup Offline'}
-                                </button>
+                <div className="card space-y-6">
+                    <h3 className="card-title">Demographics</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="input-label">First Name</label><input className="input-field" value={activeDraft.patient.firstName} onChange={e => updateDraft({ patient: { ...activeDraft.patient, firstName: e.target.value } })} /></div>
+                                <div><label className="input-label">Last Name</label><input className="input-field" value={activeDraft.patient.lastName} onChange={e => updateDraft({ patient: { ...activeDraft.patient, lastName: e.target.value } })} /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="input-label">DOB (Calc Age: {age})</label><input type="date" className="input-field" value={activeDraft.patient.dob} onChange={e => updateDraft({ patient: { ...activeDraft.patient, dob: e.target.value } })} /></div>
+                                <div><label className="input-label">NHS Number</label><input className="input-field font-mono" value={activeDraft.patient.nhsNumber} onChange={e => updateDraft({ patient: { ...activeDraft.patient, nhsNumber: e.target.value } })} /></div>
+                            </div>
+                            {/* COPD Toggle */}
+                            <div className="flex items-center gap-3 p-4 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <label className="flex items-center gap-2 font-bold text-sm text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                                    <input type="checkbox" className="w-5 h-5 text-ams-blue rounded" checked={activeDraft.patient.chronicHypoxia || false} onChange={e => updateDraft({ patient: { ...activeDraft.patient, chronicHypoxia: e.target.checked } })} />
+                                    Chronic Hypoxia (COPD) Target 88-92%
+                                </label>
+                                <span className="text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded text-slate-500 dark:text-slate-400">Modifies NEWS2 Scoring</span>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-5">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="input-label">First Name</label><input placeholder="John" className="input-field" value={activeDraft.patient.firstName} onChange={e => updateDraft({ patient: { ...activeDraft.patient, firstName: e.target.value } })} /></div>
-                                    <div><label className="input-label">Last Name</label><input placeholder="Doe" className="input-field" value={activeDraft.patient.lastName} onChange={e => updateDraft({ patient: { ...activeDraft.patient, lastName: e.target.value } })} /></div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="input-label">Date of Birth</label><input type="date" className="input-field text-slate-800 dark:text-white" value={activeDraft.patient.dob} onChange={e => updateDraft({ patient: { ...activeDraft.patient, dob: e.target.value } })} /></div>
-                                    <div><label className="input-label">NHS Number</label><input placeholder="123 456 7890" className="input-field font-mono text-slate-800 dark:text-white" value={activeDraft.patient.nhsNumber} onChange={e => updateDraft({ patient: { ...activeDraft.patient, nhsNumber: e.target.value } })} /></div>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="input-label">Address</label>
-                                <textarea rows={5} placeholder="Full postal address..." className="input-field resize-none leading-relaxed" value={activeDraft.patient.address} onChange={e => updateDraft({ patient: { ...activeDraft.patient, address: e.target.value } })} />
-                            </div>
-                        </div>
+                        <div><label className="input-label">Address</label><textarea className="input-field h-32" value={activeDraft.patient.address} onChange={e => updateDraft({ patient: { ...activeDraft.patient, address: e.target.value } })} /></div>
                     </div>
-                    
-                    <div className="card space-y-6">
-                        <h3 className="card-title">Clinical History</h3>
-                        {activeDraft.mode === 'Minor' ? (
-                            <div>
-                                <label className="input-label">Minor Injury / Illness Narrative</label>
-                                <textarea 
-                                    className="input-field" 
-                                    rows={6} 
-                                    placeholder="Describe nature of minor injury or reason for OTC request..."
-                                    value={activeDraft.history.presentingComplaint}
-                                    onChange={e => updateDraft({ history: { ...activeDraft.history, presentingComplaint: e.target.value } })}
-                                />
-                            </div>
-                        ) : (
-                            <>
-                                <SpeechTextArea label="Presenting Complaint (PC)" value={activeDraft.history.presentingComplaint} onChange={e => updateDraft({ history: { ...activeDraft.history, presentingComplaint: e.target.value } })} rows={2} />
-                                <SpeechTextArea label="History of PC (HPC)" value={activeDraft.history.historyOfPresentingComplaint} onChange={e => updateDraft({ history: { ...activeDraft.history, historyOfPresentingComplaint: e.target.value } })} rows={4} />
-                                <SpeechTextArea label="Past Medical History (PMH)" value={activeDraft.history.pastMedicalHistory} onChange={e => updateDraft({ history: { ...activeDraft.history, pastMedicalHistory: e.target.value } })} rows={2} />
-                            </>
-                        )}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100 dark:border-slate-700">
-                             <div>
-                                 <label className="input-label text-red-600 dark:text-red-400">Allergies</label>
-                                 <input placeholder="NKDA" className="input-field border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-300 font-bold bg-red-50 dark:bg-red-900/10 focus:ring-red-500 placeholder-red-300" value={activeDraft.history.allergies} onChange={e => updateDraft({ history: { ...activeDraft.history, allergies: e.target.value } })} />
-                             </div>
-                             <div>
-                                 <label className="input-label">Current Medications</label>
-                                 <input placeholder="List medications..." className="input-field" value={activeDraft.history.medications} onChange={e => updateDraft({ history: { ...activeDraft.history, medications: e.target.value } })} />
-                             </div>
+                    <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                        <h3 className="card-title">History</h3>
+                        <SpeechTextArea label="Presenting Complaint" value={activeDraft.history.presentingComplaint} onChange={e => updateDraft({ history: { ...activeDraft.history, presentingComplaint: e.target.value } })} rows={3} className="mb-4" />
+                        <SpeechTextArea label="History of PC" value={activeDraft.history.historyOfPresentingComplaint} onChange={e => updateDraft({ history: { ...activeDraft.history, historyOfPresentingComplaint: e.target.value } })} rows={4} className="mb-4" />
+                        <SpeechTextArea label="Past Medical History" value={activeDraft.history.pastMedicalHistory} onChange={e => updateDraft({ history: { ...activeDraft.history, pastMedicalHistory: e.target.value } })} rows={3} />
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                            <div><label className="input-label text-red-600 dark:text-red-400">Allergies</label><input className="input-field border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 font-bold" value={activeDraft.history.allergies} onChange={e => updateDraft({ history: { ...activeDraft.history, allergies: e.target.value } })} /></div>
+                            <div><label className="input-label">Medications</label><input className="input-field" value={activeDraft.history.medications} onChange={e => updateDraft({ history: { ...activeDraft.history, medications: e.target.value } })} /></div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Vitals */}
-            {activeTab === 'vitals' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="card">
-                        <h3 className="card-title">Observations Trend</h3>
-                        <VitalsChart data={activeDraft.vitals} />
+            {activeTab === 'assessment' && (
+                <div className="space-y-6">
+                    {/* Assessment Sub-Navigation */}
+                    <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar">
+                        {ASSESSMENT_SUBTABS.map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveSubTab(tab.id)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${activeSubTab === tab.id ? 'bg-ams-blue text-white shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}
+                            >
+                                <tab.icon className="w-4 h-4" />
+                                {tab.label}
+                            </button>
+                        ))}
                     </div>
 
-                    <div className="card">
-                        <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
-                            <h3 className="card-title mb-0 border-0 pb-0">Add Vital Signs</h3>
-                            {newVital.news2Score !== undefined && (
-                                <div className={`flex flex-col items-end`}>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">NEWS2 Score</span>
-                                    <span className={`text-2xl font-bold ${newVital.news2Score >= 7 ? 'text-red-600' : newVital.news2Score >= 5 ? 'text-amber-600' : 'text-green-600'}`}>
-                                        {newVital.news2Score}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                            <div><label className="input-label">Time</label><input type="time" className="input-field" value={newVital.time} onChange={e => setNewVital({...newVital, time: e.target.value})} /></div>
-                            <div><label className="input-label">HR</label><input type="number" className="input-field" value={newVital.hr || ''} onChange={e => setNewVital({...newVital, hr: Number(e.target.value)})} placeholder="BPM" /></div>
-                            <div><label className="input-label">RR</label><input type="number" className="input-field" value={newVital.rr || ''} onChange={e => setNewVital({...newVital, rr: Number(e.target.value)})} placeholder="/min" /></div>
-                            <div>
-                                <label className="input-label">SpO2</label>
-                                <div className="flex gap-2">
-                                    <input type="number" className="input-field" value={newVital.spo2 || ''} onChange={e => setNewVital({...newVital, spo2: Number(e.target.value)})} placeholder="%" />
-                                    <button onClick={() => setNewVital({...newVital, oxygen: !newVital.oxygen})} className={`px-2 rounded-lg font-bold text-xs ${newVital.oxygen ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-400'}`}>O2</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                            <div><label className="input-label">BP Systolic</label><input type="number" className="input-field" value={newVital.bpSystolic || ''} onChange={e => setNewVital({...newVital, bpSystolic: Number(e.target.value)})} /></div>
-                            <div><label className="input-label">BP Diastolic</label><input type="number" className="input-field" value={newVital.bpDiastolic || ''} onChange={e => setNewVital({...newVital, bpDiastolic: Number(e.target.value)})} /></div>
-                            <div><label className="input-label">Temp</label><input type="number" step="0.1" className="input-field" value={newVital.temp || ''} onChange={e => setNewVital({...newVital, temp: Number(e.target.value)})} placeholder="°C" /></div>
-                            <div>
-                                <label className="input-label">AVPU</label>
-                                <select className="input-field" value={newVital.avpu} onChange={e => setNewVital({...newVital, avpu: e.target.value as any})}>
-                                    <option>A</option><option>V</option><option>P</option><option>U</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                            <div><label className="input-label">Blood Glucose</label><input type="number" step="0.1" className="input-field" value={newVital.bloodGlucose || ''} onChange={e => setNewVital({...newVital, bloodGlucose: Number(e.target.value)})} placeholder="mmol/L" /></div>
-                            <div><label className="input-label">GCS Total</label><input type="number" max={15} className="input-field" value={newVital.gcs || ''} onChange={e => setNewVital({...newVital, gcs: Number(e.target.value)})} /></div>
-                            <div className="col-span-2 flex items-end">
-                                <button onClick={addVitalEntry} className="btn-primary w-full py-3">Record Vitals</button>
-                            </div>
-                        </div>
-
-                        <div className="border-t border-slate-100 dark:border-slate-700 pt-4">
-                            <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">History</h4>
-                            <div className="space-y-2">
-                                {activeDraft.vitals.slice().reverse().map((v, i) => (
-                                    <div key={i} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900 rounded-lg text-sm border border-slate-100 dark:border-slate-800">
-                                        <span className="font-mono font-bold text-slate-600 dark:text-slate-400">{v.time}</span>
-                                        <div className="flex gap-4 text-slate-800 dark:text-white font-medium">
-                                            <span>HR: {v.hr}</span>
-                                            <span>BP: {v.bpSystolic}/{v.bpDiastolic}</span>
-                                            <span>SpO2: {v.spo2}%</span>
-                                            <span>GCS: {v.gcs}</span>
+                    {activeSubTab === 'general' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Primary Survey (ABCDE)</h3>
+                                <div className="grid gap-6">
+                                    <div className="grid md:grid-cols-4 gap-4 items-start border-b border-slate-100 dark:border-slate-700 pb-4">
+                                        <label className="text-sm font-bold text-slate-500 pt-3">Airway</label>
+                                        <div className="md:col-span-3 grid md:grid-cols-2 gap-4">
+                                            <select className="input-field" value={activeDraft.assessment.primary.airway.status} onChange={e => updatePrimary('airway', 'status', e.target.value)}><option>Patent</option><option>Obstructed</option><option>Risk</option></select>
+                                            <input className="input-field" placeholder="Intervention (e.g. OPA, Suction)" value={activeDraft.assessment.primary.airway.intervention || ''} onChange={e => updatePrimary('airway', 'intervention', e.target.value)} />
                                         </div>
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${v.news2Score >= 7 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>NEWS: {v.news2Score}</span>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Treatment, Assessment, Governance, Handover - similar structure ensuring robust rendering of sub-components */}
-            {activeTab === 'treatment' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    {activeDraft.mode === 'Minor' ? (
-                        <div className="card">
-                            <h3 className="card-title">Treatment & Advice</h3>
-                            <div>
-                                <label className="input-label">Action Taken</label>
-                                <textarea 
-                                    className="input-field" 
-                                    rows={4}
-                                    placeholder="e.g. Wound cleaned with saline, plaster applied. Worsening advice given."
-                                    value={activeDraft.treatments.minorTreatment || ''}
-                                    onChange={e => updateDraft({ treatments: { ...activeDraft.treatments, minorTreatment: e.target.value } })}
-                                />
-                            </div>
-                            {/* ... Buttons ... */}
-                        </div>
-                    ) : (
-                        <div className="card">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="card-title flex items-center gap-2 mb-0"><Syringe className="w-5 h-5 text-ams-blue" /> Medications</h3>
-                                <button onClick={() => setShowDrugModal(true)} className="btn-secondary text-xs"><Plus className="w-3 h-3" /> Add Drug</button>
-                            </div>
-                            {/* ... Drug List ... */}
-                            {activeDraft.treatments.drugs.length === 0 ? (
-                                <div className="text-center py-8 bg-slate-50 dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
-                                    <p className="text-slate-400 font-medium">No medication administered.</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {activeDraft.treatments.drugs.map((d, i) => (
-                                        <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm flex justify-between items-center group hover:border-ams-blue dark:hover:border-ams-blue transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 text-ams-blue rounded-lg font-bold text-lg">
-                                                    {d.time.substring(0, 5)}
+                                    <div className="grid md:grid-cols-4 gap-4 items-start border-b border-slate-100 dark:border-slate-700 pb-4">
+                                        <label className="text-sm font-bold text-slate-500 pt-3">Breathing</label>
+                                        <div className="md:col-span-3 space-y-3">
+                                            <div className="grid md:grid-cols-3 gap-4">
+                                                <div><label className="input-label">Effort</label><select className="input-field" value={activeDraft.assessment.primary.breathing.effort} onChange={e => updatePrimary('breathing', 'effort', e.target.value)}><option>Normal</option><option>Increased</option><option>Accessory</option></select></div>
+                                                <div><label className="input-label">Rate</label><input type="text" className="input-field" value={activeDraft.assessment.primary.breathing.rate} onChange={e => updatePrimary('breathing', 'rate', e.target.value)} placeholder="/min" /></div>
+                                                <div><label className="input-label">Sats</label><input type="text" className="input-field" value={activeDraft.assessment.primary.breathing.oxygenSats} onChange={e => updatePrimary('breathing', 'oxygenSats', e.target.value)} placeholder="%" /></div>
+                                            </div>
+                                            <div className="grid md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                                                <div>
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Left Lung</span>
+                                                    <div className="space-y-2">
+                                                        <select className="input-field text-xs" value={activeDraft.assessment.primary.breathing.airEntryL} onChange={e => updatePrimary('breathing', 'airEntryL', e.target.value)}><option>Normal Entry</option><option>Reduced</option><option>Nil Entry</option></select>
+                                                        <select className="input-field text-xs" value={activeDraft.assessment.primary.breathing.soundsL} onChange={e => updatePrimary('breathing', 'soundsL', e.target.value)}><option>Clear Sounds</option><option>Wheeze</option><option>Creps</option><option>Stridor</option><option>Silent</option></select>
+                                                    </div>
                                                 </div>
                                                 <div>
-                                                    <span className="font-bold text-slate-800 dark:text-white text-lg block">{d.drugName}</span>
-                                                    <span className="text-slate-600 dark:text-slate-400 text-sm font-medium block">{d.dose} • {d.route}</span>
-                                                    <span className="text-[10px] text-slate-400 block mt-1">
-                                                        Auth: {d.authorisation} {d.authClinician ? `(${d.authClinician})` : ''}
-                                                    </span>
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Right Lung</span>
+                                                    <div className="space-y-2">
+                                                        <select className="input-field text-xs" value={activeDraft.assessment.primary.breathing.airEntryR} onChange={e => updatePrimary('breathing', 'airEntryR', e.target.value)}><option>Normal Entry</option><option>Reduced</option><option>Nil Entry</option></select>
+                                                        <select className="input-field text-xs" value={activeDraft.assessment.primary.breathing.soundsR} onChange={e => updatePrimary('breathing', 'soundsR', e.target.value)}><option>Clear Sounds</option><option>Wheeze</option><option>Creps</option><option>Stridor</option><option>Silent</option></select>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            {d.witnessedBy && (
-                                                <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full border border-purple-200 dark:border-purple-800 flex items-center gap-1 font-bold">
-                                                    <Eye className="w-3 h-3" /> {d.witnessedBy}
-                                                </span>
-                                            )}
                                         </div>
-                                    ))}
+                                    </div>
+                                    <div className="grid md:grid-cols-4 gap-4 items-start">
+                                        <label className="text-sm font-bold text-slate-500 pt-3">Circulation</label>
+                                        <div className="md:col-span-3 grid md:grid-cols-3 gap-4">
+                                            <div><label className="input-label">Radial</label><select className="input-field" value={activeDraft.assessment.primary.circulation.radialPulse} onChange={e => updatePrimary('circulation', 'radialPulse', e.target.value)}><option>Strong</option><option>Weak</option><option>Absent</option></select></div>
+                                            <div><label className="input-label">Cap Refill</label><select className="input-field" value={activeDraft.assessment.primary.circulation.capRefill} onChange={e => updatePrimary('circulation', 'capRefill', e.target.value)}><option>&lt; 2s</option><option>&gt; 2s</option></select></div>
+                                            <div><label className="input-label">Skin</label><select className="input-field" value={activeDraft.assessment.primary.circulation.skin} onChange={e => updatePrimary('circulation', 'skin', e.target.value)}><option>Normal</option><option>Pale</option><option>Clammy</option><option>Cyanosed</option></select></div>
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
+                            </div>
+                            <div className="card"><h3 className="card-title">Trauma Triage</h3><TraumaTriage value={activeDraft.assessment.traumaTriage} onChange={v => updateDraft({ assessment: { ...activeDraft.assessment, traumaTriage: v } })} /></div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'nervous' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card"><h3 className="card-title">Neuro Assessment</h3><NeuroAssessment data={activeDraft.assessment.neuro} onChange={v => updateDraft({ assessment: { ...activeDraft.assessment, neuro: v } })} /></div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'cardiac' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="card-title mb-0">Chest Pain Assessment</h3>
+                                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-300"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.cardiac?.chestPainPresent} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, chestPainPresent: e.target.checked } } })} /> Patient reports chest pain?</label>
+                                </div>
+                                {activeDraft.assessment.cardiac?.chestPainPresent && (
+                                    <div className="grid md:grid-cols-2 gap-4">
+                                        <div><label className="input-label">Onset</label><input className="input-field" placeholder="When did it start?" value={activeDraft.assessment.cardiac?.socrates?.onset || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, socrates: { ...activeDraft.assessment.cardiac?.socrates, onset: e.target.value } } } })} /></div>
+                                        <div><label className="input-label">Severity (0-10)</label><input type="number" className="input-field" value={activeDraft.assessment.cardiac?.socrates?.severity || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, socrates: { ...activeDraft.assessment.cardiac?.socrates, severity: e.target.value } } } })} /></div>
+                                        <div><label className="input-label">Characteristics</label><input className="input-field" placeholder="e.g. Heavy, Sharp, Tearing" value={activeDraft.assessment.cardiac?.socrates?.character || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, socrates: { ...activeDraft.assessment.cardiac?.socrates, character: e.target.value } } } })} /></div>
+                                        <div><label className="input-label">Radiation</label><input className="input-field" placeholder="e.g. Left Arm, Jaw" value={activeDraft.assessment.cardiac?.socrates?.radiation || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, socrates: { ...activeDraft.assessment.cardiac?.socrates, radiation: e.target.value } } } })} /></div>
+                                        <div className="md:col-span-2"><label className="input-label">Associated Symptoms</label><input className="input-field" placeholder="Nausea, Sweating, SOB" value={activeDraft.assessment.cardiac?.socrates?.associations || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, socrates: { ...activeDraft.assessment.cardiac?.socrates, associations: e.target.value } } } })} /></div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="card">
+                                <h3 className="card-title">Electrocardiogram (ECG)</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Rhythm</label><select className="input-field" value={activeDraft.assessment.cardiac?.ecg?.rhythm || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, ecg: { ...activeDraft.assessment.cardiac?.ecg, rhythm: e.target.value } } } })}><option value="">Select Rhythm...</option><option>Sinus Rhythm</option><option>Sinus Tachycardia</option><option>Atrial Fibrillation</option><option>Supraventricular Tachycardia</option><option>Ventricular Tachycardia</option><option>Ventricular Fibrillation</option><option>Asystole</option><option>PEA</option><option>Heart Block</option></select></div>
+                                    <div><label className="input-label">Rate</label><input className="input-field" placeholder="BPM" value={activeDraft.assessment.cardiac?.ecg?.rate || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, ecg: { ...activeDraft.assessment.cardiac?.ecg, rate: e.target.value } } } })} /></div>
+                                    <div className="md:col-span-2">
+                                        <label className="input-label">12-Lead Interpretation</label>
+                                        <textarea className="input-field" rows={3} placeholder="Describe ST changes, bundle branch blocks, ectopics..." value={activeDraft.assessment.cardiac?.ecg?.twelveLeadNotes || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, ecg: { ...activeDraft.assessment.cardiac?.ecg, twelveLeadNotes: e.target.value } } } })} />
+                                    </div>
+                                    <div className="md:col-span-2 flex items-center gap-2">
+                                        <label className="flex items-center gap-2 font-bold text-red-600 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-900/50 w-full"><input type="checkbox" checked={activeDraft.assessment.cardiac?.ecg?.stElevation || false} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, cardiac: { ...activeDraft.assessment.cardiac, ecg: { ...activeDraft.assessment.cardiac?.ecg, stElevation: e.target.checked } } } })} className="w-5 h-5 text-red-600 rounded" /> Significant ST Elevation Detected (STEMI Criteria)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'resp' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Respiratory Assessment</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Cough Type</label><select className="input-field" value={activeDraft.assessment.respiratory?.cough || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, respiratory: { ...activeDraft.assessment.respiratory, cough: e.target.value } } } })}><option value="">None</option><option>Dry / Non-productive</option><option>Productive</option></select></div>
+                                    <div><label className="input-label">Sputum Colour</label><input className="input-field" placeholder="e.g. Green, Clear, Haemoptysis" value={activeDraft.assessment.respiratory?.sputumColor || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, respiratory: { ...activeDraft.assessment.respiratory, sputumColor: e.target.value } } } })} /></div>
+                                    <div className="md:col-span-2"><label className="input-label">Specific History (Asthma/COPD)</label><textarea className="input-field" rows={2} placeholder="Previous admissions, ICU, normal function..." value={activeDraft.assessment.respiratory?.history || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, respiratory: { ...activeDraft.assessment.respiratory, history: e.target.value } } } })} /></div>
+                                </div>
+                            </div>
+                            <div className="card">
+                                <h3 className="card-title">Intervention Effectiveness</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Peak Flow (Pre-Neb)</label><input type="number" className="input-field" placeholder="L/min" value={activeDraft.assessment.respiratory?.peakFlowPre || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, respiratory: { ...activeDraft.assessment.respiratory, peakFlowPre: e.target.value } } } })} /></div>
+                                    <div><label className="input-label">Peak Flow (Post-Neb)</label><input type="number" className="input-field" placeholder="L/min" value={activeDraft.assessment.respiratory?.peakFlowPost || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, respiratory: { ...activeDraft.assessment.respiratory, peakFlowPost: e.target.value } } } })} /></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'gi_gu' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Abdominal Assessment</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Pain Location</label><select className="input-field" value={activeDraft.assessment.gastrointestinal?.painLocation || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, painLocation: e.target.value } } } })}><option value="">None</option><option>Generalized</option><option>RUQ</option><option>LUQ</option><option>RLQ</option><option>LLQ</option><option>Epigastric</option><option>Suprapubic</option></select></div>
+                                    <div><label className="input-label">Palpation Feel</label><select className="input-field" value={activeDraft.assessment.gastrointestinal?.palpation || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, palpation: e.target.value } } } })}><option>Soft & Non-tender</option><option>Soft & Tender</option><option>Guarding</option><option>Rigid / Board-like</option></select></div>
+                                    <div><label className="input-label">Distension</label><select className="input-field" value={activeDraft.assessment.gastrointestinal?.distension ? 'Yes' : 'No'} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, distension: e.target.value === 'Yes' } } } })}><option>No</option><option>Yes</option></select></div>
+                                    <div><label className="input-label">Bowel Sounds</label><select className="input-field" value={activeDraft.assessment.gastrointestinal?.bowelSounds || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, bowelSounds: e.target.value } } } })}><option>Present / Normal</option><option>Absent</option><option>Hyperactive</option><option>Tinkling</option></select></div>
+                                </div>
+                            </div>
+                            <div className="card">
+                                <h3 className="card-title">Hydration & Output</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Last Oral Intake</label><input className="input-field" placeholder="Time / Detail" value={activeDraft.assessment.gastrointestinal?.lastMeal || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, lastMeal: e.target.value } } } })} /></div>
+                                    <div><label className="input-label">Last Bowel Movement</label><input className="input-field" placeholder="Time / Type" value={activeDraft.assessment.gastrointestinal?.lastBowelMovement || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, lastBowelMovement: e.target.value } } } })} /></div>
+                                    <div><label className="input-label">Urine Output</label><input className="input-field" placeholder="Normal / Reduced / Nil" value={activeDraft.assessment.gastrointestinal?.urineOutput || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, urineOutput: e.target.value } } } })} /></div>
+                                    <div className="flex items-center"><label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.gastrointestinal?.nauseaVomiting || false} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, gastrointestinal: { ...activeDraft.assessment.gastrointestinal, nauseaVomiting: e.target.checked } } } })} /> Nausea / Vomiting Present</label></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'obs' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Maternity Assessment</h3>
+                                <label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300 mb-4 bg-slate-100 dark:bg-slate-900 p-3 rounded-lg"><input type="checkbox" className="w-5 h-5 text-ams-blue" checked={activeDraft.assessment.obsGynae?.pregnant || false} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, pregnant: e.target.checked } } })} /> Patient is Pregnant / Possibly Pregnant</label>
+                                {activeDraft.assessment.obsGynae?.pregnant && (
+                                    <div className="grid md:grid-cols-2 gap-4">
+                                        <div><label className="input-label">Gestation (Weeks)</label><input type="number" className="input-field" value={activeDraft.assessment.obsGynae?.gestationWeeks || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, gestationWeeks: e.target.value } } })} /></div>
+                                        <div><label className="input-label">Gravida / Para</label><div className="flex gap-2"><input placeholder="G" className="input-field" value={activeDraft.assessment.obsGynae?.gravida || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, gravida: e.target.value } } })} /><input placeholder="P" className="input-field" value={activeDraft.assessment.obsGynae?.para || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, para: e.target.value } } })} /></div></div>
+                                        <div className="md:col-span-2"><label className="input-label">Contractions</label><input className="input-field" placeholder="Frequency and Duration" value={activeDraft.assessment.obsGynae?.contractions || ''} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, contractions: e.target.value } } })} /></div>
+                                        <div className="flex items-center"><label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.obsGynae?.membranesRuptured || false} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, membranesRuptured: e.target.checked } } })} /> Membranes Ruptured</label></div>
+                                        <div className="flex items-center"><label className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.obsGynae?.bleeding || false} onChange={e => updateDraft({ assessment: { ...activeDraft.assessment, obsGynae: { ...activeDraft.assessment.obsGynae, bleeding: e.target.checked } } })} /> PV Bleeding</label></div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'msk' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Body Map (Injuries & Marks)</h3>
+                                <BodyMap value={activeDraft.injuries} onChange={v => updateDraft({ injuries: v })} />
+                            </div>
+                            <div className="card">
+                                <h3 className="card-title">Burns Assessment</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="input-label">Est. Percentage (Rule of 9s)</label>
+                                        <input className="input-field" placeholder="%" value={activeDraft.assessment.burns?.estimatedPercentage || ''} onChange={e => updateBurns('estimatedPercentage', e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="input-label">Max Depth</label>
+                                        <select className="input-field" value={activeDraft.assessment.burns?.depth || ''} onChange={e => updateBurns('depth', e.target.value)}>
+                                            <option value="">None</option>
+                                            <option>Superficial (Erythema)</option>
+                                            <option>Partial Thickness</option>
+                                            <option>Full Thickness</option>
+                                        </select>
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="input-label">Site / Description</label>
+                                        <input className="input-field" value={activeDraft.assessment.burns?.site || ''} onChange={e => updateBurns('site', e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSubTab === 'mental' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <div className="card">
+                                <h3 className="card-title">Mental State Exam (MSE)</h3>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                    <div><label className="input-label">Appearance</label><input className="input-field" placeholder="Dress, hygiene, eye contact..." value={activeDraft.assessment.mentalHealth?.appearance || ''} onChange={e => updateMentalHealth('appearance', e.target.value)} /></div>
+                                    <div><label className="input-label">Behaviour</label><input className="input-field" placeholder="Agitated, withdrawn, cooperative..." value={activeDraft.assessment.mentalHealth?.behaviour || ''} onChange={e => updateMentalHealth('behaviour', e.target.value)} /></div>
+                                    <div><label className="input-label">Speech</label><input className="input-field" placeholder="Rate, volume, tone..." value={activeDraft.assessment.mentalHealth?.speech || ''} onChange={e => updateMentalHealth('speech', e.target.value)} /></div>
+                                    <div><label className="input-label">Mood</label><input className="input-field" placeholder="Subjective & Objective..." value={activeDraft.assessment.mentalHealth?.mood || ''} onChange={e => updateMentalHealth('mood', e.target.value)} /></div>
+                                    <div className="flex items-center"><label className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.mentalHealth?.riskToSelf || false} onChange={e => updateMentalHealth('riskToSelf', e.target.checked)} /> Risk to Self</label></div>
+                                    <div className="flex items-center"><label className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400"><input type="checkbox" className="w-5 h-5" checked={activeDraft.assessment.mentalHealth?.riskToOthers || false} onChange={e => updateMentalHealth('riskToOthers', e.target.checked)} /> Risk to Others</label></div>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
             )}
 
-            {/* Assessment */}
-            {activeTab === 'assessment' && activeDraft.mode === 'Clinical' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+            {activeTab === 'vitals' && (
+                <div className="space-y-6">
                     <div className="card">
-                        <h3 className="card-title">Primary Survey (ABCDE)</h3>
-                        {/* ... ABCDE Inputs ... */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start border-b border-slate-100 dark:border-slate-700 pb-4">
-                            <label className="text-sm font-bold uppercase text-slate-500 pt-3">Airway</label>
-                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <select className="input-field" value={activeDraft.assessment.primary?.airway.status} onChange={e => updatePrimary('airway', 'status', e.target.value)}>
-                                    <option>Patent</option><option>Obstructed (Partial)</option><option>Obstructed (Complete)</option>
-                                    <option>Swollen / Oedema</option><option>Vomit / Blood</option><option>Risk of Aspiration</option>
-                                </select>
-                                <input className="input-field" placeholder="Notes (e.g. OPA inserted)" value={activeDraft.assessment.primary?.airway.notes} onChange={e => updatePrimary('airway', 'notes', e.target.value)} />
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="card-title mb-0">Add Vital Signs</h3>
+                            <div className={`flex flex-col items-end`}>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{isPaed ? `POPS Score (Age ${age})` : `NEWS2 Score ${isCOPD ? '(Scale 2)' : ''}`}</span>
+                                <span className={`text-2xl font-bold ${isPaed ? (newVital.popsScore! >= 5 ? 'text-red-600' : 'text-green-600') : (newVital.news2Score >= 5 ? 'text-red-600' : 'text-green-600')}`}>
+                                    {isPaed ? newVital.popsScore : newVital.news2Score}
+                                </span>
                             </div>
                         </div>
-                        {/* ... Breathing ... */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start border-b border-slate-100 dark:border-slate-700 pb-4">
-                            <label className="text-sm font-bold uppercase text-slate-500 pt-3">Breathing</label>
-                            <div className="md:col-span-3 grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div><label className="input-label">Rate</label><input type="number" className="input-field" value={activeDraft.assessment.primary?.breathing.rate} onChange={e => updatePrimary('breathing', 'rate', e.target.value)} /></div>
-                                <div><label className="input-label">Rhythm</label><select className="input-field" value={activeDraft.assessment.primary?.breathing.rhythm} onChange={e => updatePrimary('breathing', 'rhythm', e.target.value)}><option>Regular</option><option>Irregular</option></select></div>
-                                <div><label className="input-label">Depth</label><select className="input-field" value={activeDraft.assessment.primary?.breathing.depth} onChange={e => updatePrimary('breathing', 'depth', e.target.value)}><option>Normal</option><option>Shallow</option><option>Deep</option></select></div>
-                                <div><label className="input-label">Effort</label><select className="input-field" value={activeDraft.assessment.primary?.breathing.effort} onChange={e => updatePrimary('breathing', 'effort', e.target.value)}><option>Normal</option><option>Laboured</option><option>Accessory Muscle</option></select></div>
-                                <div><label className="input-label">Air Entry</label><select className="input-field" value={activeDraft.assessment.primary?.breathing.airEntry} onChange={e => updatePrimary('breathing', 'airEntry', e.target.value)}><option>Equal</option><option>Reduced L</option><option>Reduced R</option><option>Silent</option></select></div>
-                            </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                            <div><label className="input-label">Time</label><input type="time" className="input-field" value={newVital.time} onChange={e => setNewVital({...newVital, time: e.target.value})} /></div>
+                            <div><label className="input-label">HR</label><input type="number" className="input-field" value={newVital.hr || ''} onChange={e => setNewVital({...newVital, hr: Number(e.target.value)})} placeholder="BPM" /></div>
+                            <div><label className="input-label">RR</label><input type="number" className="input-field" value={newVital.rr || ''} onChange={e => setNewVital({...newVital, rr: Number(e.target.value)})} placeholder="/min" /></div>
+                            <div><label className="input-label">SpO2</label><div className="flex gap-2"><input type="number" className="input-field" value={newVital.spo2 || ''} onChange={e => setNewVital({...newVital, spo2: Number(e.target.value)})} placeholder="%" /></div></div>
                         </div>
-                        {/* ... Circulation ... */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start border-b border-slate-100 dark:border-slate-700 pb-4">
-                            <label className="text-sm font-bold uppercase text-slate-500 pt-3">Circulation</label>
-                            <div className="md:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div><label className="input-label">Radial</label><select className="input-field" value={activeDraft.assessment.primary?.circulation.radialPulse} onChange={e => updatePrimary('circulation', 'radialPulse', e.target.value)}><option>Present</option><option>Absent</option></select></div>
-                                <div><label className="input-label">Skin</label><select className="input-field" value={activeDraft.assessment.primary?.circulation.skin} onChange={e => updatePrimary('circulation', 'skin', e.target.value)}><option>Normal</option><option>Pale</option><option>Flushed</option><option>Cyanosed</option><option>Mottled</option></select></div>
-                                <div><label className="input-label">Cap Refill</label><select className="input-field" value={activeDraft.assessment.primary?.circulation.capRefill} onChange={e => updatePrimary('circulation', 'capRefill', e.target.value)}><option>&lt; 2s</option><option>&gt; 2s</option></select></div>
-                            </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                            <div><label className="input-label">O2 Flow (L/m)</label><input type="text" className="input-field" value={newVital.oxygenFlow || ''} onChange={e => setNewVital({...newVital, oxygenFlow: e.target.value, oxygen: !!e.target.value})} placeholder="Air / 2L" /></div>
+                            <div><label className="input-label">O2 Device</label><select className="input-field" value={newVital.oxygenDevice || ''} onChange={e => setNewVital({...newVital, oxygenDevice: e.target.value})}><option value="">None</option><option>Nasal</option><option>Mask</option><option>NRB</option><option>BVM</option></select></div>
+                            <div><label className="input-label">BP Sys</label><input type="number" className="input-field" value={newVital.bpSystolic || ''} onChange={e => setNewVital({...newVital, bpSystolic: Number(e.target.value)})} /></div>
+                            <div><label className="input-label">BP Dia</label><input type="number" className="input-field" value={newVital.bpDiastolic || ''} onChange={e => setNewVital({...newVital, bpDiastolic: Number(e.target.value)})} /></div>
                         </div>
-                        {/* ... Disability/Exposure ... */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-                            <label className="text-sm font-bold uppercase text-slate-500 pt-3">D & E</label>
-                            <div className="md:col-span-3 grid grid-cols-3 gap-4">
-                                <div><label className="input-label">AVPU</label><select className="input-field" value={activeDraft.assessment.primary?.disability.avpu} onChange={e => updatePrimary('disability', 'avpu', e.target.value)}><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option></select></div>
-                                <div><label className="input-label">Pupils</label><select className="input-field" value={activeDraft.assessment.primary?.disability.pupils} onChange={e => updatePrimary('disability', 'pupils', e.target.value)}><option>PERRLA</option><option>Unequal</option><option>Pinpoint</option><option>Fixed</option></select></div>
-                                <div><label className="input-label">BM</label><input className="input-field" value={activeDraft.assessment.primary?.disability.bloodGlucose} onChange={e => updatePrimary('disability', 'bloodGlucose', e.target.value)} /></div>
-                            </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div><label className="input-label">Temp</label><input type="number" step="0.1" className="input-field" value={newVital.temp || ''} onChange={e => setNewVital({...newVital, temp: Number(e.target.value)})} /></div>
+                            <div><label className="input-label">AVPU</label><select className="input-field" value={newVital.avpu} onChange={e => setNewVital({...newVital, avpu: e.target.value as any})}><option>A</option><option>V</option><option>P</option><option>U</option></select></div>
+                            <div><label className="input-label">BM</label><input type="number" step="0.1" className="input-field" value={newVital.bloodGlucose || ''} onChange={e => setNewVital({...newVital, bloodGlucose: Number(e.target.value)})} /></div>
+                            <div><label className="input-label">Pain (0-10)</label><input type="number" max={10} className="input-field" value={newVital.painScore || ''} onChange={e => setNewVital({...newVital, painScore: Number(e.target.value)})} /></div>
+                            <div className="col-span-2 md:col-span-4 flex items-end mt-2"><button onClick={addVitalEntry} className="btn-primary w-full py-3">Record Vitals Set</button></div>
                         </div>
                     </div>
 
-                    <div className="card">
-                        <h3 className="card-title">Trauma Triage</h3>
-                        <TraumaTriage value={activeDraft.assessment.traumaTriage} onChange={v => updateDraft({ assessment: { ...activeDraft.assessment, traumaTriage: v } })} />
-                    </div>
-
-                    <div className="card">
-                        <h3 className="card-title">Neuro Assessment</h3>
-                        <NeuroAssessment data={activeDraft.assessment.neuro} onChange={v => updateDraft({ assessment: { ...activeDraft.assessment, neuro: v } })} />
-                    </div>
-
-                    <div className="card">
-                        <h3 className="card-title">Body Map & Injuries</h3>
-                        <BodyMap value={activeDraft.injuries} onChange={v => updateDraft({ injuries: v })} />
-                    </div>
-                </div>
-            )}
-
-            {/* Governance */}
-            {activeTab === 'governance' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    {/* Safeguarding */}
-                    <div className="card border-amber-200 dark:border-amber-800">
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="font-bold text-amber-800 dark:text-amber-400 flex items-center gap-2">
-                                <ShieldAlert className="w-5 h-5" /> Safeguarding
-                            </h3>
-                            <button onClick={handleSafeguardingScan} disabled={isScanningSafety} className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-3 py-1 rounded font-bold hover:bg-amber-200 transition-colors flex items-center gap-2 disabled:opacity-50">
-                                {isScanningSafety ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} AI Scan
-                            </button>
-                        </div>
-                        
-                        {safetyAlert && (
-                            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-xl mb-4 text-sm text-red-700 dark:text-red-300">
-                                <strong>AI Alert:</strong> {safetyAlert.type} - {safetyAlert.reason}
-                            </div>
-                        )}
-
-                        <div className="flex gap-4 mb-4">
-                            <label className="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={activeDraft.governance.safeguarding.concerns} onChange={e => updateDraft({ governance: { ...activeDraft.governance, safeguarding: { ...activeDraft.governance.safeguarding, concerns: e.target.checked } } })} className="w-5 h-5 text-ams-blue rounded focus:ring-ams-blue" />
-                                Concerns Raised?
-                            </label>
-                        </div>
-                        
-                        {activeDraft.governance.safeguarding.concerns && (
-                            <div className="space-y-3 animate-in fade-in">
-                                <input className="input-field" placeholder="Type of Concern (e.g. Neglect, Abuse)" value={activeDraft.governance.safeguarding.type} onChange={e => updateDraft({ governance: { ...activeDraft.governance, safeguarding: { ...activeDraft.governance.safeguarding, type: e.target.value } } })} />
-                                <textarea className="input-field" rows={3} placeholder="Details of concern and referral made..." value={activeDraft.governance.safeguarding.details} onChange={e => updateDraft({ governance: { ...activeDraft.governance, safeguarding: { ...activeDraft.governance.safeguarding, details: e.target.value } } })} />
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Capacity */}
-                    <div className="card">
-                        <h3 className="card-title flex items-center gap-2"><Brain className="w-5 h-5 text-ams-blue" /> Mental Capacity Act</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="input-label">Capacity Status</label>
-                                <select className="input-field mb-4" value={activeDraft.governance.capacity.status} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, status: e.target.value as any } } })}>
-                                    <option>Capacity Present</option>
-                                    <option>Capacity Lacking</option>
-                                </select>
-                                
-                                <div className="space-y-3">
-                                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 border p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors">
-                                        <input type="checkbox" checked={activeDraft.governance.capacity.stage1Impairment} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage1Impairment: e.target.checked } } })} className="w-4 h-4 text-ams-blue rounded" />
-                                        <span>Stage 1: Impairment of Mind/Brain?</span>
-                                    </label>
-                                    
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
-                                        <p className="text-xs font-bold text-slate-500 uppercase mb-2">Stage 2: Functional Test</p>
-                                        {(['understand', 'retain', 'weigh', 'communicate'] as const).map(k => (
-                                            <label key={k} className="flex items-center gap-2 mb-2 text-sm">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={activeDraft.governance.capacity.stage2Functional[k]}
-                                                    onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage2Functional: { ...activeDraft.governance.capacity.stage2Functional, [k]: e.target.checked } } } })}
-                                                    className="w-4 h-4 text-green-600 rounded"
-                                                />
-                                                Can {k}?
-                                            </label>
+                    {/* Vitals Grid History */}
+                    {activeDraft.vitals.length > 0 && (
+                        <div className="card overflow-hidden !p-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left dark:text-slate-300">
+                                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs uppercase font-bold text-slate-50 dark:text-slate-400">
+                                        <tr>
+                                            <th className="px-4 py-3">Time</th>
+                                            <th className="px-4 py-3">HR</th>
+                                            <th className="px-4 py-3">RR</th>
+                                            <th className="px-4 py-3">BP</th>
+                                            <th className="px-4 py-3">SpO2</th>
+                                            <th className="px-4 py-3">O2</th>
+                                            <th className="px-4 py-3">Temp</th>
+                                            <th className="px-4 py-3">GCS</th>
+                                            <th className="px-4 py-3">BM</th>
+                                            <th className="px-4 py-3">Score</th>
+                                            <th className="px-4 py-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                        {activeDraft.vitals.map((v, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                <td className="px-4 py-3 font-bold">{v.time}</td>
+                                                <td className={`px-4 py-3 font-mono ${(v.hr > 130 || v.hr < 40) ? 'text-red-600 font-bold' : ''}`}>{v.hr}</td>
+                                                <td className={`px-4 py-3 font-mono ${(v.rr > 29 || v.rr < 8) ? 'text-red-600 font-bold' : ''}`}>{v.rr}</td>
+                                                <td className="px-4 py-3 font-mono">{v.bpSystolic}/{v.bpDiastolic}</td>
+                                                <td className={`px-4 py-3 font-mono ${v.spo2 < 92 ? 'text-red-600 font-bold' : ''}`}>{v.spo2}%</td>
+                                                <td className="px-4 py-3">{v.oxygen ? `${v.oxygenFlow || 'O2'} ${v.oxygenDevice ? `(${v.oxygenDevice})` : ''}` : 'Air'}</td>
+                                                <td className="px-4 py-3 font-mono">{v.temp}°</td>
+                                                <td className="px-4 py-3">{v.avpu === 'A' ? `GCS ${v.gcs}` : v.avpu}</td>
+                                                <td className="px-4 py-3 font-mono">{v.bloodGlucose || '-'}</td>
+                                                <td className="px-4 py-3 font-bold">
+                                                    <span className={`px-2 py-0.5 rounded text-xs ${isPaed ? (v.popsScore! >= 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700') : (v.news2Score >= 5 ? 'bg-red-100 text-red-700' : v.news2Score >= 1 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700')}`}>
+                                                        {isPaed ? `POPS ${v.popsScore}` : `NEWS ${v.news2Score}`}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right">
+                                                    <button onClick={() => deleteVitalEntry(idx)} className="text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                                                </td>
+                                            </tr>
                                         ))}
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="input-label">Best Interests Rationale</label>
-                                <textarea 
-                                    className="input-field h-full min-h-[150px]" 
-                                    placeholder="If capacity is lacking, describe why the proposed treatment/conveyance is in the patient's best interests..."
-                                    value={activeDraft.governance.capacity.bestInterestsRationale || ''}
-                                    onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, bestInterestsRationale: e.target.value } } })}
-                                />
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Discharge */}
                     <div className="card">
-                        <h3 className="card-title">Discharge & Plan</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="input-label">Outcome</label>
-                                <select className="input-field" value={activeDraft.governance.discharge} onChange={e => updateDraft({ governance: { ...activeDraft.governance, discharge: e.target.value } })}>
-                                    <option value="">Select Outcome...</option>
-                                    <option>Conveyed to ED</option>
-                                    <option>Conveyed to Other (Medical)</option>
-                                    <option>Referral to GP / Community</option>
-                                    <option>See & Treat (Discharged on Scene)</option>
-                                    <option>Patient Refusal (Against Advice)</option>
-                                    <option>Handover to Police</option>
-                                </select>
-                            </div>
-
-                            {activeDraft.governance.discharge.includes('Conveyed') && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
-                                    <div><label className="input-label">Destination</label><input className="input-field" placeholder="Hospital Name" value={activeDraft.governance.destinationLocation} onChange={e => updateDraft({ governance: { ...activeDraft.governance, destinationLocation: e.target.value } })} /></div>
-                                    <div><label className="input-label">Handover To</label><input className="input-field" placeholder="Nurse / Doctor Name" value={activeDraft.governance.handoverClinician} onChange={e => updateDraft({ governance: { ...activeDraft.governance, handoverClinician: e.target.value } })} /></div>
-                                </div>
-                            )}
-
-                            {(activeDraft.governance.discharge.includes('Discharged') || activeDraft.governance.discharge.includes('Refusal')) && (
-                                <div className="space-y-4 animate-in fade-in">
-                                    <div>
-                                        <label className="input-label">Worsening Advice (Safety Netting)</label>
-                                        <textarea className="input-field" rows={3} placeholder="Specific advice given to patient regarding when to call back..." value={activeDraft.governance.worseningAdviceDetails} onChange={e => updateDraft({ governance: { ...activeDraft.governance, worseningAdviceDetails: e.target.value } })} />
-                                    </div>
-                                    
-                                    {activeDraft.governance.discharge.includes('Refusal') && (
-                                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 rounded-xl">
-                                            <h4 className="font-bold text-red-800 dark:text-red-400 mb-3 text-sm">Refusal Checklist</h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={activeDraft.governance.refusal.capacityConfirmed} onChange={e => updateDraft({ governance: { ...activeDraft.governance, refusal: { ...activeDraft.governance.refusal, capacityConfirmed: e.target.checked } } })} className="w-4 h-4 text-red-600 rounded" /> Capacity Confirmed</label>
-                                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={activeDraft.governance.refusal.risksExplained} onChange={e => updateDraft({ governance: { ...activeDraft.governance, refusal: { ...activeDraft.governance.refusal, risksExplained: e.target.checked } } })} className="w-4 h-4 text-red-600 rounded" /> Risks Explained</label>
-                                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={activeDraft.governance.refusal.alternativesOffered} onChange={e => updateDraft({ governance: { ...activeDraft.governance, refusal: { ...activeDraft.governance.refusal, alternativesOffered: e.target.checked } } })} className="w-4 h-4 text-red-600 rounded" /> Alternatives Offered</label>
-                                            </div>
-                                            <div className="mt-4">
-                                                <SignaturePad label="Patient Signature (Refusal Confirmation)" value={activeDraft.governance.refusal.patientSignature} onSave={val => updateDraft({ governance: { ...activeDraft.governance, refusal: { ...activeDraft.governance.refusal, patientSignature: val } } })} />
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <h3 className="card-title">Observations Trend</h3>
+                        <VitalsChart data={activeDraft.vitals} />
                     </div>
                 </div>
             )}
 
-            {/* Handover */}
-            {activeTab === 'handover' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+            {activeTab === 'treatment' && (
+                <div className="space-y-6">
                     <div className="card">
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="card-title mb-0">SBAR Handovers</h3>
-                            <button onClick={handleGenerateSBAR} className="btn-secondary text-xs" disabled={!isOnline}>
-                                <Sparkles className="w-3 h-3 text-ams-gold" /> AI Generate SBAR
-                            </button>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="card-title flex items-center gap-2 mb-0"><Stethoscope className="w-5 h-5 text-ams-blue" /> Procedures & Interventions</h3>
+                            <button onClick={() => setShowProcModal(true)} className="btn-secondary text-xs"><Plus className="w-3 h-3" /> Add Procedure</button>
                         </div>
-                        <SpeechTextArea 
-                            label="Situation / Background / Assessment / Recommendation" 
-                            rows={8} 
-                            value={activeDraft.handover.sbar} 
-                            onChange={e => updateDraft({ handover: { ...activeDraft.handover, sbar: e.target.value } })} 
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="card">
-                            <h3 className="card-title">Clinician Declaration</h3>
-                            <div className="mb-4 text-xs text-slate-500 italic">
-                                I confirm that the information recorded is accurate and I have acted within my scope of practice.
+                        {activeDraft.treatments.procedures.map((p, i) => (
+                            <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex flex-col md:flex-row justify-between md:items-center gap-2 mb-2 shadow-sm">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold dark:text-white text-lg">{p.type}</span> 
+                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide ${p.success ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>{p.success ? 'Successful' : 'Failed'}</span>
+                                    </div>
+                                    <span className="text-sm text-slate-500 dark:text-slate-400 mt-1 block">
+                                        {p.details} • {p.site} • Attempts: {p.attempts || 1}
+                                    </span>
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                    <span className="text-xs bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-600 dark:text-slate-300 font-bold mb-1">{p.time}</span>
+                                    <span className="text-xs text-slate-400">{p.performedBy}</span>
+                                </div>
                             </div>
-                            <SignaturePad 
-                                label="Clinician Signature" 
-                                value={activeDraft.handover.clinicianSignature} 
-                                onSave={val => updateDraft({ handover: { ...activeDraft.handover, clinicianSignature: val } })} 
-                            />
+                        ))}
+                        {activeDraft.treatments.procedures.length === 0 && <p className="text-slate-400 text-sm italic text-center py-4">No procedures recorded.</p>}
+                    </div>
+                    
+                    <div className="card">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="card-title flex items-center gap-2 mb-0"><Syringe className="w-5 h-5 text-ams-blue" /> Drugs Administered</h3>
+                            <button onClick={() => setShowDrugModal(true)} className="btn-secondary text-xs"><Plus className="w-3 h-3" /> Add Drug</button>
                         </div>
+                        {activeDraft.treatments.drugs.map((d, i) => (
+                            <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex justify-between items-center mb-2 shadow-sm">
+                                <div>
+                                    <span className="font-bold dark:text-white text-lg block">{d.drugName}</span> 
+                                    <span className="text-sm text-slate-500">{d.dose} via {d.route}</span>
+                                    {d.witnessedBy && <span className="block text-xs text-purple-600 dark:text-purple-400 font-bold mt-1">Witnessed by: {d.witnessedBy}</span>}
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                    <span className="text-xs bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-600 dark:text-slate-300 font-bold mb-1">{d.time}</span>
+                                    <span className="text-xs text-slate-400">{d.administeredBy}</span>
+                                </div>
+                            </div>
+                        ))}
+                        {activeDraft.treatments.drugs.length === 0 && <p className="text-slate-400 text-sm italic text-center py-4">No drugs administered.</p>}
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'governance' && (
+                <div className="card">
+                    <h3 className="card-title">Governance</h3>
+                    <div className="space-y-4">
+                        <label className="flex items-center gap-2 text-sm dark:text-white p-3 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20">
+                            <input type="checkbox" checked={activeDraft.governance.safeguarding.concerns} onChange={e => updateDraft({ governance: { ...activeDraft.governance, safeguarding: { ...activeDraft.governance.safeguarding, concerns: e.target.checked } } })} className="w-5 h-5 text-ams-blue rounded" /> 
+                            <ShieldAlert className="w-5 h-5 text-red-500" />
+                            <span className="font-bold text-red-700 dark:text-red-400">Safeguarding Concerns?</span>
+                        </label>
                         
-                        <div className="card">
-                            <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">
-                                <h3 className="card-title mb-0 border-0 pb-0">Patient Confirmation</h3>
-                                <div className="flex gap-1">
-                                    <button onClick={() => updateDraft({ handover: { ...activeDraft.handover, patientSignatureType: 'Signed' } })} className={`px-2 py-1 text-xs font-bold rounded ${activeDraft.handover.patientSignatureType !== 'Unable' && activeDraft.handover.patientSignatureType !== 'Refused' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>Sign</button>
-                                    <button onClick={() => updateDraft({ handover: { ...activeDraft.handover, patientSignatureType: 'Unable', patientSignature: '' } })} className={`px-2 py-1 text-xs font-bold rounded ${activeDraft.handover.patientSignatureType === 'Unable' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>Unable</button>
-                                    <button onClick={() => updateDraft({ handover: { ...activeDraft.handover, patientSignatureType: 'Refused', patientSignature: '' } })} className={`px-2 py-1 text-xs font-bold rounded ${activeDraft.handover.patientSignatureType === 'Refused' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>Refused</button>
-                                </div>
+                        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <h4 className="font-bold text-sm mb-2 dark:text-white">Mental Capacity Act Assessment</h4>
+                            <select className="input-field mb-4" value={activeDraft.governance.capacity.status} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, status: e.target.value as any } } })}><option>Capacity Present</option><option>Capacity Lacking</option></select>
+                            
+                            <div className="space-y-2 pl-2 border-l-2 border-slate-200 dark:border-slate-700">
+                                <label className="flex items-center gap-2 text-sm dark:text-gray-300"><input type="checkbox" checked={activeDraft.governance.capacity.stage1Impairment} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage1Impairment: e.target.checked } } })} /> Stage 1: Is there an impairment of mind/brain?</label>
+                                <label className="flex items-center gap-2 text-sm dark:text-gray-300"><input type="checkbox" checked={activeDraft.governance.capacity.stage2Functional.understand} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage2Functional: { ...activeDraft.governance.capacity.stage2Functional, understand: e.target.checked } } } })} /> Can Understand?</label>
+                                <label className="flex items-center gap-2 text-sm dark:text-gray-300"><input type="checkbox" checked={activeDraft.governance.capacity.stage2Functional.retain} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage2Functional: { ...activeDraft.governance.capacity.stage2Functional, retain: e.target.checked } } } })} /> Can Retain?</label>
+                                <label className="flex items-center gap-2 text-sm dark:text-gray-300"><input type="checkbox" checked={activeDraft.governance.capacity.stage2Functional.weigh} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage2Functional: { ...activeDraft.governance.capacity.stage2Functional, weigh: e.target.checked } } } })} /> Can Weigh Up?</label>
+                                <label className="flex items-center gap-2 text-sm dark:text-gray-300"><input type="checkbox" checked={activeDraft.governance.capacity.stage2Functional.communicate} onChange={e => updateDraft({ governance: { ...activeDraft.governance, capacity: { ...activeDraft.governance.capacity, stage2Functional: { ...activeDraft.governance.capacity.stage2Functional, communicate: e.target.checked } } } })} /> Can Communicate?</label>
                             </div>
-                            
-                            {activeDraft.handover.patientSignatureType === 'Unable' && (
-                                <div className="p-8 bg-amber-50 border border-amber-200 rounded-xl text-center text-amber-700 font-bold text-sm">
-                                    Patient unable to sign (e.g. Unconscious/Injury).
-                                </div>
-                            )}
-                            
-                            {activeDraft.handover.patientSignatureType === 'Refused' && (
-                                <div className="p-8 bg-red-50 border border-red-200 rounded-xl text-center text-red-700 font-bold text-sm">
-                                    Patient refused to sign.
-                                </div>
-                            )}
-
-                            {(activeDraft.handover.patientSignatureType !== 'Unable' && activeDraft.handover.patientSignatureType !== 'Refused') && (
-                                <SignaturePad 
-                                    label="Patient Signature" 
-                                    value={activeDraft.handover.patientSignature} 
-                                    onSave={val => updateDraft({ handover: { ...activeDraft.handover, patientSignature: val } })} 
-                                />
-                            )}
                         </div>
                     </div>
                 </div>
             )}
 
+            {activeTab === 'handover' && (
+                <div className="space-y-6">
+                    <div className="card">
+                        <h3 className="card-title">Handover & Disposition</h3>
+                        <div className="grid md:grid-cols-2 gap-4 mb-4">
+                            <div><label className="input-label">Outcome</label><select className="input-field" value={activeDraft.governance.discharge} onChange={e => updateDraft({ governance: { ...activeDraft.governance, discharge: e.target.value } })}><option value="">Select Outcome...</option><option>Conveyed to ED</option><option>See & Treat</option><option>Referral to GP/OOH</option><option>Patient Refusal</option><option>Left on Scene</option></select></div>
+                            <div><label className="input-label">Destination / Location</label><input className="input-field" value={activeDraft.governance.destinationLocation || ''} onChange={e => updateDraft({ governance: { ...activeDraft.governance, destinationLocation: e.target.value } })} placeholder="e.g. Royal London Hospital" /></div>
+                        </div>
+                        <SpeechTextArea label="SBAR Handover / Clinical Narrative" rows={8} value={activeDraft.handover.sbar} onChange={e => updateDraft({ handover: { ...activeDraft.handover, sbar: e.target.value } })} />
+                    </div>
+                    <div className="card">
+                        <h3 className="card-title">Signatures & Receiving</h3>
+                        <div className="grid md:grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                                <h4 className="font-bold text-sm text-slate-500 uppercase">Receiving Clinician</h4>
+                                <div>
+                                    <label className="input-label">Name</label>
+                                    <input className="input-field" placeholder="e.g. Staff Nurse Jones" value={activeDraft.handover.receivingClinicianName} onChange={e => updateDraft({ handover: { ...activeDraft.handover, receivingClinicianName: e.target.value } })} />
+                                </div>
+                                <div>
+                                    <label className="input-label">PIN / Reg Number</label>
+                                    <input className="input-field" placeholder="NMC/GMC Number" value={activeDraft.handover.receivingClinicianPin} onChange={e => updateDraft({ handover: { ...activeDraft.handover, receivingClinicianPin: e.target.value } })} />
+                                </div>
+                                <SignaturePad label="Receiving Clinician Signature" value={activeDraft.handover.receivingClinicianSignature} onSave={val => updateDraft({ handover: { ...activeDraft.handover, receivingClinicianSignature: val } })} />
+                            </div>
+                            <div className="space-y-4">
+                                <h4 className="font-bold text-sm text-slate-500 uppercase">Crew Signature</h4>
+                                <div className="mb-4 text-xs text-slate-500 italic p-2 bg-slate-100 dark:bg-slate-900 rounded">I confirm that the clinical assessment and treatment recorded is accurate to the best of my knowledge.</div>
+                                <SignaturePad label="Lead Clinician Signature" value={activeDraft.handover.clinicianSignature} onSave={val => updateDraft({ handover: { ...activeDraft.handover, clinicianSignature: val } })} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
       </div>
 
       {showDrugModal && (
-          // ... Drug Modal same as before ...
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-lg space-y-4 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
-                  <h3 className="font-bold text-lg text-slate-800 dark:text-white">Add Medication</h3>
-                  <select className="input-field h-12 text-lg" value={newDrug.name} onChange={e => setNewDrug({...newDrug, name: e.target.value})}>
-                      <option value="">Select Drug...</option>
-                      {DRUG_DATABASE.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-                  </select>
-                  
-                  {CONTROLLED_DRUGS.includes(newDrug.name) && (
-                      <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-200 dark:border-purple-800 space-y-1 animate-in slide-in-from-top-2">
-                          <p className="text-sm font-bold text-purple-700 dark:text-purple-300 flex items-center gap-2"><Lock className="w-4 h-4" /> Controlled Drug</p>
-                          <p className="text-xs text-purple-600 dark:text-purple-400 pl-6">Witness verification required upon submission.</p>
-                      </div>
-                  )}
-
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-lg space-y-4 shadow-2xl border border-slate-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg dark:text-white">Add Medication</h3>
+                  <select className="input-field h-12" value={newDrug.name} onChange={e => setNewDrug({...newDrug, name: e.target.value})}><option value="">Select Drug...</option>{DRUG_DATABASE.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}</select>
                   <div className="grid grid-cols-2 gap-4">
-                     <div><label className="input-label">Dose</label><input className="input-field" placeholder="e.g. 10mg" value={newDrug.dose} onChange={e => setNewDrug({...newDrug, dose: e.target.value})} /></div>
-                     <div><label className="input-label">Route</label><input className="input-field" placeholder="e.g. IV" value={newDrug.route} onChange={e => setNewDrug({...newDrug, route: e.target.value})} /></div>
+                     <input className="input-field" placeholder="Dose" value={newDrug.dose} onChange={e => setNewDrug({...newDrug, dose: e.target.value})} />
+                     <input className="input-field" placeholder="Route" value={newDrug.route} onChange={e => setNewDrug({...newDrug, route: e.target.value})} />
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                     <div><label className="input-label">Batch No.</label><input className="input-field" placeholder="Optional" value={newDrug.batch} onChange={e => setNewDrug({...newDrug, batch: e.target.value})} /></div>
-                     <div><label className="input-label">Expiry</label><input type="date" className="input-field" value={newDrug.expiry} onChange={e => setNewDrug({...newDrug, expiry: e.target.value})} /></div>
-                  </div>
-
-                  <div className="border-t border-slate-100 dark:border-slate-700 pt-4">
-                      <label className="input-label mb-2">Authorisation</label>
-                      <select className="input-field mb-3" value={newDrug.authorisation} onChange={e => setNewDrug({...newDrug, authorisation: e.target.value})}>
-                          <option>JRCALC</option>
-                          <option>PGD</option>
-                          <option>Patient's Own Meds</option>
-                          <option>Out of Scope / Unlicensed</option>
-                      </select>
-                      
-                      {newDrug.authorisation === 'Out of Scope / Unlicensed' && (
-                          <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-200 dark:border-red-800 space-y-3 animate-in slide-in-from-top-2">
-                              <p className="text-xs font-bold text-red-700 dark:text-red-400 flex items-center gap-1"><AlertOctagon className="w-3 h-3" /> Authorising Clinician Required</p>
-                              <input className="input-field border-red-200" placeholder="Clinician Name" value={newDrug.authName} onChange={e => setNewDrug({...newDrug, authName: e.target.value})} />
-                              <input type="password" className="input-field border-red-200" placeholder="Clinician PIN" value={newDrug.authPin} onChange={e => setNewDrug({...newDrug, authPin: e.target.value})} maxLength={4} />
-                          </div>
-                      )}
-                  </div>
-                  
-                  <div className="flex justify-end gap-3 pt-4">
-                      <button onClick={() => setShowDrugModal(false)} className="btn-secondary">Cancel</button>
-                      <button onClick={initiateDrugAdd} className="btn-primary">Add Drug</button>
-                  </div>
+                  <button onClick={() => { if(CONTROLLED_DRUGS.includes(newDrug.name)) setShowWitnessModal(true); else completeDrugAdd(); }} className="btn-primary w-full py-3">Add Drug</button>
+                  <button onClick={() => setShowDrugModal(false)} className="w-full py-2 text-slate-500">Cancel</button>
               </div>
           </div>
       )}
-      
+
+      {showProcModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-lg space-y-4 shadow-2xl border border-slate-200 dark:border-slate-700">
+                  <h3 className="font-bold text-lg dark:text-white">Record Procedure</h3>
+                  <select className="input-field" value={newProc.type} onChange={e => setNewProc({...newProc, type: e.target.value})}><option>IV Cannulation</option><option>I-Gel Airway</option><option>Wound Care / Dressing</option><option>Splinting</option><option>Spinal Immobilisation</option><option>ECG (12 Lead)</option><option>Intubation (ETT)</option><option>Needle Thoracentesis</option></select>
+                  <div className="grid grid-cols-2 gap-4">
+                      <input className="input-field" placeholder="Size/Details (e.g. 18G Green)" value={newProc.details} onChange={e => setNewProc({...newProc, details: e.target.value})} />
+                      <input className="input-field" placeholder="Site (e.g. Left ACF)" value={newProc.site} onChange={e => setNewProc({...newProc, site: e.target.value})} />
+                  </div>
+                  <div>
+                      <label className="input-label">Attempts</label>
+                      <input type="number" className="input-field" value={newProc.attempts} onChange={e => setNewProc({...newProc, attempts: Number(e.target.value)})} />
+                  </div>
+                  <div className="flex gap-2"><button onClick={() => setNewProc({...newProc, success: true})} className={`flex-1 py-2 rounded font-bold ${newProc.success ? 'bg-green-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>Success</button><button onClick={() => setNewProc({...newProc, success: false})} className={`flex-1 py-2 rounded font-bold ${!newProc.success ? 'bg-red-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>Failed</button></div>
+                  <button onClick={completeProcedureAdd} className="btn-primary w-full py-3">Save Procedure</button>
+                  <button onClick={() => setShowProcModal(false)} className="w-full py-2 text-slate-500">Cancel</button>
+              </div>
+          </div>
+      )}
+
       {showWitnessModal && <WitnessModal drugName={newDrug.name} onWitnessConfirmed={completeDrugAdd} onCancel={() => setShowWitnessModal(false)} />}
       
-      {/* Submit Modal */}
       {showSubmitModal && (
-          <div className="fixed inset-0 z-[70] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 max-w-sm w-full animate-in zoom-in-95 border border-white/10">
-                  <div className="text-center mb-8">
-                      <div className="w-20 h-20 bg-blue-50 dark:bg-blue-900/30 text-ams-blue dark:text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                          <Lock className="w-10 h-10" />
-                      </div>
-                      <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Sign & Submit</h3>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Enter your secure PIN to sign this record.</p>
-                  </div>
-                  <div className="relative">
-                      <Key className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
-                      <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoFocus className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-12 pr-4 py-4 text-lg mb-6 focus:ring-2 focus:ring-ams-blue outline-none text-center tracking-[0.5em] font-mono font-bold dark:text-white" placeholder="••••" value={submitPin} onChange={e => setSubmitPin(e.target.value.replace(/\D/g, ''))} />
-                  </div>
-                  <div className="space-y-3">
-                      <button onClick={finalizeSubmit} disabled={isSubmitting || submitPin.length !== 4} className="w-full py-4 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 disabled:opacity-50 flex items-center justify-center gap-3 transition-transform active:scale-95">
-                          {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle className="w-5 h-5" />} Confirm Signature
-                      </button>
-                      <button onClick={() => setShowSubmitModal(false)} className="w-full py-3 text-slate-500 dark:text-slate-400 font-bold hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                  </div>
+          <div className="fixed inset-0 z-[70] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 max-w-sm w-full border border-white/10">
+                  <h3 className="text-2xl font-bold text-center mb-6 dark:text-white">Sign & Submit</h3>
+                  <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl py-4 text-center text-lg mb-6 tracking-[0.5em] font-bold dark:text-white" placeholder="••••" value={submitPin} onChange={e => setSubmitPin(e.target.value)} />
+                  <button onClick={finalizeSubmit} disabled={isSubmitting} className="w-full py-4 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 disabled:opacity-50">{isSubmitting ? 'Submitting...' : 'Confirm Signature'}</button>
+                  <button onClick={() => setShowSubmitModal(false)} className="w-full py-3 mt-2 text-slate-500">Cancel</button>
               </div>
           </div>
       )}
@@ -1249,6 +901,8 @@ const EPRFPage = () => {
         .card-title { @apply font-bold text-slate-800 dark:text-white mb-4 text-sm uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 pb-2 block; }
         .btn-primary { @apply px-5 py-2.5 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-900 transition-colors shadow-sm text-sm active:scale-95; }
         .btn-secondary { @apply px-5 py-2.5 bg-white dark:bg-[#172030] border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm flex items-center gap-2 active:scale-95 shadow-sm; }
+        .input-label { @apply block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 ml-1; }
+        .input-field { @apply w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white transition-all resize-none; }
       `}</style>
     </div>
   );

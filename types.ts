@@ -22,13 +22,13 @@ export interface RoleChangeRequest {
 
 export interface AppNotification {
   id: string;
-  userId: string; // Recipient
+  userId: string;
   title: string;
   message: string;
   type: 'info' | 'alert' | 'success';
   read: boolean;
   timestamp: string;
-  link?: string; // e.g., '/rota'
+  link?: string;
 }
 
 export interface User {
@@ -37,9 +37,9 @@ export interface User {
   name: string;
   role: Role;
   status: 'Active' | 'Pending' | 'Suspended' | 'Rejected';
-  employeeId?: string; // Auto-generated ID (e.g. AMS-2024-001)
-  regNumber?: string; // HCPC/NMC
-  pin?: string; // Auto-generated 4-digit PIN for witnessing
+  employeeId?: string;
+  regNumber?: string;
+  pin?: string;
   phone?: string;
   address?: string;
   compliance: ComplianceDoc[];
@@ -71,11 +71,14 @@ export interface VitalsEntry {
   bpSystolic: number;
   bpDiastolic: number;
   spo2: number;
-  oxygen: boolean; // True if on O2
+  oxygen: boolean;
+  oxygenFlow?: string;
+  oxygenDevice?: string;
   temp: number;
   gcs: number;
   bloodGlucose?: number;
   news2Score: number;
+  popsScore?: number;
   avpu: 'A' | 'V' | 'P' | 'U';
   painScore?: number;
 }
@@ -88,11 +91,24 @@ export interface DrugAdministration {
   route: string;
   batchNumber?: string;
   expiryDate?: string;
-  authorisation: string; // JRCALC, PGD, Patient's Own, Out of Scope
+  authorisation: string;
   administeredBy: string;
-  witnessedBy?: string; // Name of witness
-  witnessUid?: string; // ID of witness for audit
-  authClinician?: string; // For out of scope sign off
+  witnessedBy?: string;
+  witnessUid?: string;
+  authClinician?: string;
+}
+
+export interface Procedure {
+  id: string;
+  time: string;
+  type: string;
+  size?: string;
+  details?: string;
+  site?: string;
+  attempts?: number;
+  success: boolean;
+  performedBy: string;
+  notes?: string;
 }
 
 export interface InjuryMark {
@@ -101,10 +117,10 @@ export interface InjuryMark {
   y: number;
   view: 'Anterior' | 'Posterior';
   type: 'Injury' | 'IV' | 'Pain' | 'Other'; 
-  subtype?: string; // e.g., "Laceration", "18G Green"
+  subtype?: string;
   description?: string;
   notes?: string;
-  success?: boolean; // For IVs
+  success?: boolean;
 }
 
 export interface NeuroAssessment {
@@ -146,33 +162,119 @@ export interface TraumaTriageResult {
 
 export interface PrimarySurvey {
     airway: {
-        status: string; // Patent, Obstructed, Swollen, Vomit/Blood etc.
+        status: string;
         notes: string;
+        intervention?: string;
     };
     breathing: {
         rate: string;
-        rhythm: string; // Regular, Irregular
-        depth: string; // Normal, Shallow, Deep
-        effort: string; // Normal, Laboured, Accessory
-        airEntry: string; // Equal, Reduced L/R, Silent
-        addedSounds: string; // Wheeze, Crackles
+        rhythm: string;
+        depth: string;
+        effort: string;
+        airEntryL: string;
+        airEntryR: string;
+        soundsL: string;
+        soundsR: string;
+        oxygenSats: string;
     };
     circulation: {
-        radialPulse: string; // Present, Absent
-        character: string; // Regular, Irregular, Bounding, Thready
-        capRefill: string; // <2s, >2s
-        skin: string; // Normal, Pale, Flushed, Cyanosed, Mottled, Jaundiced
-        temp: string; // Warm, Cool, Hot, Clammy
+        radialPulse: string;
+        character: string;
+        capRefill: string;
+        skin: string;
+        temp: string;
     };
     disability: {
         avpu: string;
-        pupils: string; // PERRLA, Unequal
+        pupils: string;
         bloodGlucose: string;
     };
     exposure: {
         injuriesFound: boolean;
         rash: boolean;
+        temp: string;
     };
+}
+
+export interface CardiacAssessment {
+    chestPainPresent: boolean;
+    socrates: {
+        site: string;
+        onset: string;
+        character: string;
+        radiation: string;
+        associations: string;
+        timeCourse: string;
+        exacerbatingRelieving: string;
+        severity: string;
+    };
+    ecg: {
+        rhythm: string;
+        rate: string;
+        stElevation: boolean;
+        twelveLeadNotes: string;
+    };
+}
+
+export interface RespiratoryAssessment {
+    cough: string;
+    sputumColor: string;
+    peakFlowPre: string;
+    peakFlowPost: string;
+    nebulisersGiven: boolean;
+    history: string;
+}
+
+export interface AbdominalAssessment {
+    abdominalPain: boolean;
+    painLocation: string;
+    palpation: string;
+    distension: boolean;
+    bowelSounds: string;
+    lastMeal: string;
+    lastBowelMovement: string;
+    urineOutput: string;
+    nauseaVomiting: boolean;
+}
+
+export interface ObsGynaeAssessment {
+    pregnant: boolean;
+    gestationWeeks?: string;
+    gravida?: string;
+    para?: string;
+    contractions?: string;
+    membranesRuptured?: boolean;
+    bleeding?: boolean;
+    notes?: string;
+}
+
+export interface MentalHealthAssessment {
+    appearance: string;
+    behaviour: string;
+    speech: string;
+    mood: string;
+    riskToSelf: boolean;
+    riskToOthers: boolean;
+    capacityStatus: string;
+}
+
+export interface BurnsAssessment {
+    estimatedPercentage: string;
+    depth: string;
+    site: string;
+}
+
+export interface Assessment {
+    primary: PrimarySurvey;
+    neuro: NeuroAssessment;
+    traumaTriage?: TraumaTriageResult;
+    minorInjuryAssessment?: string;
+    cardiac?: CardiacAssessment;
+    respiratory?: RespiratoryAssessment;
+    gastrointestinal?: AbdominalAssessment;
+    obsGynae?: ObsGynaeAssessment;
+    mentalHealth?: MentalHealthAssessment;
+    burns?: BurnsAssessment;
 }
 
 export interface Consumable {
@@ -184,7 +286,7 @@ export interface Consumable {
 export interface MediaAttachment {
     id: string;
     type: 'Photo' | 'ECG' | 'Other';
-    url: string; // Base64
+    url: string;
     timestamp: string;
     notes?: string;
 }
@@ -213,16 +315,16 @@ export interface AssistingClinician {
 }
 
 export interface EPRF {
-  id: string; // Unique Draft ID
+  id: string;
   incidentNumber: string;
-  shiftId?: string; // Linked to Shift
+  shiftId?: string;
   status: 'Draft' | 'Submitted' | 'Review' | 'Approved';
   mode: 'Clinical' | 'Welfare' | 'Minor';
   callSign: string;
   location: string;
   lastUpdated: string;
-  accessUids: string[]; // List of UIDs allowed to edit this record
-  assistingClinicians: AssistingClinician[]; // Display data for PDF/UI
+  accessUids: string[];
+  assistingClinicians: AssistingClinician[];
   times: {
     callReceived: string;
     mobile: string;
@@ -238,6 +340,7 @@ export interface EPRF {
     nhsNumber: string;
     address: string;
     gender: string;
+    chronicHypoxia: boolean;
   };
   history: {
     presentingComplaint: string;
@@ -246,17 +349,13 @@ export interface EPRF {
     allergies: string;
     medications: string;
   };
-  assessment: {
-    primary: PrimarySurvey;
-    neuro: NeuroAssessment;
-    traumaTriage?: TraumaTriageResult;
-    minorInjuryAssessment?: string; // For Minor Mode
-  };
+  assessment: Assessment;
   vitals: VitalsEntry[];
   injuries: InjuryMark[];
   treatments: {
     drugs: DrugAdministration[];
-    minorTreatment?: string; // OTC/Plaster etc.
+    procedures: Procedure[];
+    minorTreatment?: string;
   };
   governance: {
     safeguarding: {
@@ -266,7 +365,7 @@ export interface EPRF {
     };
     capacity: {
         status: 'Capacity Present' | 'Capacity Lacking';
-        stage1Impairment: boolean; // Is there an impairment of mind/brain?
+        stage1Impairment: boolean;
         stage2Functional: {
           understand: boolean;
           retain: boolean;
@@ -275,9 +374,9 @@ export interface EPRF {
         };
         bestInterestsRationale?: string;
     };
-    discharge: string; // Expanded Disposition options
-    destinationLocation?: string; // Hospital Name or MIU Name
-    handoverClinician?: string; // PIN or Crew ID
+    discharge: string;
+    destinationLocation?: string;
+    handoverClinician?: string;
     worseningAdviceDetails?: string;
     refusal: {
         isRefusal: boolean;
@@ -294,7 +393,10 @@ export interface EPRF {
   handover: {
       sbar: string;
       clinicianSignature: string;
-      patientSignature: string; // For See & Treat / Discharge
+      receivingClinicianName: string;
+      receivingClinicianPin: string;
+      receivingClinicianSignature: string;
+      patientSignature: string;
       patientSignatureType?: 'Signed' | 'Unable' | 'Refused';
       media: MediaAttachment[];
   };
@@ -310,24 +412,24 @@ export interface ShiftBid {
 }
 
 export interface ShiftSlot {
-  id: string; // Unique slot ID (e.g. "slot_1")
-  role: Role; // Requirement
-  userId?: string; // Assigned User
-  userName?: string; // Denormalized name for display
+  id: string;
+  role: Role;
+  userId?: string;
+  userName?: string;
   bids: ShiftBid[];
 }
 
 export interface ShiftResource {
   id: string;
   type: 'Vehicle' | 'Kit';
-  name: string; // Denormalized for display
+  name: string;
 }
 
 export interface TimeRecord {
   userId: string;
   clockInTime: string;
   clockOutTime?: string;
-  clockInLocation: string; // GPS string
+  clockInLocation: string;
   clockOutLocation?: string;
   durationMinutes?: number;
 }
@@ -339,17 +441,13 @@ export interface Shift {
   location: string;
   slots: ShiftSlot[]; 
   status: 'Open' | 'Filled' | 'Cancelled' | 'Completed';
-  
-  // Replaces single vehicleId/kitBagId with array
   resources?: ShiftResource[];
-  
-  vehicleId?: string; // Deprecated
-  kitBagId?: string; // Deprecated
-  
+  vehicleId?: string;
+  kitBagId?: string;
   notes?: string;
   createdBy: string;
-  timeRecords?: Record<string, TimeRecord>; // Keyed by userId
-  color?: string; // UI Color override
+  timeRecords?: Record<string, TimeRecord>;
+  color?: string;
   tags?: string[];
 }
 
@@ -364,21 +462,19 @@ export interface LeaveRequest {
     status: 'Pending' | 'Approved' | 'Rejected';
 }
 
-// --- Asset & Inventory System ---
-
 export interface ChecklistItem {
     id: string;
     label: string;
-    category?: string; // e.g. "External", "Internal", "Consumables"
+    category?: string;
 }
 
 export interface Vehicle {
-  id: string; // e.g., AE23XYZ
+  id: string;
   registration: string;
   callSign: string;
   type: 'Ambulance' | 'RRV' | '4x4' | 'PTS';
   status: 'Operational' | 'Maintenance' | 'Off Road';
-  lastCheck?: string; // ISO Date
+  lastCheck?: string;
   mileage: number;
   checklist?: ChecklistItem[];
   notes?: string;
@@ -397,12 +493,12 @@ export interface MedicalKit {
   name: string;
   type: 'Paramedic Bag' | 'Response Bag' | 'Trauma Bag' | 'Drug Pack' | 'O2 Bag' | 'Welfare Bag';
   status: 'Ready' | 'Restock Needed' | 'Quarantined';
-  assignedToUser?: string; // User ID if checked out
+  assignedToUser?: string;
   lastCheck?: string;
   contents: KitItem[];
   checklist?: ChecklistItem[];
   notes?: string;
-  earliestExpiry?: string; // Calculated field
+  earliestExpiry?: string;
 }
 
 export interface AssetCheck {
@@ -451,7 +547,7 @@ export interface Kudos {
   fromUser: string;
   fromUid: string;
   toUser: string;
-  toUid?: string; // Direct linking
+  toUid?: string;
   message: string;
   timestamp: string;
   tags?: string[];
