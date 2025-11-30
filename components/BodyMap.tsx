@@ -1,12 +1,10 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { RefreshCcw, Plus, X } from 'lucide-react';
 import { InjuryMark } from '../types';
-import bodyMapFront from '../assets/body-map-front.jpeg';
-import bodyMapBack from '../assets/body-map-back.jpeg';
 
-const ANTERIOR_URL = bodyMapFront;
-const POSTERIOR_URL = bodyMapBack;
+// Using public assets path
+const ANTERIOR_URL = '/assets/body-map-front.jpeg';
+const POSTERIOR_URL = '/assets/body-map-back.jpeg';
 
 interface BodyMapProps {
     value: InjuryMark[];

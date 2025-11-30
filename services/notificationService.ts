@@ -1,8 +1,8 @@
-
 import { db } from './firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { AppNotification } from '../types';
-import logo from '../assets/logo.png';
+
+const logo = '/assets/logo.png';
 
 export const sendNotification = async (
   recipientId: string, 

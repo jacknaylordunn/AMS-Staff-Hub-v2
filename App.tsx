@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
@@ -26,7 +25,9 @@ import { Role, AppNotification } from './types';
 import { db } from './services/firebase';
 import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
 import { requestBrowserPermission, sendBrowserNotification } from './services/notificationService';
-import logo from './assets/logo.png';
+
+// Use public asset path
+const logo = '/assets/logo.png';
 
 // Define Access Groups
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];

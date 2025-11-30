@@ -1,10 +1,8 @@
-
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { EPRF } from '../types';
-import logo from '../assets/logo.png';
 
-const LOGO_URL = logo;
+const LOGO_URL = '/assets/logo.png';
 
 const getImageData = (url: string): Promise<string> => {
     return new Promise((resolve) => {

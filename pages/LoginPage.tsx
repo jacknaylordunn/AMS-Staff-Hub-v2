@@ -1,10 +1,10 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { LogIn, Hash, Mail, Loader2, ArrowRight, UserPlus, Shield, Check, X } from 'lucide-react';
 import { Role } from '../types';
-import logo from '../assets/logo.png';
+
+const logo = '/assets/logo.png';
 
 const LoginPage = () => {
   const [mode, setMode] = useState<'Login' | 'Register'>('Login');

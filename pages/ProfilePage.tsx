@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { ComplianceDoc, Role } from '../types';
 import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import logo from '../assets/logo.png';
+
+const logo = '/assets/logo.png';
 
 const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
     const styles = {
