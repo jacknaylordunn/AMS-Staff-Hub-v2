@@ -1,4 +1,5 @@
 
+
 export enum Role {
   Pending = 'Pending',
   FirstAider = 'First Aider',
@@ -57,13 +58,25 @@ export interface ComplianceDoc {
   uploadedAt: string;
 }
 
+export interface CompanyDocument {
+  id: string;
+  title: string;
+  category: 'Clinical' | 'Operational' | 'HR' | 'Policy' | 'Memo';
+  version: string;
+  lastUpdated: string;
+  url: string;
+  uploadedBy: string;
+  description?: string;
+}
+
 export interface Patient {
   id: string;
   firstName: string;
   lastName: string;
   dob: string;
   nhsNumber?: string;
-  address?: string;
+  address: string;
+  postcode?: string;
 }
 
 export interface VitalsEntry {
@@ -304,14 +317,6 @@ export interface WoundAssessment {
     closure?: string;
 }
 
-export interface SepsisAssessment {
-    screeningTrigger: boolean; 
-    suspectedSource: string[];
-    redFlags: string[];
-    riskFactors: string[];
-    outcome: 'Monitor' | 'Red Flag Sepsis' | 'Likely Sepsis' | 'Clear';
-}
-
 export interface FallsAssessment {
     historyOfFalls: boolean;
     unsteadyWalk: boolean;
@@ -326,6 +331,14 @@ export interface MobilityAssessment {
     currentMobility: string;
     transferAbility: string;
     aidsUsed: string;
+}
+
+export interface SepsisAssessment {
+    screeningTrigger: boolean;
+    suspectedSource: string[];
+    redFlags: string[];
+    riskFactors: string[];
+    outcome: string;
 }
 
 export interface Assessment {
@@ -343,8 +356,8 @@ export interface Assessment {
     obsGynae?: ObsGynaeAssessment;
     mentalHealth?: MentalHealthAssessment;
     burns?: BurnsAssessment;
-    sepsis?: SepsisAssessment;
     wounds?: WoundAssessment[];
+    sepsis?: SepsisAssessment;
 }
 
 export interface ClinicalDecision {
@@ -415,8 +428,9 @@ export interface EPRF {
     firstName: string;
     lastName: string;
     dob: string;
-    nhsNumber: string;
+    nhsNumber?: string;
     address: string;
+    postcode?: string;
     gender: string;
     chronicHypoxia: boolean;
   };
@@ -451,6 +465,21 @@ export interface EPRF {
     drugs: DrugAdministration[];
     procedures: Procedure[];
     resusLog?: ResusEvent[];
+    role?: {
+        criteriaMet: string[];
+        timeVerified: string;
+        verifiedBy: string;
+        notes: string;
+        // Cardiac Arrest Specifics
+        arrestWitnessed?: boolean;
+        bystanderCPR?: boolean;
+        downTimeMinutes?: number;
+        initialRhythm?: string;
+        totalShocks?: number;
+        totalAdrenaline?: number;
+        airwaySecured?: string;
+        lucasUsed?: boolean;
+    };
     minorTreatment?: string;
   };
 
@@ -466,7 +495,10 @@ export interface EPRF {
     };
     capacity: {
         status: 'Capacity Present' | 'Capacity Lacking';
-        stage1Impairment: boolean;
+        stage1: {
+            impairment: boolean;
+            nexus: boolean; // Causative nexus
+        };
         stage2Functional: {
           understand: boolean;
           retain: boolean;
@@ -494,11 +526,8 @@ export interface EPRF {
   handover: {
       sbar: string;
       clinicianSignature: string;
-      receivingClinicianName: string;
-      receivingClinicianPin: string;
       receivingClinicianSignature: string;
-      patientSignature: string;
-      patientSignatureType?: 'Signed' | 'Unable' | 'Refused';
+      patientSignature?: string;
       media: MediaAttachment[];
       digitalToken?: string;
   };

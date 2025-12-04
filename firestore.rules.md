@@ -1,4 +1,5 @@
 
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -127,6 +128,12 @@ service cloud.firestore {
     
     match /major_incident_logs/{id} {
       allow read, create: if isAuthenticated();
+    }
+
+    // --- Documents & Policies ---
+    match /documents/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
     }
 
     // --- Patient Spine Mock ---

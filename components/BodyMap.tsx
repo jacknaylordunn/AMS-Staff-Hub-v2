@@ -1,11 +1,11 @@
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { RefreshCcw, Plus, X } from 'lucide-react';
 import { InjuryMark } from '../types';
 
-// Using public assets path
-const ANTERIOR_URL = '/assets/body-map-front.jpeg';
-const POSTERIOR_URL = '/assets/body-map-back.jpeg';
+// Using hosted public assets
+const ANTERIOR_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Front.jpeg';
+const POSTERIOR_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Back.jpeg';
 
 interface BodyMapProps {
     value: InjuryMark[];
@@ -21,7 +21,31 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
   const [pendingMark, setPendingMark] = useState<{x: number, y: number} | null>(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
   
+  // Cache images to prevent reloading/flicker
+  const imageCache = useRef<Record<string, HTMLImageElement>>({});
+  const [imageLoaded, setImageLoaded] = useState(false);
+
   useEffect(() => {
+      const url = view === 'Anterior' ? ANTERIOR_URL : POSTERIOR_URL;
+      
+      if (imageCache.current[url]) {
+          setImageLoaded(true);
+          return;
+      }
+
+      setImageLoaded(false);
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.src = url;
+      img.onload = () => {
+          imageCache.current[url] = img;
+          setImageLoaded(true);
+      };
+  }, [view]);
+
+  useEffect(() => {
+    if (!imageLoaded) return;
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -36,11 +60,10 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    img.src = view === 'Anterior' ? ANTERIOR_URL : POSTERIOR_URL;
+    const url = view === 'Anterior' ? ANTERIOR_URL : POSTERIOR_URL;
+    const img = imageCache.current[url];
     
-    img.onload = () => {
+    if (img) {
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       
@@ -93,19 +116,8 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
           const dataUrl = canvas.toDataURL('image/png');
           onImageChange(dataUrl);
       }
-    };
-
-    img.onerror = () => {
-        console.error("Failed to load body map image:", img.src);
-        // Draw fallback or clear canvas to prevent stale state
-        ctx.clearRect(0, 0, width, height);
-        ctx.font = "14px Arial";
-        ctx.fillStyle = "gray";
-        ctx.textAlign = "center";
-        ctx.fillText("Body Map Image Not Found", width / 2, height / 2);
-    };
-
-  }, [view, value, pendingMark, mode]);
+    }
+  }, [view, value, pendingMark, mode, imageLoaded]);
 
   const handleCanvasClick = (e: React.MouseEvent) => {
     const canvas = canvasRef.current;

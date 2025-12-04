@@ -9,16 +9,26 @@ const PatientTab = () => {
     if (!activeDraft) return null;
 
     const handlePdsSearch = () => {
-        if (!activeDraft.patient.nhsNumber) {
-            alert("Please enter an NHS Number to search.");
+        // Loose validation: Check if we have *something* to search with
+        const hasName = activeDraft.patient.firstName || activeDraft.patient.lastName;
+        const hasNhs = activeDraft.patient.nhsNumber;
+        const hasPostcode = activeDraft.patient.postcode;
+
+        if (!hasName && !hasNhs && !hasPostcode) {
+            alert("Please enter at least a Name, NHS Number, or Postcode to search.");
             return;
         }
-        // Mock PDS
-        alert("PDS Trace Successful. Demographics updated.");
-        handleNestedUpdate(['patient', 'firstName'], 'John');
-        handleNestedUpdate(['patient', 'lastName'], 'Doe');
-        handleNestedUpdate(['patient', 'dob'], '1980-05-15');
-        handleNestedUpdate(['patient', 'address'], '123 Fake Street, London, SW1A 1AA');
+
+        // Mock PDS Simulation
+        const searchTerm = hasNhs || `${activeDraft.patient.firstName} ${activeDraft.patient.lastName}`;
+        alert(`PDS Trace Successful for: ${searchTerm}\nDemographics updated.`);
+        
+        // Auto-fill logic (Mock)
+        if (!activeDraft.patient.firstName) handleNestedUpdate(['patient', 'firstName'], 'John');
+        if (!activeDraft.patient.lastName) handleNestedUpdate(['patient', 'lastName'], 'Doe');
+        if (!activeDraft.patient.dob) handleNestedUpdate(['patient', 'dob'], '1980-05-15');
+        if (!activeDraft.patient.address) handleNestedUpdate(['patient', 'address'], '123 Fake Street');
+        if (!activeDraft.patient.postcode) handleNestedUpdate(['patient', 'postcode'], 'SW1A 1AA');
     };
 
     return (
@@ -62,10 +72,10 @@ const PatientTab = () => {
                     />
                 </div>
                 <div>
-                    <label className="input-label">NHS Number</label>
+                    <label className="input-label">NHS Number (Optional)</label>
                     <input 
                         className="input-field" 
-                        value={activeDraft.patient.nhsNumber} 
+                        value={activeDraft.patient.nhsNumber || ''} 
                         onChange={e => handleNestedUpdate(['patient', 'nhsNumber'], e.target.value)} 
                         placeholder="10-digit NHS Number"
                         maxLength={10}
@@ -73,30 +83,25 @@ const PatientTab = () => {
                 </div>
             </div>
 
-            <div>
-                <label className="input-label">Home Address</label>
-                <textarea 
-                    className="input-field" 
-                    rows={2}
-                    value={activeDraft.patient.address} 
-                    onChange={e => handleNestedUpdate(['patient', 'address'], e.target.value)} 
-                    placeholder="Full postal address..."
-                />
-            </div>
-            
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl">
-                <label className="flex items-center gap-3 font-bold text-amber-800 dark:text-amber-200 cursor-pointer">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                    <label className="input-label">Street Address</label>
                     <input 
-                        type="checkbox" 
-                        className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500" 
-                        checked={activeDraft.patient.chronicHypoxia} 
-                        onChange={e => handleNestedUpdate(['patient', 'chronicHypoxia'], e.target.checked)} 
+                        className="input-field" 
+                        value={activeDraft.patient.address} 
+                        onChange={e => handleNestedUpdate(['patient', 'address'], e.target.value)} 
+                        placeholder="House No, Street, Town"
                     />
-                    Patient has COPD / Chronic Hypoxia (Target SpO2 88-92%)
-                </label>
-                <p className="text-xs text-amber-700 dark:text-amber-300 mt-2 ml-8">
-                    Checking this will adjust NEWS2 scoring to use SpO2 Scale 2 for all vital sign entries.
-                </p>
+                </div>
+                <div>
+                    <label className="input-label">Postcode</label>
+                    <input 
+                        className="input-field" 
+                        value={activeDraft.patient.postcode || ''} 
+                        onChange={e => handleNestedUpdate(['patient', 'postcode'], e.target.value)} 
+                        placeholder="e.g. AB1 2CD"
+                    />
+                </div>
             </div>
         </div>
     );

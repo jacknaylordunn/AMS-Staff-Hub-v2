@@ -1,8 +1,9 @@
+
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { EPRF } from '../types';
 
-const LOGO_URL = '/assets/logo.png';
+const LOGO_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 const getImageData = (url: string): Promise<string> => {
     return new Promise((resolve) => {
@@ -23,6 +24,89 @@ const getImageData = (url: string): Promise<string> => {
         };
         img.onerror = () => resolve("");
     });
+};
+
+export const generateGPReferral = async (data: EPRF) => {
+    const doc: any = new jsPDF();
+    let yPos = 20;
+
+    let logoData = '';
+    try { logoData = await getImageData(LOGO_URL); } catch (e) {}
+
+    // Header
+    if (logoData) try { doc.addImage(logoData, 'PNG', 15, 10, 25, 25); } catch (e) {}
+    
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text("CLINICAL REFERRAL / HANDOVER", 195, 20, { align: 'right' });
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Date: ${new Date().toLocaleDateString()}`, 195, 26, { align: 'right' });
+    doc.text(`Ref: ${data.incidentNumber}`, 195, 31, { align: 'right' });
+
+    yPos = 45;
+
+    // Patient
+    doc.setLineWidth(0.5);
+    doc.line(15, yPos, 195, yPos);
+    yPos += 10;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text("PATIENT DETAILS", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${data.patient.firstName.toUpperCase()} ${data.patient.lastName.toUpperCase()}`, 15, yPos);
+    doc.text(`DOB: ${new Date(data.patient.dob).toLocaleDateString()}`, 100, yPos);
+    yPos += 6;
+    doc.text(`Address: ${data.patient.address}`, 15, yPos);
+    doc.text(`NHS No: ${data.patient.nhsNumber || 'Not provided'}`, 100, yPos);
+    yPos += 15;
+
+    // Clinical Info
+    doc.setFont('helvetica', 'bold');
+    doc.text("PRESENTING COMPLAINT", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    const pc = doc.splitTextToSize(data.history.presentingComplaint || 'See Narrative', 180);
+    doc.text(pc, 15, yPos);
+    yPos += (pc.length * 5) + 5;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("HISTORY & EXAMINATION FINDINGS", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    const narrative = doc.splitTextToSize(data.assessment.clinicalNarrative || 'No narrative recorded.', 180);
+    doc.text(narrative, 15, yPos);
+    yPos += (narrative.length * 5) + 10;
+
+    // Last Vitals
+    if (data.vitals.length > 0) {
+        const v = data.vitals[data.vitals.length - 1];
+        doc.setFont('helvetica', 'bold');
+        doc.text("MOST RECENT OBSERVATIONS", 15, yPos);
+        yPos += 6;
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Time: ${v.time} | BP: ${v.bpSystolic}/${v.bpDiastolic} | HR: ${v.hr} | RR: ${v.rr} | SpO2: ${v.spo2}% | Temp: ${v.temp}`, 15, yPos);
+        yPos += 15;
+    }
+
+    // Plan
+    doc.setFont('helvetica', 'bold');
+    doc.text("MANAGEMENT & RECOMMENDATION", 15, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    const plan = doc.splitTextToSize(data.clinicalDecision.managementPlan || 'Refer to GP.', 180);
+    doc.text(plan, 15, yPos);
+    yPos += (plan.length * 5) + 20;
+
+    // Footer Sign off
+    doc.text("Yours sincerely,", 15, yPos);
+    yPos += 10;
+    doc.text(data.assistingClinicians[0]?.name || "Clinician", 15, yPos);
+    doc.text("Aegis Medical Solutions", 15, yPos + 5);
+
+    doc.save(`Referral_${data.patient.lastName}_${data.incidentNumber}.pdf`);
 };
 
 export const generateSafeguardingPDF = async (data: EPRF) => {
@@ -157,7 +241,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
   yPos += 20;
 
   // --- TIMINGS ---
-  doc.autoTable({
+  autoTable(doc, {
       startY: yPos,
       head: [['Received', 'Mobile', 'On Scene', 'Contact', 'Depart', 'Hospital', 'Clear']],
       body: [[
@@ -173,7 +257,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       styles: { fontSize: 8, halign: 'center' },
       headStyles: { fillColor: themeGrey, textColor: 50, fontStyle: 'bold' }
   });
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = (doc as any).lastAutoTable.finalY + 10;
 
   // --- HISTORY & SAMPLE ---
   printSectionHeader("Clinical History & SAMPLE");
@@ -187,14 +271,14 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       ['Last Oral Intake', data.history.sample?.lastOralIntake || '-'],
       ['Events Prior', data.history.sample?.eventsPrior || '-']
   ];
-  doc.autoTable({
+  autoTable(doc, {
       startY: yPos,
       body: hxData,
       theme: 'grid',
       styles: { fontSize: 9, cellPadding: 3 },
       columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: themeGrey }, 1: { cellWidth: 'auto' } }
   });
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = (doc as any).lastAutoTable.finalY + 10;
 
   // --- PRIMARY SURVEY ---
   printSectionHeader("Primary Survey <C>ABCDE");
@@ -207,14 +291,14 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       ['D - Disability', `AVPU: ${ps.disability.avpu}, GCS: ${ps.disability.gcs || '-'}, Pupils: ${ps.disability.pupils}, BM: ${ps.disability.bloodGlucose}`],
       ['E - Exposure', `Injuries: ${ps.exposure.injuriesFound ? 'Yes' : 'No'}, Temp: ${ps.exposure.temp}`]
   ];
-  doc.autoTable({
+  autoTable(doc, {
       startY: yPos,
       body: psData,
       theme: 'grid',
       styles: { fontSize: 9 },
       columnStyles: { 0: { fontStyle: 'bold', width: 50 } }
   });
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = (doc as any).lastAutoTable.finalY + 10;
 
   if (data.assessment.clinicalNarrative) {
       checkPage(30);
@@ -235,7 +319,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
           v.time, v.rr, `${v.spo2}%`, v.oxygen ? 'Yes' : 'Air', `${v.bpSystolic}/${v.bpDiastolic}`, 
           v.hr, v.temp, v.avpu === 'A' ? `GCS ${v.gcs}` : v.avpu, v.bloodGlucose || '-', v.painScore, v.news2Score
       ]);
-      doc.autoTable({
+      autoTable(doc, {
           startY: yPos,
           head: [['Time', 'RR', 'SpO2', 'O2', 'BP', 'HR', 'Temp', 'AVPU', 'BM', 'Pain', 'NEWS2']],
           body: vitalsBody,
@@ -243,7 +327,34 @@ export const generateEPRF_PDF = async (data: EPRF) => {
           styles: { fontSize: 8, halign: 'center' },
           headStyles: { fillColor: themeDark }
       });
-      yPos = doc.lastAutoTable.finalY + 10;
+      yPos = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // --- RESUS / ROLE ---
+  if (data.treatments.role?.timeVerified || data.treatments.role?.criteriaMet.length > 0) {
+      printSectionHeader("Cardiac Arrest / ROLE");
+      const role = data.treatments.role!;
+      const roleBody = [
+          ['Witnessed Arrest', role.arrestWitnessed ? 'Yes' : 'No'],
+          ['Bystander CPR', role.bystanderCPR ? 'Yes' : 'No'],
+          ['Est Down Time', role.downTimeMinutes ? `${role.downTimeMinutes} mins` : '-'],
+          ['Initial Rhythm', role.initialRhythm || '-'],
+          ['Shocks', role.totalShocks || 0],
+          ['Adrenaline (mg)', role.totalAdrenaline || 0],
+          ['Airway', role.airwaySecured || '-'],
+          ['ROLE Criteria', role.criteriaMet.join(', ') || '-'],
+          ['Verified By', role.verifiedBy || '-'],
+          ['Verified At', role.timeVerified ? new Date(role.timeVerified).toLocaleTimeString() : '-']
+      ];
+      
+      autoTable(doc, {
+          startY: yPos,
+          body: roleBody,
+          theme: 'grid',
+          styles: { fontSize: 8 },
+          columnStyles: { 0: { fontStyle: 'bold', width: 60 } }
+      });
+      yPos = (doc as any).lastAutoTable.finalY + 10;
   }
 
   // --- INJURIES / BODY MAP IMAGE ---
@@ -262,7 +373,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
                   i.notes || '-'
               ]);
               if (injuryBody.length > 0) {
-                  doc.autoTable({
+                  autoTable(doc, {
                       startY: yPos,
                       margin: { left: 80 },
                       head: [['Location', 'Type', 'Description', 'Notes']],
@@ -284,7 +395,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
               i.subtype || '-',
               i.notes || '-'
           ]);
-          doc.autoTable({
+          autoTable(doc, {
               startY: yPos,
               head: [['Location', 'Type', 'Description', 'Notes']],
               body: injuryBody,
@@ -292,7 +403,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
               styles: { fontSize: 8 },
               headStyles: { fillColor: '#DC2626' }
           });
-          yPos = doc.lastAutoTable.finalY + 10;
+          yPos = (doc as any).lastAutoTable.finalY + 10;
       }
   }
 
@@ -307,10 +418,10 @@ export const generateEPRF_PDF = async (data: EPRF) => {
 
       const combined = [
           ...data.treatments.drugs.map(d => [d.time, 'Drug', `${d.drugName} ${d.dose} ${d.route}`, d.administeredBy, d.witnessedBy || '-']),
-          ...data.treatments.procedures.map(p => [p.time, 'Procedure', `${p.type} ${p.size || ''} ${p.site || ''}`, p.performedBy, '-'])
+          ...data.treatments.procedures.map(p => [p.time, p.type === 'Welfare Check' ? 'Welfare' : 'Procedure', `${p.type} ${p.details || ''} ${p.size || ''} ${p.site || ''}`, p.performedBy, '-'])
       ].sort((a,b) => a[0].localeCompare(b[0]));
 
-      doc.autoTable({
+      autoTable(doc, {
           startY: yPos,
           margin: { right: data.accessMapImage ? 60 : 10 },
           head: [['Time', 'Type', 'Detail', 'Clinician', 'Witness']],
@@ -319,7 +430,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
           styles: { fontSize: 8 }
       });
       
-      yPos = Math.max(doc.lastAutoTable.finalY + 10, yPos + (data.accessMapImage ? 85 : 0));
+      yPos = Math.max((doc as any).lastAutoTable.finalY + 10, yPos + (data.accessMapImage ? 85 : 0));
   }
 
   // --- DIAGNOSIS & PLAN ---
@@ -330,14 +441,14 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       ['Management Plan', data.clinicalDecision?.managementPlan || '-'],
       ['Outcome', data.governance.discharge || data.clinicalDecision?.finalDisposition || '-']
   ];
-  doc.autoTable({
+  autoTable(doc, {
       startY: yPos,
       body: planData,
       theme: 'grid',
       styles: { fontSize: 9 },
       columnStyles: { 0: { fontStyle: 'bold', width: 40 } }
   });
-  yPos = doc.lastAutoTable.finalY + 10;
+  yPos = (doc as any).lastAutoTable.finalY + 10;
 
   // --- GOVERNANCE ---
   if (data.governance.capacity.status === 'Capacity Lacking' || data.governance.refusal.isRefusal || data.governance.safeguarding.concerns) {
@@ -345,7 +456,7 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       
       const govBody = [];
       if (data.governance.capacity.status === 'Capacity Lacking') {
-          govBody.push(['Mental Capacity', 'Patient LACKS capacity. Best interests acted upon.']);
+          govBody.push(['Mental Capacity', 'Patient LACKS capacity. Stage 1 & 2 tests completed. Best interests acted upon.']);
       }
       if (data.governance.refusal.isRefusal) {
           govBody.push(['Refusal', 'Patient refused care. Risks explained. Capacity confirmed.']);
@@ -354,14 +465,14 @@ export const generateEPRF_PDF = async (data: EPRF) => {
           govBody.push(['Safeguarding', `Concerns raised: ${data.governance.safeguarding.category}. Referral form generated.`]);
       }
       
-      doc.autoTable({
+      autoTable(doc, {
           startY: yPos,
           body: govBody,
           theme: 'grid',
           styles: { fontSize: 8 },
           columnStyles: { 0: { fontStyle: 'bold', textColor: 200 } }
       });
-      yPos = doc.lastAutoTable.finalY + 10;
+      yPos = (doc as any).lastAutoTable.finalY + 10;
   }
 
   // --- SIGNATURES ---
@@ -376,24 +487,33 @@ export const generateEPRF_PDF = async (data: EPRF) => {
       }
   }
 
+  // Refusal / Patient Signature
+  if (data.governance.refusal.patientSignature) {
+      if (data.governance.refusal.patientSignature.startsWith('data:image')) {
+          doc.addImage(data.governance.refusal.patientSignature, 'PNG', 90, yPos, 60, 20);
+          doc.setFontSize(8);
+          doc.text("Patient Signature (Refusal/Discharge)", 90, yPos + 25);
+      }
+  }
+
   // Digital Stamp
   if (data.status === 'Submitted') {
       doc.setDrawColor(0, 100, 0);
       doc.setLineWidth(0.5);
-      doc.rect(120, yPos, 70, 25);
+      doc.rect(160, yPos, 40, 25);
       
       doc.setTextColor(0, 100, 0);
-      doc.setFontSize(10);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text("DIGITALLY VERIFIED", 155, yPos + 8, { align: 'center' });
+      doc.text("DIGITALLY VERIFIED", 180, yPos + 8, { align: 'center' });
       
       doc.setTextColor(0);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7);
       // Assuming the first assisting clinician is the lead if not explicitly stored
       const signer = data.assistingClinicians[0]?.name || "Clinician"; 
-      doc.text(`Signed by: ${signer}`, 155, yPos + 14, { align: 'center' });
-      doc.text(`Date: ${new Date(data.lastUpdated).toLocaleString()}`, 155, yPos + 20, { align: 'center' });
+      doc.text(`${signer}`, 180, yPos + 14, { align: 'center' });
+      doc.text(`${new Date(data.lastUpdated).toLocaleString()}`, 180, yPos + 20, { align: 'center' });
   }
 
   // Footer Numbers

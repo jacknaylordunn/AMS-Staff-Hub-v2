@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FilePlus, Cloud, ArrowRight, AlertTriangle, User, ClipboardList, 
-  Activity, Pill, Lock, FileText, Signpost, Trash2, Home
+  Activity, Pill, Lock, FileText, Signpost, Trash2, Home, Stethoscope, Printer
 } from 'lucide-react';
 import { EPRFProvider, useEPRF } from '../context/EPRFContext';
-import { generateEPRF_PDF } from '../utils/pdfGenerator';
+import { generateEPRF_PDF, generateSafeguardingPDF, generateGPReferral } from '../utils/pdfGenerator';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, getDocs, Timestamp } from 'firebase/firestore';
@@ -21,6 +21,7 @@ import VitalsTab from '../components/eprf/VitalsTab';
 import TreatmentTab from '../components/eprf/TreatmentTab';
 import HandoverTab from '../components/eprf/HandoverTab';
 import DiagnosisTab from '../components/eprf/DiagnosisTab';
+import PrimarySurveyTab from '../components/eprf/PrimarySurveyTab';
 
 // --- DEFAULTS ---
 const DEFAULT_NEURO: NeuroAssessment = {
@@ -104,51 +105,103 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber'> = {
     },
     governance: { 
         safeguarding: { concerns: false, type: [], details: '' }, 
-        capacity: { status: 'Capacity Present', stage1Impairment: false, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true } }, 
+        capacity: { status: 'Capacity Present', stage1: { impairment: false, nexus: false }, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true } }, 
         refusal: { isRefusal: false, risksExplained: false, alternativesOffered: false, capacityConfirmed: false, worseningAdviceGiven: false }
     },
-    handover: { sbar: '', clinicianSignature: '', patientSignature: '', receivingClinicianName: '', receivingClinicianPin: '', receivingClinicianSignature: '', media: [] },
+    handover: { sbar: '', clinicianSignature: '', patientSignature: '', receivingClinicianSignature: '', media: [] },
     logs: []
 };
 
-// Grouped Tabs for Layout
-const NAV_GROUPS = [
-    {
-        title: 'Admin',
-        items: [
-            { id: 'incident', label: 'Incident', icon: AlertTriangle },
-            { id: 'patient', label: 'Patient', icon: User },
-        ]
-    },
-    {
-        title: 'Clinical',
-        items: [
-            { id: 'history', label: 'History', icon: FileText },
-            { id: 'assessment', label: 'Assessment', icon: ClipboardList },
-            { id: 'vitals', label: 'Vitals', icon: Activity },
-            { id: 'treatment', label: 'Interventions', icon: Pill },
-        ]
-    },
-    {
-        title: 'Outcome',
-        items: [
-            { id: 'diagnosis', label: 'Diagnosis & Plan', icon: Signpost },
-            { id: 'governance', label: 'Governance', icon: Lock },
-            { id: 'handover', label: 'Handover', icon: FileText }
-        ]
+// Dynamic Nav Groups based on Mode
+const getNavGroups = (mode: 'Clinical' | 'Welfare' | 'Minor') => {
+    const base = [
+        {
+            title: 'Admin',
+            items: [
+                { id: 'incident', label: 'Incident', icon: AlertTriangle },
+                { id: 'patient', label: 'Patient', icon: User },
+            ]
+        }
+    ];
+
+    if (mode === 'Clinical') {
+        return [
+            ...base,
+            {
+                title: 'Clinical',
+                items: [
+                    { id: 'primary', label: 'Primary Survey', icon: Stethoscope },
+                    { id: 'history', label: 'History', icon: FileText },
+                    { id: 'assessment', label: 'Assessment', icon: ClipboardList },
+                    { id: 'vitals', label: 'Vitals', icon: Activity },
+                    { id: 'treatment', label: 'Interventions', icon: Pill },
+                ]
+            },
+            {
+                title: 'Outcome',
+                items: [
+                    { id: 'diagnosis', label: 'Diagnosis & Plan', icon: Signpost },
+                    { id: 'governance', label: 'Governance', icon: Lock },
+                    { id: 'handover', label: 'Handover', icon: FileText }
+                ]
+            }
+        ];
     }
-];
+
+    if (mode === 'Welfare') {
+        return [
+            ...base,
+            {
+                title: 'Welfare',
+                items: [
+                    { id: 'assessment', label: 'Assessment', icon: ClipboardList }, // Simplified assessment
+                    { id: 'treatment', label: 'Welfare Checks', icon: Pill }, // Shows Welfare tab
+                ]
+            },
+            {
+                title: 'Outcome',
+                items: [
+                    { id: 'diagnosis', label: 'Outcome & Plan', icon: Signpost },
+                    { id: 'handover', label: 'Handover', icon: FileText }
+                ]
+            }
+        ];
+    }
+
+    // Minor Injury Mode
+    return [
+        ...base,
+        {
+            title: 'Assessment',
+            items: [
+                { id: 'history', label: 'History', icon: FileText },
+                { id: 'assessment', label: 'Examination', icon: ClipboardList },
+                { id: 'vitals', label: 'Vitals (Basic)', icon: Activity },
+                { id: 'treatment', label: 'Treatments', icon: Pill },
+            ]
+        },
+        {
+            title: 'Outcome',
+            items: [
+                { id: 'diagnosis', label: 'Plan & Discharge', icon: Signpost },
+                { id: 'governance', label: 'Governance', icon: Lock }, // Crucial for refusal/discharge
+                { id: 'handover', label: 'Handover', icon: FileText }
+            ]
+        }
+    ];
+};
 
 const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
     const { activeDraft, setActiveDraft, deleteCurrentDraft } = useEPRF();
     const [activeTab, setActiveTab] = useState('incident');
     const [showShiftModal, setShowShiftModal] = useState(false);
+    const [showExportMenu, setShowExportMenu] = useState(false);
 
     const handleStartNew = () => {
         if (availableShifts.length > 0) {
             setShowShiftModal(true);
         } else {
-            createDraft(null); // Emergency Mode default
+            createDraft(null);
         }
     };
 
@@ -214,6 +267,7 @@ const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
         switch(activeTab) {
             case 'incident': return <IncidentTab />;
             case 'patient': return <PatientTab />;
+            case 'primary': return <PrimarySurveyTab />;
             case 'history': return <HistoryTab />;
             case 'assessment': return <AssessmentTab />;
             case 'vitals': return <VitalsTab />;
@@ -224,6 +278,8 @@ const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
             default: return <IncidentTab />;
         }
     };
+
+    const navGroups = getNavGroups(activeDraft.mode || 'Clinical');
 
     return (
         <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-black">
@@ -236,12 +292,12 @@ const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
                     <h2 className="font-bold text-xl text-slate-800 dark:text-white tracking-tight">{activeDraft.incidentNumber}</h2>
                     <div className="flex items-center gap-2 mt-1">
                         <span className={`w-2 h-2 rounded-full ${activeDraft.status === 'Submitted' ? 'bg-green-500' : 'bg-amber-500'}`}></span>
-                        <p className="text-xs text-slate-500 uppercase font-bold">{activeDraft.status}</p>
+                        <p className="text-xs text-slate-500 uppercase font-bold">{activeDraft.status} • {activeDraft.mode}</p>
                     </div>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                    {NAV_GROUPS.map((group, idx) => (
+                    {navGroups.map((group, idx) => (
                         <div key={idx}>
                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 pl-2">{group.title}</h4>
                             <div className="space-y-1">
@@ -264,8 +320,19 @@ const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
                     ))}
                 </div>
 
-                <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-                    <button onClick={() => generateEPRF_PDF(activeDraft)} className="w-full py-2 bg-slate-800 text-white rounded-lg text-xs font-bold mb-2">Export PDF</button>
+                <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2">
+                    <div className="relative">
+                        <button onClick={() => setShowExportMenu(!showExportMenu)} className="w-full py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2">
+                            <Printer className="w-3 h-3" /> Print / Export
+                        </button>
+                        {showExportMenu && (
+                            <div className="absolute bottom-full left-0 w-full bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 mb-2 overflow-hidden animate-in slide-in-from-bottom-2">
+                                <button onClick={() => { generateEPRF_PDF(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">Full Clinical Record</button>
+                                <button onClick={() => { generateGPReferral(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">GP Referral Letter</button>
+                                <button onClick={() => { generateSafeguardingPDF(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 text-red-600">Safeguarding Form</button>
+                            </div>
+                        )}
+                    </div>
                     <button onClick={handleDelete} className="w-full py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2">
                         <Trash2 className="w-3 h-3" /> Delete Draft
                     </button>
@@ -284,13 +351,13 @@ const EPRFContent = ({ drafts, createDraft, availableShifts }: any) => {
                             </div>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => generateEPRF_PDF(activeDraft)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg"><FileText className="w-4 h-4" /></button>
+                            <button onClick={() => generateEPRF_PDF(activeDraft)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg"><Printer className="w-4 h-4" /></button>
                             <button onClick={handleDelete} className="p-2 text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                         </div>
                     </div>
                     <div className="overflow-x-auto no-scrollbar pb-1">
                         <div className="flex gap-2 min-w-max">
-                            {NAV_GROUPS.flatMap(g => g.items).map(item => (
+                            {navGroups.flatMap(g => g.items).map(item => (
                                 <button
                                     key={item.id}
                                     onClick={() => setActiveTab(item.id)}
@@ -368,7 +435,6 @@ const EPRFPage = () => {
         const newDraft: EPRF = {
             id: Date.now().toString(),
             incidentNumber,
-            // Ensure null not undefined for Firestore compatibility
             shiftId: shiftId || undefined, 
             ...DEFAULT_EPRF,
             accessUids: [user.uid],

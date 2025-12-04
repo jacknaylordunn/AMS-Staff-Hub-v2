@@ -104,9 +104,10 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         const now = new Date();
         const yyyy = now.getFullYear();
         const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
         // Random 4 digit suffix
         const xxxx = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-        return `AMS${yyyy}${mm}${xxxx}`;
+        return `AMS${yyyy}${mm}${dd}${xxxx}`;
     };
 
     const deleteCurrentDraft = async () => {

@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
 import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from './useAuth';
@@ -22,6 +22,9 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [syncStatus, setSyncStatus] = useState<'Synced' | 'Syncing' | 'Offline' | 'Error'>('Synced');
   const [currentEPRF, setCurrentEPRF] = useState<any | null>(null);
   const [pendingChanges, setPendingChanges] = useState(0);
+  
+  // Ref to hold the timeout ID for debouncing writes
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Monitor Online Status
   useEffect(() => {
@@ -47,24 +50,37 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveEPRF = async (data: any) => {
     if (!user) return;
     
-    setSyncStatus(isOnline ? 'Syncing' : 'Offline');
+    // Immediately indicate to UI that we are handling changes
+    setSyncStatus('Syncing');
     
-    try {
-        const draftId = `draft_${user.uid}_${data.id}`;
-        // Ensure undefined values are handled in Context before reaching here,
-        // but as a failsafe, Firestore ignores fields if we use merge properly, 
-        // however specific fields must not be undefined.
-        await setDoc(doc(db, 'eprfs', draftId), {
-            ...data,
-            userId: user.uid,
-            lastSync: new Date().toISOString()
-        }, { merge: true });
-        
-        if (isOnline) setSyncStatus('Synced');
-    } catch (e) {
-        console.error("Save failed", e);
-        setSyncStatus('Error');
+    // Clear any existing pending write to prevent flooding the queue
+    if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
     }
+    
+    // Schedule the write execution
+    saveTimeoutRef.current = setTimeout(async () => {
+        try {
+            const draftId = `draft_${user.uid}_${data.id}`;
+            
+            // Perform the write
+            await setDoc(doc(db, 'eprfs', draftId), {
+                ...data,
+                userId: user.uid,
+                lastSync: new Date().toISOString()
+            }, { merge: true });
+            
+            // Update status based on current network state
+            if (navigator.onLine) {
+                setSyncStatus('Synced');
+            } else {
+                setSyncStatus('Offline');
+            }
+        } catch (e) {
+            console.error("Save failed", e);
+            setSyncStatus('Error');
+        }
+    }, 2000); // 2-second debounce window
   };
 
   const loadEPRF = async (id: string) => {
@@ -82,6 +98,11 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const deleteEPRF = async (id: string) => {
       if (!user) return;
       try {
+          // If we are deleting, ensure no pending saves overwrite the deletion
+          if (saveTimeoutRef.current) {
+              clearTimeout(saveTimeoutRef.current);
+          }
+
           const draftId = `draft_${user.uid}_${id}`;
           await deleteDoc(doc(db, 'eprfs', draftId));
       } catch (e) {

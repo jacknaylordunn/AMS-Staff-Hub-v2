@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import { VitalsEntry } from '../../types';
-import { Plus, Trash2, AlertCircle, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import { Plus, ArrowUp, ArrowDown, Minus, Info } from 'lucide-react';
 import VitalsChart from '../VitalsChart';
 
 const VitalsTab = () => {
@@ -141,6 +141,22 @@ const VitalsTab = () => {
 
     return (
         <div className="space-y-6">
+            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl">
+                <label className="flex items-center gap-3 font-bold text-amber-800 dark:text-amber-200 cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500" 
+                        checked={activeDraft.patient.chronicHypoxia} 
+                        onChange={e => handleNestedUpdate(['patient', 'chronicHypoxia'], e.target.checked)} 
+                    />
+                    Patient has COPD / Chronic Hypoxia (Target SpO2 88-92%)
+                </label>
+                <div className="flex items-center gap-2 mt-2 ml-8 text-xs text-amber-700 dark:text-amber-300">
+                    <Info className="w-3 h-3" />
+                    <span>Adjusts NEWS2 scoring to use SpO2 Scale 2</span>
+                </div>
+            </div>
+
             <VitalsChart data={activeDraft.vitals} />
 
             {/* Comprehensive Table */}

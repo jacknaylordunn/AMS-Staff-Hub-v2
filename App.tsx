@@ -1,8 +1,10 @@
+
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, FileText, Calendar, Truck, AlertTriangle, LogOut,
-  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info, Sparkles
+  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info, Sparkles, FolderOpen
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import EPRFPage from './pages/EPRFPage';
@@ -15,6 +17,7 @@ import StaffPage from './pages/StaffPage';
 import DrugsPage from './pages/DrugsPage';
 import CPDPage from './pages/CPDPage';
 import WellbeingPage from './pages/WellbeingPage';
+import DocumentsPage from './pages/DocumentsPage';
 import OfflineIndicator from './components/OfflineIndicator';
 import MajorIncidentBanner from './components/MajorIncidentBanner';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -26,8 +29,8 @@ import { db } from './services/firebase';
 import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
 import { requestBrowserPermission, sendBrowserNotification } from './services/notificationService';
 
-// Use public asset path
-const logo = '/assets/logo.png';
+// Use hosted company asset path
+const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 // Define Access Groups
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
@@ -195,6 +198,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { path: '/eprf', icon: FileText, label: 'ePRF' },
     { path: '/rota', icon: Calendar, label: 'Rota & Leave' },
     { path: '/assets', icon: Truck, label: 'Fleet & Assets' },
+    { path: '/documents', icon: FolderOpen, label: 'Policies & Docs' }, // Added here
   ];
 
   if (CLINICAL_ROLES.includes(user.role)) {
@@ -246,6 +250,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   src={logo} 
                   alt="Logo" 
                   className="h-8 w-auto object-contain"
+                  onError={(e) => e.currentTarget.style.display = 'none'} 
               />
               {!isSidebarCollapsed && (
                   <div>
@@ -317,7 +322,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <Menu className="w-5 h-5" />
              </button>
              <div className={`${!isEPRF ? 'md:hidden' : ''} flex items-center gap-2`}>
-                 <img src={logo} className="h-6 w-auto" alt="Aegis" />
+                 <img src={logo} className="h-6 w-auto" alt="Aegis" onError={(e) => e.currentTarget.style.display = 'none'} />
                  <span className="font-bold text-slate-800 dark:text-white text-sm">Aegis</span>
              </div>
           </div>
@@ -330,7 +335,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         {/* Content Area */}
         <div className={`flex-1 overflow-auto ${isEPRF ? 'p-0' : 'p-4 md:p-8'} scroll-smooth relative`}>
-           <div className={`${isEPRF ? 'max-w-full' : 'max-w-7xl mx-auto'} w-full pb-20 animate-slide-up`}>
+           <div className={`${isEPRF ? 'max-w-full h-full' : 'max-w-7xl mx-auto w-full pb-20'} animate-slide-up`}>
               {children}
            </div>
         </div>
@@ -353,6 +358,7 @@ const App = () => {
               <Route path="/eprf" element={<ProtectedRoute><Layout><EPRFPage /></Layout></ProtectedRoute>} />
               <Route path="/rota" element={<ProtectedRoute><Layout><RotaPage /></Layout></ProtectedRoute>} />
               <Route path="/assets" element={<ProtectedRoute><Layout><AssetPage /></Layout></ProtectedRoute>} />
+              <Route path="/documents" element={<ProtectedRoute><Layout><DocumentsPage /></Layout></ProtectedRoute>} />
               
               {/* Drugs Page - Restricted to Clinical Roles */}
               <Route path="/drugs" element={

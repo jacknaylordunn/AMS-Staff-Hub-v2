@@ -2,7 +2,7 @@ import { db } from './firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { AppNotification } from '../types';
 
-const logo = '/assets/logo.png';
+const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 export const sendNotification = async (
   recipientId: string, 

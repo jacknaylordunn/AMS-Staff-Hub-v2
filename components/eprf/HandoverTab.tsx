@@ -115,24 +115,26 @@ const HandoverTab = () => {
                     
                     {/* Clinician Signing Section */}
                     <div className="space-y-6">
-                        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 h-64 flex flex-col">
                             <h4 className="font-bold text-sm text-slate-500 uppercase mb-3 flex items-center gap-2">
                                 <PenTool className="w-4 h-4" /> 1. Physical Signature
                             </h4>
-                            {isSubmitted ? (
-                                <div className="h-32 flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <img src={activeDraft.handover.clinicianSignature} alt="Sig" className="max-h-full" />
-                                </div>
-                            ) : (
-                                <SignaturePad 
-                                    label="Draw Signature"
-                                    value={activeDraft.handover.clinicianSignature}
-                                    onSave={val => handleNestedUpdate(['handover', 'clinicianSignature'], val)}
-                                />
-                            )}
+                            <div className="flex-1">
+                                {isSubmitted ? (
+                                    <div className="h-full flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                        <img src={activeDraft.handover.clinicianSignature} alt="Sig" className="max-h-full" />
+                                    </div>
+                                ) : (
+                                    <SignaturePad 
+                                        label=""
+                                        value={activeDraft.handover.clinicianSignature}
+                                        onSave={val => handleNestedUpdate(['handover', 'clinicianSignature'], val)}
+                                    />
+                                )}
+                            </div>
                         </div>
 
-                        <div className={`p-6 rounded-xl border-2 transition-all ${isSubmitted ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-700'}`}>
+                        <div className={`p-6 rounded-xl border-2 transition-all h-64 flex flex-col justify-center ${isSubmitted ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-700'}`}>
                             <h4 className="font-bold text-sm text-slate-500 uppercase mb-3 flex items-center gap-2">
                                 <Lock className="w-4 h-4" /> 2. Digital Submission
                             </h4>
@@ -184,46 +186,24 @@ const HandoverTab = () => {
                         </div>
                     </div>
 
-                    {/* Receiving / Patient Section */}
+                    {/* Receiving Clinician */}
                     <div className="space-y-6">
-                        <div>
-                            <h4 className="font-bold text-sm text-slate-500 uppercase mb-2">Receiving Clinician / Witness</h4>
-                            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-                                <input 
-                                    className="input-field py-2 text-sm" 
-                                    placeholder="Name / PIN of Receiver" 
-                                    value={activeDraft.handover.receivingClinicianName}
-                                    onChange={e => handleNestedUpdate(['handover', 'receivingClinicianName'], e.target.value)}
-                                    disabled={isSubmitted}
-                                />
+                        <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 h-64 flex flex-col">
+                            <h4 className="font-bold text-sm text-slate-500 uppercase mb-3">Receiving Clinician / Witness</h4>
+                            <div className="flex-1">
                                 {isSubmitted && activeDraft.handover.receivingClinicianSignature ? (
-                                    <img src={activeDraft.handover.receivingClinicianSignature} className="h-20 border rounded bg-white" />
+                                    <div className="h-full flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                        <img src={activeDraft.handover.receivingClinicianSignature} className="max-h-full" />
+                                    </div>
                                 ) : (
                                     <SignaturePad 
-                                        label="Receiver Signature"
+                                        label=""
                                         value={activeDraft.handover.receivingClinicianSignature}
                                         onSave={val => handleNestedUpdate(['handover', 'receivingClinicianSignature'], val)}
                                     />
                                 )}
                             </div>
                         </div>
-                        
-                        {!activeDraft.governance.refusal.isRefusal && (
-                            <div>
-                                <h4 className="font-bold text-sm text-slate-500 uppercase mb-2">Patient Signature (Optional)</h4>
-                                <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
-                                    {isSubmitted && activeDraft.handover.patientSignature ? (
-                                        <img src={activeDraft.handover.patientSignature} className="h-20 border rounded bg-white" />
-                                    ) : (
-                                        <SignaturePad 
-                                            label="Patient Signature"
-                                            value={activeDraft.handover.patientSignature}
-                                            onSave={val => handleNestedUpdate(['handover', 'patientSignature'], val)}
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>

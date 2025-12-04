@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import SignaturePad from '../SignaturePad';
-import { ShieldCheck, Info, Users, ShieldAlert, FileText, Sparkles, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { ShieldCheck, Users, ShieldAlert, FileText, Sparkles, Loader2, AlertCircle, CheckCircle, Brain, BookOpen, AlertOctagon } from 'lucide-react';
 import { generateSafeguardingPDF } from '../../utils/pdfGenerator';
 import { analyzeSafeguarding } from '../../services/geminiService';
 
@@ -18,6 +18,7 @@ const GovernanceTab = () => {
     const { activeDraft, handleNestedUpdate } = useEPRF();
     const [analyzing, setAnalyzing] = useState(false);
     const [scanResult, setScanResult] = useState<{detected: boolean, message: string} | null>(null);
+    const [showPrinciples, setShowPrinciples] = useState(false);
     
     if (!activeDraft) return null;
 
@@ -64,10 +65,122 @@ const GovernanceTab = () => {
         setAnalyzing(false);
     };
 
+    // MCA Logic
+    const mca = activeDraft.governance.capacity;
+    const isStage1Complete = mca.stage1?.impairment === true && mca.stage1?.nexus === true;
+    
+    // Auto-calculate capacity status based on functional test if Stage 1 is positive
+    const hasCapacity = isStage1Complete 
+        ? (mca.stage2Functional?.understand && mca.stage2Functional?.retain && mca.stage2Functional?.weigh && mca.stage2Functional?.communicate)
+        : true; // Default assumption
+
+    // Sync computed status to draft if changed
+    const currentComputedStatus = hasCapacity ? 'Capacity Present' : 'Capacity Lacking';
+    if (mca.status !== currentComputedStatus) {
+        handleNestedUpdate(['governance', 'capacity', 'status'], currentComputedStatus);
+    }
+
+    const disposition = activeDraft.clinicalDecision?.finalDisposition || '';
+    const isConveying = disposition.toLowerCase().includes('conveyed') || disposition.toLowerCase().includes('sdec') || disposition === '';
+    // Show signature if explicitly REFUSAL or any non-conveyance outcome (Discharge, Left at Home, GP Referral)
+    const showSignature = activeDraft.governance.refusal.isRefusal || !isConveying;
+
     return (
-        <div className="glass-panel p-6 rounded-2xl space-y-6 animate-in fade-in">
+        <div className="glass-panel p-6 rounded-2xl space-y-8 animate-in fade-in pb-20">
             <h3 className="font-bold text-lg text-slate-800 dark:text-white">Legal & Governance</h3>
             
+            {/* Mental Capacity Act Tool */}
+            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 relative overflow-hidden">
+                <div className="flex justify-between items-start mb-6 relative z-10">
+                    <div>
+                        <h4 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                            <Brain className="w-6 h-6 text-purple-600" /> Mental Capacity Act Assessment
+                        </h4>
+                        <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${mca.status === 'Capacity Lacking' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
+                            {mca.status === 'Capacity Lacking' ? <AlertOctagon className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+                            {mca.status.toUpperCase()}
+                        </div>
+                    </div>
+                    <button onClick={() => setShowPrinciples(!showPrinciples)} className="text-xs font-bold text-slate-500 flex items-center gap-1 hover:text-ams-blue transition-colors">
+                        <BookOpen className="w-4 h-4" /> 5 Principles
+                    </button>
+                </div>
+
+                {showPrinciples && (
+                    <div className="mb-6 p-4 bg-white dark:bg-slate-900 rounded-xl text-xs text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-2">
+                        <ol className="list-decimal pl-4 space-y-1">
+                            <li><strong>Presumption of Capacity:</strong> Assume capacity unless proven otherwise.</li>
+                            <li><strong>Support:</strong> Take all steps to help them decide before concluding they can't.</li>
+                            <li><strong>Unwise Decisions:</strong> An unwise decision does not mean lack of capacity.</li>
+                            <li><strong>Best Interests:</strong> Acts done for those lacking capacity must be in their best interests.</li>
+                            <li><strong>Least Restrictive:</strong> Decisions must be the least restrictive of rights/freedoms.</li>
+                        </ol>
+                    </div>
+                )}
+
+                <div className="space-y-6 relative z-10">
+                    {/* Stage 1 */}
+                    <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <h5 className="font-bold text-sm text-slate-700 dark:text-slate-300 mb-3 uppercase">Stage 1: Diagnostic Test</h5>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                                <label className="text-sm dark:text-white max-w-[70%]">1. Is there an impairment of, or disturbance in the functioning of, the mind or brain?</label>
+                                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                                    <button onClick={() => handleNestedUpdate(['governance', 'capacity', 'stage1', 'impairment'], true)} className={`px-3 py-1 rounded text-xs font-bold ${mca.stage1?.impairment ? 'bg-red-500 text-white' : 'text-slate-500'}`}>Yes</button>
+                                    <button onClick={() => handleNestedUpdate(['governance', 'capacity', 'stage1', 'impairment'], false)} className={`px-3 py-1 rounded text-xs font-bold ${!mca.stage1?.impairment ? 'bg-green-500 text-white' : 'text-slate-500'}`}>No</button>
+                                </div>
+                            </div>
+                            {mca.stage1?.impairment && (
+                                <div className="flex justify-between items-center animate-in fade-in">
+                                    <label className="text-sm dark:text-white max-w-[70%]">2. Is this impairment the specific cause of their inability to make this decision?</label>
+                                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                                        <button onClick={() => handleNestedUpdate(['governance', 'capacity', 'stage1', 'nexus'], true)} className={`px-3 py-1 rounded text-xs font-bold ${mca.stage1?.nexus ? 'bg-red-500 text-white' : 'text-slate-500'}`}>Yes</button>
+                                        <button onClick={() => handleNestedUpdate(['governance', 'capacity', 'stage1', 'nexus'], false)} className={`px-3 py-1 rounded text-xs font-bold ${!mca.stage1?.nexus ? 'bg-green-500 text-white' : 'text-slate-500'}`}>No</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Stage 2 */}
+                    {isStage1Complete && (
+                        <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30 animate-in slide-in-from-top-2">
+                            <h5 className="font-bold text-sm text-red-800 dark:text-red-300 mb-3 uppercase">Stage 2: Functional Test</h5>
+                            <p className="text-xs text-slate-500 mb-3">Does the patient fail to do any ONE of the following?</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {['understand', 'retain', 'weigh', 'communicate'].map(item => (
+                                    <label key={item} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${(mca.stage2Functional as any)?.[item] ? 'bg-green-100 border-green-200' : 'bg-white border-red-200 shadow-sm'}`}>
+                                        <span className="text-sm font-bold capitalize text-slate-800">{item} info?</span>
+                                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold ${(mca.stage2Functional as any)?.[item] ? 'text-green-700' : 'text-red-600'}`}>
+                                            {(mca.stage2Functional as any)?.[item] ? 'YES' : 'NO'}
+                                        </div>
+                                        <input 
+                                            type="checkbox" 
+                                            className="hidden"
+                                            checked={(mca.stage2Functional as any)?.[item]}
+                                            onChange={e => handleNestedUpdate(['governance', 'capacity', 'stage2Functional', item], e.target.checked)}
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+                            
+                            {!hasCapacity && (
+                                <div className="mt-4">
+                                    <label className="input-label text-red-800">Best Interests Rationale</label>
+                                    <textarea 
+                                        className="input-field bg-white" 
+                                        placeholder="Justify actions taken in patient's best interests..."
+                                        rows={2}
+                                        value={activeDraft.governance.capacity.bestInterestsRationale || ''}
+                                        onChange={e => handleNestedUpdate(['governance', 'capacity', 'bestInterestsRationale'], e.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+
             {/* Safeguarding Section */}
             <div className="p-6 bg-red-50 dark:bg-red-900/20 rounded-xl border-l-4 border-l-red-600 border-y border-r border-red-200 dark:border-red-800/50">
                 <div className="flex justify-between items-start mb-4">
@@ -160,81 +273,10 @@ const GovernanceTab = () => {
                 )}
             </div>
 
-            {/* Capacity */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                <h4 className="font-bold text-sm text-slate-700 dark:text-slate-200 mb-3">Mental Capacity Act</h4>
-                <div className="flex gap-4 mb-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input 
-                            type="radio" 
-                            name="capacity"
-                            checked={activeDraft.governance.capacity.status === 'Capacity Present'}
-                            onChange={() => handleNestedUpdate(['governance', 'capacity', 'status'], 'Capacity Present')}
-                            className="text-ams-blue"
-                        />
-                        <span className="text-sm font-medium dark:text-white">Capacity Present</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input 
-                            type="radio" 
-                            name="capacity"
-                            checked={activeDraft.governance.capacity.status === 'Capacity Lacking'}
-                            onChange={() => handleNestedUpdate(['governance', 'capacity', 'status'], 'Capacity Lacking')}
-                            className="text-ams-blue"
-                        />
-                        <span className="text-sm font-medium dark:text-white">Capacity Lacking</span>
-                    </label>
-                </div>
-                
-                {activeDraft.governance.capacity.status === 'Capacity Lacking' && (
-                    <div className="space-y-2 pl-4 border-l-2 border-red-200 animate-in slide-in-from-top-2">
-                        <p className="text-xs font-bold text-slate-500 uppercase">Functional Test (Stage 2)</p>
-                        {['understand', 'retain', 'weigh', 'communicate'].map(item => (
-                            <label key={item} className="flex items-center gap-2 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={(activeDraft.governance.capacity.stage2Functional as any)[item]}
-                                    onChange={e => handleNestedUpdate(['governance', 'capacity', 'stage2Functional', item], e.target.checked)}
-                                    className="text-red-500 rounded"
-                                />
-                                <span className="text-sm capitalize dark:text-slate-300">Can {item} information?</span>
-                            </label>
-                        ))}
-                        <textarea 
-                            className="input-field mt-2" 
-                            placeholder="Rationale for Best Interests decision..."
-                            rows={2}
-                            value={activeDraft.governance.capacity.bestInterestsRationale || ''}
-                            onChange={e => handleNestedUpdate(['governance', 'capacity', 'bestInterestsRationale'], e.target.value)}
-                        />
-                    </div>
-                )}
-            </div>
-
-            {/* Discharge & Safety Netting */}
+            {/* Safety Netting */}
             <div className="space-y-4">
-                <label className="input-label">Final Disposition</label>
-                <select 
-                    className="input-field" 
-                    value={activeDraft.governance.discharge || ''} 
-                    onChange={e => {
-                        handleNestedUpdate(['governance', 'discharge'], e.target.value);
-                        if (e.target.value === 'Refusal of Care') {
-                            handleNestedUpdate(['governance', 'refusal', 'isRefusal'], true);
-                        } else {
-                            handleNestedUpdate(['governance', 'refusal', 'isRefusal'], false);
-                        }
-                    }}
-                >
-                    <option value="">-- Select Outcome --</option>
-                    <option>Conveyed to ED</option>
-                    <option>Referred to GP/OOH</option>
-                    <option>Discharged on Scene</option>
-                    <option>Refusal of Care</option>
-                </select>
-
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
-                    <h4 className="font-bold text-sm text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Safety Netting Library</h4>
+                    <h4 className="font-bold text-sm text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Safety Netting Advice</h4>
                     <div className="flex flex-wrap gap-2 mb-3">
                         {SAFETY_NETS.map(sn => (
                             <button 
@@ -256,25 +298,39 @@ const GovernanceTab = () => {
                     />
                 </div>
                 
-                {activeDraft.governance.refusal.isRefusal && (
+                {/* Signature Section - Shows for Refusal OR Non-Conveyance */}
+                {showSignature && (
                     <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl space-y-6 animate-in fade-in">
-                        <div>
-                            <h4 className="font-bold text-red-800 dark:text-red-300 flex items-center gap-2 mb-3">Refusal Checklist</h4>
-                            <div className="space-y-2">
-                                <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
-                                    <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.risksExplained} onChange={e => handleNestedUpdate(['governance', 'refusal', 'risksExplained'], e.target.checked)} />
-                                    Risks of refusal explained fully
-                                </label>
-                                <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
-                                    <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.capacityConfirmed} onChange={e => handleNestedUpdate(['governance', 'refusal', 'capacityConfirmed'], e.target.checked)} />
-                                    Capacity to refuse confirmed
-                                </label>
-                                <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
-                                    <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.alternativesOffered} onChange={e => handleNestedUpdate(['governance', 'refusal', 'alternativesOffered'], e.target.checked)} />
-                                    Alternative care options offered
-                                </label>
+                        <div className="flex items-center gap-3">
+                            <ShieldAlert className="w-6 h-6 text-red-600" />
+                            <div>
+                                <h4 className="font-bold text-red-800 dark:text-red-200">
+                                    {activeDraft.governance.refusal.isRefusal ? 'Refusal of Care' : 'Discharge / Non-Conveyance'}
+                                </h4>
+                                <p className="text-xs text-red-700 dark:text-red-300">
+                                    Signatures are required for all patients not conveyed to hospital to confirm advice/refusal.
+                                </p>
                             </div>
                         </div>
+
+                        {activeDraft.governance.refusal.isRefusal && (
+                            <div>
+                                <div className="space-y-2 mb-4">
+                                    <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
+                                        <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.risksExplained} onChange={e => handleNestedUpdate(['governance', 'refusal', 'risksExplained'], e.target.checked)} />
+                                        Risks of refusal explained fully
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
+                                        <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.capacityConfirmed} onChange={e => handleNestedUpdate(['governance', 'refusal', 'capacityConfirmed'], e.target.checked)} />
+                                        Capacity to refuse confirmed
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm text-red-900 dark:text-red-100 font-medium cursor-pointer">
+                                        <input type="checkbox" className="text-red-600 rounded w-5 h-5" checked={activeDraft.governance.refusal.alternativesOffered} onChange={e => handleNestedUpdate(['governance', 'refusal', 'alternativesOffered'], e.target.checked)} />
+                                        Alternative care options offered
+                                    </label>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>

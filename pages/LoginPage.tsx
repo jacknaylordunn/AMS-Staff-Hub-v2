@@ -4,7 +4,8 @@ import { useAuth } from '../hooks/useAuth';
 import { LogIn, Hash, Mail, Loader2, ArrowRight, UserPlus, Shield, Check, X } from 'lucide-react';
 import { Role } from '../types';
 
-const logo = '/assets/logo.png';
+// Use hosted company asset path
+const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 const LoginPage = () => {
   const [mode, setMode] = useState<'Login' | 'Register'>('Login');
@@ -89,6 +90,7 @@ const LoginPage = () => {
                 src={logo} 
                 alt="Aegis Logo" 
                 className="h-20 w-auto object-contain mb-4 drop-shadow-md"
+                onError={(e) => e.currentTarget.style.display = 'none'}
             />
             <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">Aegis Staff Hub</h1>
         </div>
@@ -185,36 +187,31 @@ const LoginPage = () => {
                         <input 
                             type="text" 
                             inputMode="numeric" 
-                            value={badgeNumber} 
-                            onChange={e => setBadgeNumber(e.target.value)} 
-                            className="w-full pl-16 pr-4 py-3 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono tracking-widest text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-ams-blue/50 focus:border-ams-blue transition-all" 
+                            value={badgeNumber}
+                            onChange={e => setBadgeNumber(e.target.value)}
+                            className="w-full pl-16 pr-4 py-3 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-ams-blue/50 focus:border-ams-blue transition-all font-mono" 
                             placeholder="12345678" 
-                            required 
                         />
                     </div>
                 </div>
             )}
-            
+
             <div className="space-y-2">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Password</label>
-                <div className="relative">
-                    <LogIn className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
-                    <input 
-                        type="password" 
-                        value={password} 
-                        onChange={e => setPassword(e.target.value)} 
-                        className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-ams-blue/50 focus:border-ams-blue transition-all" 
-                        placeholder="••••••••" 
-                        required 
-                    />
-                </div>
+                <input 
+                    type="password" 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-ams-blue/50 focus:border-ams-blue transition-all" 
+                    placeholder="••••••••" 
+                    required 
+                />
                 
-                {/* Password Requirements Checklist (Register Only) */}
                 {mode === 'Register' && (
                     <div className="grid grid-cols-2 gap-2 mt-2 px-1">
-                        {passwordRequirements.map((req) => (
-                            <div key={req.id} className={`flex items-center gap-1.5 text-[10px] font-bold transition-colors ${req.valid ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}`}>
-                                {req.valid ? <Check className="w-3 h-3" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 ml-1 mr-0.5" />}
+                        {passwordRequirements.map(req => (
+                            <div key={req.id} className={`text-[10px] font-bold flex items-center gap-1.5 ${req.valid ? 'text-green-500' : 'text-slate-400'}`}>
+                                {req.valid ? <Check className="w-3 h-3" /> : <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>}
                                 {req.label}
                             </div>
                         ))}
@@ -223,36 +220,35 @@ const LoginPage = () => {
             </div>
 
             <button 
-                disabled={isSubmitting || (mode === 'Register' && !allRequirementsMet)} 
-                className="w-full py-3.5 bg-gradient-to-r from-ams-blue to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 transition-all transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-4"
+                type="submit" 
+                disabled={isSubmitting}
+                className="w-full py-4 bg-ams-blue hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed mt-4"
             >
-                {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : (
-                    mode === 'Login' ? <>Sign In <ArrowRight className="w-4 h-4" /></> : <>Register for Access <UserPlus className="w-4 h-4" /></>
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                    <>
+                        {mode === 'Login' ? 'Sign In' : 'Create Account'} <ArrowRight className="w-4 h-4" />
+                    </>
                 )}
             </button>
         </form>
-        
-        <div className="mt-6 text-center">
-            {mode === 'Login' ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                    New staff member?{' '}
-                    <button onClick={() => setMode('Register')} className="text-ams-blue font-bold hover:underline">
-                        Register for access
-                    </button>
-                </p>
-            ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Already registered?{' '}
-                    <button onClick={() => setMode('Login')} className="text-ams-blue font-bold hover:underline">
-                        Back to Login
-                    </button>
-                </p>
-            )}
-        </div>
 
-        <p className="text-center text-[10px] text-slate-400 mt-8 border-t border-slate-100 dark:border-slate-800 pt-4">
-            &copy; 2025 Aegis Medical Solutions. <br/>Unauthorized access is prohibited.
-        </p>
+        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-white/5 text-center">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                {mode === 'Login' ? "New staff member?" : "Already have an account?"}
+                <button 
+                    onClick={() => {
+                        setMode(mode === 'Login' ? 'Register' : 'Login');
+                        setError('');
+                    }}
+                    className="text-ams-blue font-bold hover:underline ml-1"
+                >
+                    {mode === 'Login' ? "Register for access" : "Sign in here"}
+                </button>
+            </p>
+            <div className="text-[10px] text-slate-400 mt-4 leading-tight">
+                © 2025 Aegis Medical Solutions.<br/>Unauthorized access is prohibited.
+            </div>
+        </div>
       </div>
     </div>
   );

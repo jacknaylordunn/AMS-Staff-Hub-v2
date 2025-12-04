@@ -3,15 +3,15 @@ import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import NeuroAssessment from '../NeuroAssessment';
 import CranialNerveAssessment from '../CranialNerveAssessment';
-import TraumaTriage from '../TraumaTriage';
 import ClinicalFrailtyScale from '../ClinicalFrailtyScale';
-import { Stethoscope, Brain, Heart, Wind, Coffee, Baby, Bone, Smile, Activity, AlertTriangle, UserCheck, Biohazard, Plus, Trash2, ShieldAlert, FileText, PersonStanding } from 'lucide-react';
+import { Brain, Heart, Wind, Coffee, Baby, Bone, Smile, Activity, AlertTriangle, ShieldAlert, FileText, PersonStanding, Plus, Trash2 } from 'lucide-react';
 import BodyMap from '../BodyMap';
 import { WoundAssessment } from '../../types';
+import SpeechTextArea from '../SpeechTextArea';
 
 const AssessmentTab = () => {
     const { activeDraft, handleNestedUpdate } = useEPRF();
-    const [activeSubTab, setActiveSubTab] = useState('general');
+    const [activeSubTab, setActiveSubTab] = useState('narrative');
     
     // Local state for Wound Form
     const [newWound, setNewWound] = useState<Partial<WoundAssessment>>({ classification: 'Laceration', contamination: 'Clean', tetanusStatus: 'Up to date' });
@@ -26,13 +26,12 @@ const AssessmentTab = () => {
     // Dynamic Tab Logic
     const getTabs = () => {
         const base = [
-            { id: 'general', label: 'Primary Survey', icon: Stethoscope },
+            { id: 'narrative', label: 'Examination Narrative', icon: FileText },
         ];
         
         if (mode === 'Clinical') {
             return [
                 ...base,
-                { id: 'sepsis', label: 'Sepsis', icon: Biohazard },
                 { id: 'nervous', label: 'Nervous', icon: Brain },
                 { id: 'cardiac', label: 'Cardiac', icon: Heart },
                 { id: 'resp', label: 'Respiratory', icon: Wind },
@@ -46,13 +45,13 @@ const AssessmentTab = () => {
             return [
                 ...base,
                 { id: 'msk', label: 'MSK / Wounds', icon: Bone },
-                { id: 'sepsis', label: 'Sepsis', icon: Biohazard }, // Sepsis always relevant
+                { id: 'nervous', label: 'Neuro (Basic)', icon: Brain },
             ];
         } else if (mode === 'Welfare') {
             return [
                 ...base,
-                { id: 'mental', label: 'Mental', icon: Smile },
-                { id: 'frailty', label: 'Frailty/Social', icon: PersonStanding },
+                { id: 'mental', label: 'Mental / Intox', icon: Smile },
+                { id: 'frailty', label: 'Vulnerability', icon: PersonStanding },
                 { id: 'msk', label: 'Injuries', icon: Bone },
             ];
         }
@@ -61,34 +60,20 @@ const AssessmentTab = () => {
 
     const tabs = getTabs();
 
-    const applyTemplate = () => {
-        const tpl = `ON EXAMINATION:\nGeneral appearance: \nHead/Neck: \nChest: \nAbdomen: \nPelvis/Limbs: \nNeuro: `;
-        update(['clinicalNarrative'], tpl);
-    };
-
-    // Sepsis Helpers
-    const latestNews2 = activeDraft.vitals.length > 0 ? activeDraft.vitals[activeDraft.vitals.length - 1].news2Score : 0;
-    
-    const updateSepsis = (field: 'suspectedSource' | 'redFlags' | 'riskFactors', value: string) => {
-        const currentList = assessment.sepsis?.[field] || [];
-        const newList = currentList.includes(value) ? currentList.filter(i => i !== value) : [...currentList, value];
-        
-        // Auto Outcome Logic
-        const hasSource = field === 'suspectedSource' ? newList.length > 0 : (assessment.sepsis?.suspectedSource?.length || 0) > 0;
-        const hasRed = field === 'redFlags' ? newList.length > 0 : (assessment.sepsis?.redFlags?.length || 0) > 0;
-        
-        let outcome = 'Clear';
-        if (hasSource) {
-            if (hasRed) outcome = 'Red Flag Sepsis';
-            else outcome = 'Likely Sepsis'; 
+    const applyTemplate = (type: string) => {
+        let tpl = '';
+        if (type === 'Medical') {
+            tpl = `ON EXAMINATION:\nGen: Alert, comfortable at rest. No obvious distress.\nResp: AE equal & good bilaterally. No added sounds.\nCVS: HS I+II. No oedema.\nAbdo: Soft, non-tender. No masses.\nNeuro: GCS 15. FAST neg. PEARL. Moving all 4 limbs.`;
+        } else if (type === 'Trauma') {
+            tpl = `ON EXAMINATION:\nGen: Pain management required. \nHead/Neck: No bruising/deformity. C-Spine cleared clinically.\nChest: No bruising/deformity. AE equal.\nAbdo/Pelvis: Soft. Pelvis stable.\nLimbs: \nNeuro: GCS 15. Motor/Sensory intact distally.`;
+        } else if (type === 'Mental') {
+            tpl = `MENTAL STATE EXAM:\nAppearance: Well kempt.\nBehaviour: Calm and cooperative.\nSpeech: Normal rate/tone.\nMood: Euthymic.\nRisk: Denies SI/HI.`;
+        } else if (type === 'Paeds') {
+            tpl = `PAEDIATRIC ASSESS:\nAppearance: Alert, playing/interacting. Normal tone.\nBreathing: Normal WOB. No recession.\nCirculation: Warm/Pink. CRT < 2s.\nHydration: Moist mucous membranes.`;
         }
-
-        handleNestedUpdate(['assessment', 'sepsis'], {
-            ...assessment.sepsis,
-            [field]: newList,
-            outcome,
-            screeningTrigger: latestNews2 >= 3
-        });
+        
+        const current = assessment.clinicalNarrative || '';
+        update(['clinicalNarrative'], current ? current + '\n\n' + tpl : tpl);
     };
 
     // Wound Helpers
@@ -115,104 +100,22 @@ const AssessmentTab = () => {
 
     const renderContent = () => {
         switch(activeSubTab) {
-            case 'general':
+            case 'narrative':
                 return (
                     <div className="space-y-6 animate-in fade-in">
-                        <div className="glass-panel p-6 rounded-xl">
-                            <h3 className="font-bold mb-4 text-slate-800 dark:text-white flex items-center gap-2"><Stethoscope className="w-5 h-5 text-ams-blue" /> Primary Survey (&lt;C&gt;ABCDE)</h3>
-                            
-                            {/* <C> */}
-                            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
-                                <label className="flex items-center gap-3 font-bold text-red-800 dark:text-red-200 cursor-pointer">
-                                    <input 
-                                        type="checkbox" 
-                                        className="w-5 h-5 text-red-600 rounded" 
-                                        checked={assessment.primary.catastrophicHaemorrhage}
-                                        onChange={e => update(['primary', 'catastrophicHaemorrhage'], e.target.checked)}
-                                    />
-                                    Catastrophic Haemorrhage Present (Manage Immediately)
-                                </label>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* A - Airway */}
-                                <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm border-b pb-1">Airway</h4>
-                                    <select className="input-field text-sm py-1" value={assessment.primary.airway.patency} onChange={e => update(['primary', 'airway', 'patency'], e.target.value)}>
-                                        <option value="">Status...</option><option>Patent</option><option>Partial Obstruction</option><option>Complete Obstruction</option><option>Maintained (Adjuncts)</option>
-                                    </select>
-                                    <input className="input-field text-sm py-1" placeholder="Notes e.g. Stridor, Snores" value={assessment.primary.airway.notes} onChange={e => update(['primary', 'airway', 'notes'], e.target.value)} />
-                                </div>
-
-                                {/* B - Breathing */}
-                                <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm border-b pb-1">Breathing</h4>
-                                    <select className="input-field text-sm py-1" value={assessment.primary.breathing.effort} onChange={e => update(['primary', 'breathing', 'effort'], e.target.value)}>
-                                        <option value="">Effort...</option><option>Normal</option><option>Increased (WOB)</option><option>Shallow</option><option>Agonal</option><option>Apnoeic</option>
-                                    </select>
-                                    <select className="input-field text-sm py-1" value={assessment.primary.breathing.chestExpansion} onChange={e => update(['primary', 'breathing', 'chestExpansion'], e.target.value)}>
-                                        <option value="">Expansion...</option><option>Equal</option><option>Unequal</option><option>Paradoxical</option>
-                                    </select>
-                                    <input className="input-field text-sm py-1" placeholder="Sounds e.g. Wheeze" value={assessment.primary.breathing.soundsL} onChange={e => update(['primary', 'breathing', 'soundsL'], e.target.value)} />
-                                </div>
-
-                                {/* C - Circulation */}
-                                <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm border-b pb-1">Circulation</h4>
-                                    <select className="input-field text-sm py-1" value={assessment.primary.circulation.radialPulse} onChange={e => update(['primary', 'circulation', 'radialPulse'], e.target.value)}>
-                                        <option value="">Pulse...</option><option>Present (Strong)</option><option>Present (Weak/Thready)</option><option>Absent</option>
-                                    </select>
-                                    <div className="flex gap-2">
-                                        <input className="input-field text-sm py-1" placeholder="CRT" value={assessment.primary.circulation.capRefill} onChange={e => update(['primary', 'circulation', 'capRefill'], e.target.value)} />
-                                        <input className="input-field text-sm py-1" placeholder="Skin" value={assessment.primary.circulation.skin} onChange={e => update(['primary', 'circulation', 'skin'], e.target.value)} />
-                                    </div>
-                                </div>
-
-                                {/* D - Disability */}
-                                <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm border-b pb-1">Disability</h4>
-                                    <div className="flex gap-2">
-                                        <select className="input-field text-sm py-1" value={assessment.primary.disability.avpu} onChange={e => update(['primary', 'disability', 'avpu'], e.target.value)}>
-                                            <option value="">AVPU...</option><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option>
-                                        </select>
-                                        <input className="input-field text-sm py-1" placeholder="GCS" value={assessment.primary.disability.gcs} onChange={e => update(['primary', 'disability', 'gcs'], e.target.value)} />
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <input className="input-field text-sm py-1" placeholder="Pupils" value={assessment.primary.disability.pupils} onChange={e => update(['primary', 'disability', 'pupils'], e.target.value)} />
-                                        <input className="input-field text-sm py-1" placeholder="BM" value={assessment.primary.disability.bloodGlucose} onChange={e => update(['primary', 'disability', 'bloodGlucose'], e.target.value)} />
-                                    </div>
-                                </div>
-
-                                {/* E - Exposure */}
-                                <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm border-b pb-1">Exposure</h4>
-                                    <div className="flex flex-col gap-2">
-                                        <label className="flex items-center gap-2 text-xs font-bold cursor-pointer dark:text-white">
-                                            <input type="checkbox" checked={assessment.primary.exposure.injuriesFound} onChange={e => update(['primary', 'exposure', 'injuriesFound'], e.target.checked)} className="w-4 h-4 rounded text-ams-blue" />
-                                            Obvious Injuries
-                                        </label>
-                                        <label className="flex items-center gap-2 text-xs font-bold cursor-pointer dark:text-white">
-                                            <input type="checkbox" checked={assessment.primary.exposure.rash} onChange={e => update(['primary', 'exposure', 'rash'], e.target.checked)} className="w-4 h-4 rounded text-ams-blue" />
-                                            Rash / Skin Changes
-                                        </label>
-                                        <input className="input-field text-sm py-1" placeholder="Temperature" value={assessment.primary.exposure.temp} onChange={e => update(['primary', 'exposure', 'temp'], e.target.value)} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <div className="glass-panel p-6 rounded-xl relative">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-slate-800 dark:text-white">Examination Narrative</h3>
-                                <button 
-                                    onClick={applyTemplate}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-200 transition-all border border-slate-200 dark:border-slate-600"
-                                >
-                                    <FileText className="w-3 h-3" /> Standard Entry
-                                </button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => applyTemplate('Medical')} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-xs font-bold rounded hover:bg-slate-200">Medical</button>
+                                    <button onClick={() => applyTemplate('Trauma')} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-xs font-bold rounded hover:bg-slate-200">Trauma</button>
+                                    <button onClick={() => applyTemplate('Mental')} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-xs font-bold rounded hover:bg-slate-200">MH</button>
+                                    <button onClick={() => applyTemplate('Paeds')} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-xs font-bold rounded hover:bg-slate-200">Paeds</button>
+                                </div>
                             </div>
-                            <textarea 
-                                className="input-field w-full h-64 resize-none font-mono text-sm leading-relaxed" 
+                            <SpeechTextArea 
+                                label="Detailed Findings"
+                                className="input-field w-full h-96 resize-none font-mono text-sm leading-relaxed" 
                                 placeholder="Type detailed physical examination findings here..." 
                                 value={assessment.clinicalNarrative || ''}
                                 onChange={e => update(['clinicalNarrative'], e.target.value)}
@@ -236,8 +139,6 @@ const AssessmentTab = () => {
                                 ))}
                             </div>
                         </div>
-
-                        {mode === 'Clinical' && <TraumaTriage value={assessment.traumaTriage} onChange={val => update(['traumaTriage'], val)} />}
                     </div>
                 );
             case 'frailty':
@@ -275,72 +176,15 @@ const AssessmentTab = () => {
                         </div>
                     </div>
                 );
-            case 'sepsis':
-                return (
-                    <div className="space-y-6 animate-in fade-in">
-                        <div className="glass-panel p-6 rounded-xl border-l-4 border-l-red-500">
-                            <div className="flex justify-between items-start mb-6">
-                                <div>
-                                    <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Biohazard className="w-6 h-6 text-red-600" /> Sepsis Screening Tool</h3>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">UK Ambulance Services Protocol (JRCALC)</p>
-                                </div>
-                                <div className={`px-4 py-2 rounded-xl font-bold text-sm ${assessment.sepsis?.outcome === 'Red Flag Sepsis' ? 'bg-red-600 text-white animate-pulse' : assessment.sepsis?.outcome === 'Likely Sepsis' ? 'bg-amber-500 text-white' : 'bg-green-100 text-green-700'}`}>
-                                    {assessment.sepsis?.outcome || 'Monitor'}
-                                </div>
-                            </div>
-
-                            {latestNews2 >= 3 && (
-                                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg text-sm font-bold flex items-center gap-2">
-                                    <AlertTriangle className="w-4 h-4" /> Triggered: NEWS2 Score {latestNews2}
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Sources */}
-                                <div>
-                                    <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm uppercase mb-3">1. Suspected Source</h4>
-                                    <div className="space-y-2">
-                                        {['Respiratory', 'Urine (UTI)', 'Skin / Soft Tissue', 'Neurological', 'Abdominal', 'Indwelling Device', 'Surgical Wound', 'Other'].map(src => (
-                                            <label key={src} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg cursor-pointer">
-                                                <input type="checkbox" className="w-5 h-5 rounded text-blue-600" checked={assessment.sepsis?.suspectedSource?.includes(src)} onChange={() => updateSepsis('suspectedSource', src)} />
-                                                <span className="text-sm dark:text-white">{src}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Red Flags */}
-                                <div>
-                                    <h4 className="font-bold text-red-700 dark:text-red-400 text-sm uppercase mb-3">2. Red Flags</h4>
-                                    <div className="space-y-2">
-                                        {[
-                                            'Systolic BP < 90 mmHg', 
-                                            'Lactate > 2 mmol/L', 
-                                            'Heart Rate > 130', 
-                                            'Resp Rate > 25', 
-                                            'O2 Sats < 91% (Air)', 
-                                            'GCS < 15 / New Confusion', 
-                                            'Non-blanching Rash', 
-                                            'Not passed urine > 18h'
-                                        ].map(flag => (
-                                            <label key={flag} className="flex items-center gap-2 p-2 bg-red-50/50 dark:bg-red-900/10 rounded-lg cursor-pointer border border-transparent hover:border-red-200">
-                                                <input type="checkbox" className="w-5 h-5 rounded text-red-600" checked={assessment.sepsis?.redFlags?.includes(flag)} onChange={() => updateSepsis('redFlags', flag)} />
-                                                <span className="text-sm dark:text-white font-medium">{flag}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                );
             case 'nervous':
                 return (
                     <div className="space-y-6">
                         <NeuroAssessment data={assessment.neuro} onChange={val => update(['neuro'], val)} />
-                        <div className="glass-panel p-6 rounded-xl">
-                            <CranialNerveAssessment data={assessment.neuro.cranialNerves || []} onChange={val => update(['neuro', 'cranialNerves'], val)} />
-                        </div>
+                        {mode === 'Clinical' && (
+                            <div className="glass-panel p-6 rounded-xl">
+                                <CranialNerveAssessment data={assessment.neuro.cranialNerves || []} onChange={val => update(['neuro', 'cranialNerves'], val)} />
+                            </div>
+                        )}
                     </div>
                 );
             case 'cardiac':
