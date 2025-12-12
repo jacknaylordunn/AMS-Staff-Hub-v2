@@ -32,6 +32,12 @@ export interface AppNotification {
   link?: string;
 }
 
+export interface UserStats {
+  totalHours: number;
+  completedShifts: number;
+  lastShiftDate?: string;
+}
+
 export interface User {
   uid: string;
   email: string;
@@ -40,13 +46,16 @@ export interface User {
   status: 'Active' | 'Pending' | 'Suspended' | 'Rejected';
   employeeId?: string;
   regNumber?: string;
-  pin?: string;
+  pin?: string | null;
+  pinHash?: string;
+  pinLastUpdated?: string;
   phone?: string;
   address?: string;
   compliance: ComplianceDoc[];
   roleChangeRequest?: RoleChangeRequest;
   approvedAt?: string;
   approvedBy?: string;
+  stats?: UserStats;
 }
 
 export interface ComplianceDoc {

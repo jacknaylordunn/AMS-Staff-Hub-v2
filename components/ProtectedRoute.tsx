@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react';
 import { Role } from '../types';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   allowedRoles?: Role[];
 }
 

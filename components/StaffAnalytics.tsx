@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { BarChart, Clock, Users, Award, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
-import { Role, Shift, TimeRecord, User, ComplianceDoc } from '../types';
+import { Role, User, ComplianceDoc } from '../types';
 import { db } from '../services/firebase';
-import { collection, getDocs, query, limit, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 
 const AnalyticsCard = ({ icon: Icon, label, value, trend, color }: any) => (
-  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+  <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
     <div className="flex justify-between items-start">
       <div>
-        <p className="text-sm font-medium text-slate-500">{label}</p>
-        <h3 className="text-2xl font-bold text-slate-800 mt-1">{value}</h3>
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
+        <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{value}</h3>
       </div>
       <div className={`p-3 rounded-lg ${color}`}>
         <Icon className="w-5 h-5 text-white" />
@@ -26,15 +26,8 @@ const AnalyticsCard = ({ icon: Icon, label, value, trend, color }: any) => (
   </div>
 );
 
-interface StaffStat {
-    name: string;
-    role: Role;
-    hours: number;
-    shifts: number;
-}
-
 const StaffAnalytics = () => {
-  const [stats, setStats] = useState<StaffStat[]>([]);
+  const [staffList, setStaffList] = useState<User[]>([]);
   const [totalHours, setTotalHours] = useState(0);
   const [activeStaffCount, setActiveStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -43,16 +36,22 @@ const StaffAnalytics = () => {
   useEffect(() => {
       const calculateStats = async () => {
           try {
-              // 1. Get Users
-              const usersSnap = await getDocs(collection(db, 'users'));
+              // Efficiently fetch active users
+              const usersQ = query(collection(db, 'users'), where('status', '==', 'Active'));
+              const usersSnap = await getDocs(usersQ);
               const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User));
-              setActiveStaffCount(users.filter((u) => u.status === 'Active').length);
+              
+              setActiveStaffCount(users.length);
+              setStaffList(users.sort((a,b) => (b.stats?.totalHours || 0) - (a.stats?.totalHours || 0)));
 
-              // Calculate Compliance Risks
+              // Calculate Totals using aggregated stats
+              const grandTotalHours = users.reduce((acc, curr) => acc + (curr.stats?.totalHours || 0), 0);
+              setTotalHours(Math.round(grandTotalHours));
+
+              // Compliance Risk Scan
               const risks: {name: string, docName: string, days: number}[] = [];
               const now = new Date();
               users.forEach(u => {
-                  if (u.status !== 'Active') return;
                   u.compliance?.forEach(doc => {
                       if (doc.expiryDate) {
                           const exp = new Date(doc.expiryDate);
@@ -66,46 +65,6 @@ const StaffAnalytics = () => {
               });
               setExpiringDocs(risks.sort((a,b) => a.days - b.days));
 
-              // 2. Get Shifts (Optimized: Last 500 shifts only)
-              const shiftsQ = query(
-                  collection(db, 'shifts'),
-                  orderBy('start', 'desc'),
-                  limit(500)
-              );
-              
-              const shiftsSnap = await getDocs(shiftsQ);
-              const shifts = shiftsSnap.docs.map(d => d.data() as Shift);
-
-              const userStats: Record<string, StaffStat> = {};
-
-              // Initialize map
-              users.forEach((u: any) => {
-                  if (u.status === 'Active') {
-                      userStats[u.uid] = { name: u.name, role: u.role, hours: 0, shifts: 0 };
-                  }
-              });
-
-              let globalHours = 0;
-
-              shifts.forEach(shift => {
-                  // Check timeRecords for verified hours
-                  if (shift.timeRecords) {
-                      Object.entries(shift.timeRecords).forEach(([uid, r]) => {
-                          const record = r as TimeRecord;
-                          if (record.clockInTime && record.clockOutTime && userStats[uid]) {
-                              const start = new Date(record.clockInTime).getTime();
-                              const end = new Date(record.clockOutTime).getTime();
-                              const hours = (end - start) / (1000 * 60 * 60);
-                              userStats[uid].hours += hours;
-                              userStats[uid].shifts += 1;
-                              globalHours += hours;
-                          }
-                      });
-                  }
-              });
-
-              setStats(Object.values(userStats).sort((a, b) => b.hours - a.hours));
-              setTotalHours(Math.round(globalHours));
           } catch (e) {
               console.error("Analytics error", e);
           } finally {
@@ -118,10 +77,10 @@ const StaffAnalytics = () => {
 
   if (loading) return <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-ams-blue" /></div>;
 
-  const maxHours = Math.max(...stats.map(s => s.hours)) || 1;
+  const maxHours = staffList[0]?.stats?.totalHours || 1;
 
   // Role Distribution Calc
-  const roleDist = stats.reduce((acc, curr) => {
+  const roleDist = staffList.reduce((acc, curr) => {
       acc[curr.role] = (acc[curr.role] || 0) + 1;
       return acc;
   }, {} as Record<string, number>);
@@ -155,38 +114,41 @@ const StaffAnalytics = () => {
         <AnalyticsCard 
           icon={Award} 
           label="Avg Shifts / User" 
-          value={activeStaffCount > 0 ? Math.round(stats.reduce((a,c) => a+c.shifts, 0) / activeStaffCount) : 0} 
+          value={activeStaffCount > 0 ? Math.round(staffList.reduce((a,c) => a+(c.stats?.completedShifts||0), 0) / activeStaffCount) : 0} 
           color="bg-green-500" 
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Hours Chart */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="font-bold text-slate-800 mb-6">Top Clinical Hours</h3>
+        {/* Hours Leaderboard */}
+        <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <h3 className="font-bold text-slate-800 dark:text-white mb-6">Top Clinical Hours</h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-            {stats.slice(0, 10).map((staff, idx) => (
-              <div key={idx} className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="font-bold text-slate-700">{staff.name} <span className="text-slate-400 font-normal">({staff.role})</span></span>
-                  <span className="font-bold text-slate-600">{staff.hours.toFixed(1)} hrs</span>
+            {staffList.slice(0, 10).map((staff, idx) => {
+              const hrs = staff.stats?.totalHours || 0;
+              return (
+                <div key={idx} className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{staff.name} <span className="text-slate-400 font-normal">({staff.role})</span></span>
+                    <span className="font-bold text-slate-600 dark:text-slate-400">{hrs.toFixed(1)} hrs</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                    <div 
+                      className="bg-ams-blue h-2.5 rounded-full" 
+                      style={{ width: `${(hrs / maxHours) * 100}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                  <div 
-                    className="bg-ams-blue h-2.5 rounded-full" 
-                    style={{ width: `${(staff.hours / maxHours) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         {/* Compliance Risk & Role Distribution */}
         <div className="space-y-6">
             {/* Compliance Warning */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="font-bold text-red-700 mb-4 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                <h3 className="font-bold text-red-700 dark:text-red-400 mb-4 flex items-center gap-2">
                     <AlertCircle className="w-5 h-5" /> Compliance Risk
                 </h3>
                 <div className="space-y-3 max-h-[200px] overflow-y-auto">
@@ -194,12 +156,12 @@ const StaffAnalytics = () => {
                         <p className="text-sm text-slate-400 italic">No expiry warnings.</p>
                     ) : (
                         expiringDocs.map((item, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-red-50 rounded-lg">
+                            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-red-50 dark:bg-red-900/10 rounded-lg">
                                 <div>
-                                    <div className="font-bold text-slate-800">{item.name}</div>
+                                    <div className="font-bold text-slate-800 dark:text-slate-200">{item.name}</div>
                                     <div className="text-xs text-slate-500">{item.docName}</div>
                                 </div>
-                                <span className={`text-xs font-bold px-2 py-1 rounded ${item.days < 0 ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'}`}>
+                                <span className={`text-xs font-bold px-2 py-1 rounded ${item.days < 0 ? 'bg-red-200 text-red-800 dark:bg-red-900/30 dark:text-red-300' : 'bg-amber-200 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
                                     {item.days < 0 ? 'EXPIRED' : `${item.days} days`}
                                 </span>
                             </div>
@@ -209,18 +171,18 @@ const StaffAnalytics = () => {
             </div>
 
             {/* Role Distribution */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-6">Role Distribution</h3>
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <h3 className="font-bold text-slate-800 dark:text-white mb-6">Role Distribution</h3>
             <div className="space-y-4">
                 {Object.entries(roleDist).map(([role, count], idx) => (
                     <div key={idx} className="flex items-center gap-3">
                         <div className={`w-3 h-3 rounded-full ${roleColors[role] || 'bg-slate-400'}`}></div>
                         <div className="flex-1">
                         <div className="flex justify-between text-sm mb-1">
-                            <span className="font-medium text-slate-600">{role}</span>
+                            <span className="font-medium text-slate-600 dark:text-slate-300">{role}</span>
                             <span className="text-slate-400">{count}</span>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1.5">
+                        <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
                             <div className={`h-1.5 rounded-full ${roleColors[role] || 'bg-slate-400'}`} style={{ width: `${(Number(count) / activeStaffCount) * 100}%` }}></div>
                         </div>
                         </div>

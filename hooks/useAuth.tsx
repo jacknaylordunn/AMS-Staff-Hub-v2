@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
@@ -12,6 +13,7 @@ import {
 import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp, limit } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { User, Role } from '../types';
+import { hashPin } from '../utils/crypto';
 
 interface AuthContextType {
   user: User | null;
@@ -168,9 +170,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Fetch fresh doc to ensure PIN matches server state
           const userDocRef = doc(db, 'users', user.uid);
           const userDoc = await getDoc(userDocRef);
+          
           if (userDoc.exists()) {
-              const data = userDoc.data() as User;
-              return data.pin === pin;
+              const data = userDoc.data();
+              // Check for Hashed PIN first (New System)
+              if (data.pinHash) {
+                  const inputHash = await hashPin(pin);
+                  return inputHash === data.pinHash;
+              }
+              // Fallback to legacy plain text PIN (Old System)
+              if (data.pin) {
+                  return data.pin === pin;
+              }
           }
           return false;
       } catch (e) {
@@ -184,12 +195,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!/^\d{4}$/.test(newPin)) throw new Error("PIN must be 4 digits.");
       
       try {
+          const hashed = await hashPin(newPin);
+          
+          // We clear the legacy 'pin' field when setting 'pinHash' to enforce upgrade
           await updateDoc(doc(db, 'users', user.uid), {
-              pin: newPin,
+              pinHash: hashed,
+              pin: null, // Clear plaintext legacy pin
               pinLastUpdated: new Date().toISOString()
           });
+          
+          // Update local state locally to avoid full reload delay
+          // We set 'pin' property in local state to '****' just to indicate it exists
+          setUser(prev => prev ? { ...prev, pin: '****' } : null);
+          
           await refreshUser();
       } catch (e) {
+          console.error(e);
           throw new Error("Failed to update PIN");
       }
   };
@@ -251,7 +272,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const userDocRef = doc(db, 'users', updatedUser.uid);
               const userDoc = await getDoc(userDocRef);
               if (userDoc.exists()) {
-                  setUser(userDoc.data() as User);
+                  const data = userDoc.data() as User;
+                  // If pinHash exists but pin is null, we treat pin as existing in the type
+                  if (data.pinHash && !data.pin) {
+                      data.pin = '****';
+                  }
+                  setUser(data);
               }
           } catch (err) {
               console.error("Error refreshing user", err);

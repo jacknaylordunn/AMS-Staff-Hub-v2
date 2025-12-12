@@ -3,8 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation, Sparkles, Bot } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc } from 'firebase/firestore';
-import { Shift, TimeRecord, Announcement, Role, ComplianceDoc } from '../types';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc, runTransaction } from 'firebase/firestore';
+import { Shift, TimeRecord, Announcement, Role, ComplianceDoc, User } from '../types';
 import { useNavigate } from 'react-router-dom';
 import AnnouncementModal from '../components/AnnouncementModal';
 
@@ -271,13 +271,47 @@ const Dashboard = () => {
       if (!confirm("Are you sure you want to end your shift?")) return;
 
       try {
-          const outTime = new Date().toISOString();
-          await updateDoc(doc(db, 'shifts', activeShift.id), {
-              [`timeRecords.${user.uid}.clockOutTime`]: outTime
+          // Transactional update to ensure stats and shift record are synced
+          await runTransaction(db, async (transaction) => {
+              const shiftRef = doc(db, 'shifts', activeShift.id);
+              const userRef = doc(db, 'users', user.uid);
+              
+              const shiftDoc = await transaction.get(shiftRef);
+              const userDoc = await transaction.get(userRef);
+
+              if (!shiftDoc.exists() || !userDoc.exists()) throw "Document does not exist!";
+
+              const shiftData = shiftDoc.data() as Shift;
+              const userData = userDoc.data() as User;
+              const timeRecord = shiftData.timeRecords?.[user.uid];
+
+              if (!timeRecord || !timeRecord.clockInTime) throw "No clock in record";
+
+              const outTime = new Date().toISOString();
+              const durationMs = new Date(outTime).getTime() - new Date(timeRecord.clockInTime).getTime();
+              const durationHours = durationMs / (1000 * 60 * 60);
+
+              // Update Shift Record
+              const newTimeRecord = { ...timeRecord, clockOutTime: outTime, durationMinutes: Math.round(durationMs / 60000) };
+              transaction.update(shiftRef, {
+                  [`timeRecords.${user.uid}`]: newTimeRecord
+              });
+
+              // Update User Stats (Aggregation)
+              const currentStats = userData.stats || { totalHours: 0, completedShifts: 0 };
+              transaction.update(userRef, {
+                  stats: {
+                      totalHours: (currentStats.totalHours || 0) + durationHours,
+                      completedShifts: (currentStats.completedShifts || 0) + 1,
+                      lastShiftDate: outTime
+                  }
+              });
           });
+          
           setActiveShift(null);
       } catch (e) {
           console.error("Clock Out Failed", e);
+          alert("Failed to clock out cleanly. Please check internet connection.");
       }
   };
 

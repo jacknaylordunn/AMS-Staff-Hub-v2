@@ -9,7 +9,7 @@ import { auditEPRF, generateSBAR } from '../../services/geminiService';
 import AuditSummaryModal from '../AuditSummaryModal';
 
 const HandoverTab = () => {
-    const { activeDraft, handleNestedUpdate, updateDraft } = useEPRF();
+    const { activeDraft, handleNestedUpdate, submitDraft } = useEPRF();
     const { user, verifyPin } = useAuth();
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
@@ -55,17 +55,16 @@ const HandoverTab = () => {
                 // Digital Token Format: DIGITAL_TOKEN|Name|Role|ISO_Date|EmployeeID
                 const token = `DIGITAL_TOKEN|${user.name}|${user.role}|${new Date().toISOString()}|${user.employeeId}`;
                 
-                updateDraft({ 
-                    status: 'Submitted',
-                });
+                // Use the explicit submit function which forces an immediate save
+                await submitDraft(token);
                 
-                handleNestedUpdate(['handover', 'digitalToken'], token);
                 setPin('');
             } else {
                 setError('Invalid PIN');
             }
         } catch (e) {
-            setError('Verification failed');
+            console.error(e);
+            setError('Verification or Save failed. Check connection.');
         } finally {
             setIsSigning(false);
         }

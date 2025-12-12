@@ -8,6 +8,7 @@ interface EPRFContextType {
     activeDraft: EPRF | null;
     setActiveDraft: (draft: EPRF | null) => void;
     updateDraft: (updates: Partial<EPRF>) => void;
+    submitDraft: (token: string) => Promise<void>;
     handleNestedUpdate: (path: string[], value: any) => void;
     addVitals: (entry: VitalsEntry) => void;
     addDrug: (entry: DrugAdministration) => void;
@@ -52,12 +53,32 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     const updateDraft = (updates: Partial<EPRF>) => {
         if (!activeDraft) return;
         const updated = { ...activeDraft, ...updates, lastUpdated: new Date().toISOString() };
+        const safeData = sanitizeData(updated);
+        setActiveDraftState(safeData);
+        saveEPRF(safeData, false); // Auto-save (debounced)
+    };
+
+    // Specific function for final submission to ensure data integrity
+    const submitDraft = async (token: string) => {
+        if (!activeDraft) return;
         
-        // Sanitize before saving
+        const updates = {
+            status: 'Submitted' as const,
+            lastUpdated: new Date().toISOString(),
+            handover: {
+                ...activeDraft.handover,
+                digitalToken: token
+            }
+        };
+
+        const updated = { ...activeDraft, ...updates };
         const safeData = sanitizeData(updated);
         
+        // Update local state immediately for UI responsiveness
         setActiveDraftState(safeData);
-        saveEPRF(safeData);
+        
+        // FORCE SAVE IMMEDIATE
+        await saveEPRF(safeData, true);
     };
 
     const handleNestedUpdate = (path: string[], value: any) => {
@@ -77,7 +98,7 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         const safeData = sanitizeData(newDraft);
         
         setActiveDraftState(safeData);
-        saveEPRF(safeData);
+        saveEPRF(safeData, false); // Auto-save (debounced)
     };
 
     const addVitals = (entry: VitalsEntry) => {
@@ -120,7 +141,8 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         <EPRFContext.Provider value={{ 
             activeDraft, 
             setActiveDraft, 
-            updateDraft, 
+            updateDraft,
+            submitDraft,
             handleNestedUpdate,
             addVitals,
             addDrug,

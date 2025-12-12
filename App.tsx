@@ -1,10 +1,9 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, FileText, Calendar, Truck, AlertTriangle, LogOut,
-  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info, Sparkles, FolderOpen
+  Menu, X, Users, Pill, BookOpen, Heart, ChevronRight, ChevronLeft, Sun, Moon, Bell, Check, Info, Calculator, FolderOpen
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import EPRFPage from './pages/EPRFPage';
@@ -84,44 +83,41 @@ const NotificationBell = () => {
         if (!user) return;
         requestBrowserPermission();
 
-        // 1. Personal Notifications from Firestore
-        const notifRef = collection(db, `users/${user.uid}/notifications`);
-        const q = query(notifRef, orderBy('timestamp', 'desc'), limit(10));
-        
+        // Query: Unread notifications for this user
+        const q = query(
+            collection(db, `users/${user.uid}/notifications`), 
+            where('read', '==', false),
+            orderBy('timestamp', 'desc'),
+            limit(10)
+        );
+
         const unsub = onSnapshot(q, (snap) => {
             const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification));
             setNotifications(items);
 
-            // Check for new unread notifications to trigger browser alert
-            const newest = items[0];
-            if (newest && !newest.read && newest.id !== lastNotifiedId) {
-                sendBrowserNotification(newest.title, newest.message);
-                setLastNotifiedId(newest.id);
+            // Browser Notification Logic for new items
+            if (items.length > 0) {
+                const latest = items[0];
+                if (latest.id !== lastNotifiedId) {
+                    sendBrowserNotification(latest.title, latest.message);
+                    setLastNotifiedId(latest.id);
+                }
             }
         });
 
         return () => unsub();
-    }, [user, lastNotifiedId]);
+    }, [user]);
 
     const markAsRead = async (id: string) => {
         if (!user) return;
-        try {
-            await updateDoc(doc(db, `users/${user.uid}/notifications`, id), { read: true });
-        } catch (e) {
-            console.error("Error marking read", e);
-        }
+        await updateDoc(doc(db, `users/${user.uid}/notifications`, id), { read: true });
     };
 
-    const handleClearAll = async () => {
+    const markAllRead = async () => {
         if (!user) return;
-        // In a real app, use a batch write. For now, simple loop for demo.
-        const unread = notifications.filter(n => !n.read);
-        for (const n of unread) {
-            await markAsRead(n.id);
-        }
+        // Batch update theoretically better, but simple loop fine for small numbers
+        notifications.forEach(n => markAsRead(n.id));
     };
-
-    const unreadCount = notifications.filter(n => !n.read).length;
 
     return (
         <div className="relative">
@@ -130,215 +126,202 @@ const NotificationBell = () => {
                 className="p-2.5 rounded-xl hover:bg-white dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all shadow-sm border border-transparent hover:border-slate-200 dark:hover:border-slate-700 relative"
             >
                 <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                    <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900 animate-pulse"></span>
+                {notifications.length > 0 && (
+                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 border-2 border-slate-50 dark:border-slate-900 rounded-full animate-pulse"></span>
                 )}
             </button>
 
             {isOpen && (
-                <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-                    <div className="absolute right-0 top-14 w-80 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl shadow-glass dark:shadow-none dark:border dark:border-slate-700 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                            <h3 className="font-bold text-slate-800 dark:text-white text-sm">Notifications</h3>
-                            {unreadCount > 0 && <button onClick={handleClearAll} className="text-xs text-ams-blue font-bold hover:underline">Mark all read</button>}
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto">
-                            {notifications.length === 0 && (
-                                <div className="p-8 text-center text-slate-400 text-xs">No notifications</div>
-                            )}
-                            {notifications.map(n => (
-                                <div 
-                                    key={n.id} 
-                                    onClick={() => !n.read && markAsRead(n.id)}
-                                    className={`p-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${!n.read ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
-                                >
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                                            n.type === 'alert' ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400' : 
-                                            n.type === 'success' ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400' :
-                                            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'
-                                        }`}>
-                                            {n.type === 'alert' ? <AlertTriangle className="w-3 h-3" /> : n.type === 'success' ? <Check className="w-3 h-3" /> : <Info className="w-3 h-3" />}
-                                            {n.type.toUpperCase()}
-                                        </span>
-                                        <span className="text-[10px] text-slate-400">{new Date(n.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                    </div>
-                                    <h4 className={`font-bold text-sm mt-1 ${!n.read ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>{n.title}</h4>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.message}</p>
-                                    {n.link && <Link to={n.link} className="text-[10px] font-bold text-ams-blue hover:underline mt-1 block">View Details</Link>}
-                                </div>
-                            ))}
-                        </div>
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+                        <h4 className="font-bold text-sm text-slate-800 dark:text-white">Notifications</h4>
+                        {notifications.length > 0 && (
+                            <button onClick={markAllRead} className="text-[10px] font-bold text-ams-blue hover:underline flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Mark all read
+                            </button>
+                        )}
                     </div>
-                </>
+                    <div className="max-h-80 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-xs italic">
+                                No new notifications.
+                            </div>
+                        ) : (
+                            notifications.map(n => (
+                                <div key={n.id} className="p-4 border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors relative group">
+                                    <div className="flex gap-3">
+                                        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${n.type === 'alert' ? 'bg-red-500' : n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800 dark:text-white">{n.title}</p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{n.message}</p>
+                                            <p className="text-[10px] text-slate-400 mt-2 font-mono">{new Date(n.timestamp).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => markAsRead(n.id)}
+                                        className="absolute top-2 right-2 p-1 text-slate-300 hover:text-ams-blue opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Dismiss"
+                                    >
+                                        <Check className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
             )}
         </div>
     );
 };
 
-const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const location = useLocation();
+const MainLayout = ({ children }: { children?: React.ReactNode }) => {
   const { user, logout } = useAuth();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const location = useLocation();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Automatically collapse sidebar on ePRF page to give full screen space
-  const isEPRF = location.pathname === '/eprf';
-
-  // Automatically close mobile menu on route change
-  useEffect(() => {
-      setIsMobileMenuOpen(false);
-  }, [location]);
-
-  if (!user) return null;
-
-  const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/eprf', icon: FileText, label: 'ePRF' },
-    { path: '/rota', icon: Calendar, label: 'Rota & Leave' },
-    { path: '/assets', icon: Truck, label: 'Fleet & Assets' },
-    { path: '/documents', icon: FolderOpen, label: 'Policies & Docs' }, // Added here
-  ];
-
-  if (CLINICAL_ROLES.includes(user.role)) {
-      navItems.push({ path: '/drugs', icon: Pill, label: 'CD Register' });
-  }
-
-  navItems.push(
-    { path: '/cpd', icon: BookOpen, label: 'CPD Log' },
-    { path: '/wellbeing', icon: Heart, label: 'Wellbeing Hub' },
-    { path: '/major-incident', icon: AlertTriangle, label: 'Major Incident' },
-  );
-
-  if (user.role === Role.Manager || user.role === Role.Admin) {
-      navItems.push({ path: '/staff', icon: Users, label: 'Staff Directory' });
-  }
+  const isClinical = user ? CLINICAL_ROLES.includes(user.role) : false;
+  const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
 
   return (
-    <div className="flex h-screen bg-[#F4F5F7] dark:bg-[#0F1115] overflow-hidden font-sans transition-colors duration-300">
-      {/* Mobile Backdrop */}
-      {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] animate-in fade-in"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-[100] bg-white/90 dark:bg-[#172030]/95 backdrop-blur-2xl border-r border-white/50 dark:border-white/5 shadow-2xl transition-all duration-300 ease-out
-        ${isSidebarCollapsed && !isEPRF ? 'w-20' : 'w-72'}
-        ${!isEPRF ? 'md:relative md:translate-x-0 md:shadow-none md:bg-transparent md:backdrop-blur-none md:border-r-0' : ''}
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        {/* Collapse Toggle Button (Desktop Only) */}
-        {!isEPRF && (
-            <button 
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="hidden md:flex absolute -right-3 top-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1 text-slate-500 shadow-sm hover:text-ams-blue z-50 transition-transform hover:scale-110"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            >
-                {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-            </button>
-        )}
-
-        <div className={`h-full flex flex-col ${isSidebarCollapsed ? 'p-2' : 'p-6'}`}>
-          <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'} mb-8 px-2`}>
-            <div className="flex items-center gap-3">
-              <img 
-                  src={logo} 
-                  alt="Logo" 
-                  className="h-8 w-auto object-contain"
-                  onError={(e) => e.currentTarget.style.display = 'none'} 
-              />
-              {!isSidebarCollapsed && (
-                  <div>
-                      <h1 className="font-bold text-slate-800 dark:text-white leading-tight text-lg">Aegis</h1>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold tracking-wider uppercase">Staff Hub v2.5</p>
-                  </div>
-              )}
+    <div className="flex h-screen bg-slate-50 dark:bg-[#0F1115] transition-colors duration-300">
+      {/* Sidebar - Desktop */}
+      <aside className={`hidden md:flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'} z-40`}>
+        <div className="p-6 flex items-center justify-between">
+          {!collapsed && (
+            <div className="flex items-center gap-2 animate-in fade-in">
+                <img src={logo} alt="Logo" className="h-8 w-auto object-contain" />
+                <span className="font-bold text-lg text-slate-800 dark:text-white tracking-tight">Aegis</span>
             </div>
-            <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-slate-400 hover:text-slate-600 bg-white dark:bg-slate-800 rounded-full shadow-sm">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+          )}
+          {collapsed && <img src={logo} alt="Logo" className="h-8 w-auto mx-auto" />}
+          <button onClick={() => setCollapsed(!collapsed)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+        </div>
 
-          <nav className="flex-1 space-y-1 overflow-y-auto pr-2 no-scrollbar">
-            {navItems.map((item) => (
-              <SidebarItem
-                key={item.path}
-                to={item.path}
-                icon={item.icon}
-                label={item.label}
-                active={location.pathname === item.path}
-                collapsed={isSidebarCollapsed}
-                onClick={() => setIsMobileMenuOpen(false)}
-              />
-            ))}
-          </nav>
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto no-scrollbar">
+          <SidebarItem to="/" icon={LayoutDashboard} label="Dashboard" active={location.pathname === '/'} collapsed={collapsed} />
+          
+          <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2" />
+          
+          <SidebarItem to="/eprf" icon={FileText} label="ePRF Records" active={location.pathname === '/eprf'} collapsed={collapsed} />
+          <SidebarItem to="/rota" icon={Calendar} label="Rota & Shifts" active={location.pathname === '/rota'} collapsed={collapsed} />
+          <SidebarItem to="/assets" icon={Truck} label="Assets & Fleet" active={location.pathname === '/assets'} collapsed={collapsed} />
+          
+          {isClinical && (
+             <SidebarItem to="/drugs" icon={Pill} label="Drugs Register" active={location.pathname === '/drugs'} collapsed={collapsed} />
+          )}
 
-          <div className="mt-6 pt-6 border-t border-slate-200/60 dark:border-slate-700/60">
-            <Link 
-                to="/profile" 
-                className={`flex items-center gap-3 p-2 rounded-xl hover:bg-white/60 dark:hover:bg-slate-800 transition-colors group mb-2 border border-transparent hover:border-white/50 hover:shadow-sm ${isSidebarCollapsed ? 'justify-center' : ''}`}
-                title={isSidebarCollapsed ? "Profile" : undefined}
-            >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-ams-blue to-ams-dark flex items-center justify-center text-white font-bold shadow-md ring-2 ring-white dark:ring-slate-700 text-sm flex-shrink-0">
-                {user.name.charAt(0)}
-              </div>
-              {!isSidebarCollapsed && (
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-ams-blue transition-colors">{user.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.role}</p>
-                  </div>
-              )}
-            </Link>
-            <button 
-              onClick={logout}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 transition-all text-sm font-bold ${isSidebarCollapsed ? 'px-0' : 'px-4'}`}
-              title="Sign Out"
-            >
-              <LogOut className="w-4 h-4" />
-              {!isSidebarCollapsed && "Sign Out"}
+          <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2" />
+          
+          <SidebarItem to="/documents" icon={FolderOpen} label="Documents" active={location.pathname === '/documents'} collapsed={collapsed} />
+          <SidebarItem to="/cpd" icon={BookOpen} label="CPD Portfolio" active={location.pathname === '/cpd'} collapsed={collapsed} />
+          <SidebarItem to="/wellbeing" icon={Heart} label="Wellbeing Hub" active={location.pathname === '/wellbeing'} collapsed={collapsed} />
+          
+          {isManager && (
+             <>
+                <div className="my-4 border-t border-slate-100 dark:border-slate-800 mx-2" />
+                <SidebarItem to="/staff" icon={Users} label="Staff Manager" active={location.pathname === '/staff'} collapsed={collapsed} />
+                <SidebarItem to="/major-incident" icon={AlertTriangle} label="Major Incident" active={location.pathname === '/major-incident'} collapsed={collapsed} />
+             </>
+          )}
+        </nav>
+
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800">
+            <button onClick={logout} className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3 px-4'} w-full py-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all font-medium text-sm group`}>
+                <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                {!collapsed && <span>Sign Out</span>}
             </button>
-          </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <MajorIncidentBanner />
-        <OfflineIndicator />
-        
-        {/* Header Bar */}
-        <div className={`px-6 py-4 flex items-center justify-between sticky top-0 z-30 border-b transition-colors ${isEPRF ? 'bg-white border-slate-200 dark:bg-[#0F1115] dark:border-slate-800' : 'bg-white/80 dark:bg-[#0F1115]/80 backdrop-blur-md border-slate-200/50 dark:border-slate-800'}`}>
+      {/* Mobile Header */}
+      <div className="md:hidden fixed top-0 w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-50 px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-             {/* Show Menu button on mobile OR on desktop if in ePRF (collapsed) mode */}
-             <button 
-                onClick={() => setIsMobileMenuOpen(true)} 
-                className={`${!isEPRF ? 'md:hidden' : ''} p-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors`}
-             >
-                <Menu className="w-5 h-5" />
-             </button>
-             <div className={`${!isEPRF ? 'md:hidden' : ''} flex items-center gap-2`}>
-                 <img src={logo} className="h-6 w-auto" alt="Aegis" onError={(e) => e.currentTarget.style.display = 'none'} />
-                 <span className="font-bold text-slate-800 dark:text-white text-sm">Aegis</span>
-             </div>
+              <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 dark:text-slate-300">
+                  <Menu className="w-6 h-6" />
+              </button>
+              <span className="font-bold text-lg text-slate-800 dark:text-white">Aegis</span>
           </div>
-          
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="flex items-center gap-2">
               <ThemeToggle />
-              <NotificationBell />
+              <div className="w-8 h-8 bg-ams-blue rounded-full flex items-center justify-center text-white font-bold text-sm">
+                  {user?.name.charAt(0)}
+              </div>
           </div>
-        </div>
+      </div>
 
-        {/* Content Area */}
-        <div className={`flex-1 overflow-auto ${isEPRF ? 'p-0' : 'p-4 md:p-8'} scroll-smooth relative`}>
-           <div className={`${isEPRF ? 'max-w-full h-full' : 'max-w-7xl mx-auto w-full pb-20'} animate-slide-up`}>
-              {children}
-           </div>
-        </div>
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+          <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm md:hidden" onClick={() => setMobileMenuOpen(false)}>
+              <div className="absolute left-0 top-0 bottom-0 w-64 bg-white dark:bg-slate-900 shadow-2xl p-4 flex flex-col" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-6">
+                      <span className="font-bold text-xl text-slate-800 dark:text-white">Menu</span>
+                      <button onClick={() => setMobileMenuOpen(false)}><X className="w-6 h-6 text-slate-500" /></button>
+                  </div>
+                  <nav className="space-y-1 flex-1 overflow-y-auto">
+                      <SidebarItem to="/" icon={LayoutDashboard} label="Dashboard" active={location.pathname === '/'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      <SidebarItem to="/eprf" icon={FileText} label="ePRF Records" active={location.pathname === '/eprf'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      <SidebarItem to="/rota" icon={Calendar} label="Rota & Shifts" active={location.pathname === '/rota'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      <SidebarItem to="/assets" icon={Truck} label="Assets & Fleet" active={location.pathname === '/assets'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      {isClinical && <SidebarItem to="/drugs" icon={Pill} label="Drugs Register" active={location.pathname === '/drugs'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />}
+                      <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+                      <SidebarItem to="/documents" icon={FolderOpen} label="Documents" active={location.pathname === '/documents'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      <SidebarItem to="/cpd" icon={BookOpen} label="CPD Portfolio" active={location.pathname === '/cpd'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      <SidebarItem to="/wellbeing" icon={Heart} label="Wellbeing Hub" active={location.pathname === '/wellbeing'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                      {isManager && (
+                          <>
+                            <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+                            <SidebarItem to="/staff" icon={Users} label="Staff Manager" active={location.pathname === '/staff'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                            <SidebarItem to="/major-incident" icon={AlertTriangle} label="Major Incident" active={location.pathname === '/major-incident'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
+                          </>
+                      )}
+                  </nav>
+                  <button onClick={logout} className="mt-4 flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl font-bold text-sm w-full">
+                      <LogOut className="w-5 h-5" /> Sign Out
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+          <MajorIncidentBanner />
+          <OfflineIndicator />
+          
+          {/* Desktop Top Bar */}
+          <header className="hidden md:flex items-center justify-between px-8 py-5 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-800/50 sticky top-0 z-30">
+              <div className="flex flex-col">
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                      {location.pathname === '/' ? 'Dashboard' : location.pathname.substring(1).split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                      {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+              </div>
+              <div className="flex items-center gap-4">
+                  <ThemeToggle />
+                  <NotificationBell />
+                  <Link to="/profile" className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-slate-700 group cursor-pointer">
+                      <div className="text-right hidden lg:block">
+                          <p className="text-sm font-bold text-slate-700 dark:text-white group-hover:text-ams-blue transition-colors">{user?.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{user?.role}</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-ams-blue to-cyan-500 p-[2px] shadow-sm group-hover:shadow-md transition-all">
+                          <div className="w-full h-full rounded-full bg-white dark:bg-slate-800 flex items-center justify-center text-ams-blue font-bold">
+                              {user?.name.charAt(0)}
+                          </div>
+                      </div>
+                  </Link>
+              </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+              <div className="max-w-7xl mx-auto h-full">
+                  {children}
+              </div>
+          </div>
       </main>
     </div>
   );
@@ -347,44 +330,27 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const App = () => {
   return (
     <Router>
-      <AuthProvider>
-        <ThemeProvider>
+      <ThemeProvider>
+        <AuthProvider>
           <DataSyncProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              
-              {/* Protected Routes */}
-              <Route path="/" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
-              <Route path="/eprf" element={<ProtectedRoute><Layout><EPRFPage /></Layout></ProtectedRoute>} />
-              <Route path="/rota" element={<ProtectedRoute><Layout><RotaPage /></Layout></ProtectedRoute>} />
-              <Route path="/assets" element={<ProtectedRoute><Layout><AssetPage /></Layout></ProtectedRoute>} />
-              <Route path="/documents" element={<ProtectedRoute><Layout><DocumentsPage /></Layout></ProtectedRoute>} />
-              
-              {/* Drugs Page - Restricted to Clinical Roles */}
-              <Route path="/drugs" element={
-                  <ProtectedRoute allowedRoles={CLINICAL_ROLES}>
-                      <Layout><DrugsPage /></Layout>
-                  </ProtectedRoute>
-              } />
-              
-              <Route path="/cpd" element={<ProtectedRoute><Layout><CPDPage /></Layout></ProtectedRoute>} />
-              <Route path="/wellbeing" element={<ProtectedRoute><Layout><WellbeingPage /></Layout></ProtectedRoute>} />
-              <Route path="/major-incident" element={<ProtectedRoute><Layout><MajorIncidentPage /></Layout></ProtectedRoute>} />
-              <Route path="/profile" element={<ProtectedRoute><Layout><ProfilePage /></Layout></ProtectedRoute>} />
-              
-              {/* Role Restricted Staff */}
-              <Route path="/staff" element={
-                  <ProtectedRoute allowedRoles={[Role.Manager, Role.Admin]}>
-                      <Layout><StaffPage /></Layout>
-                  </ProtectedRoute>
-              } />
-              
-              {/* Catch all redirect to home */}
+              <Route path="/" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
+              <Route path="/eprf" element={<ProtectedRoute><MainLayout><EPRFPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/rota" element={<ProtectedRoute><MainLayout><RotaPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/assets" element={<ProtectedRoute><MainLayout><AssetPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/drugs" element={<ProtectedRoute allowedRoles={CLINICAL_ROLES}><MainLayout><DrugsPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/staff" element={<ProtectedRoute allowedRoles={[Role.Manager, Role.Admin]}><MainLayout><StaffPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/documents" element={<ProtectedRoute><MainLayout><DocumentsPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/cpd" element={<ProtectedRoute><MainLayout><CPDPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/wellbeing" element={<ProtectedRoute><MainLayout><WellbeingPage /></MainLayout></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><MainLayout><ProfilePage /></MainLayout></ProtectedRoute>} />
+              <Route path="/major-incident" element={<ProtectedRoute><MainLayout><MajorIncidentPage /></MainLayout></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </DataSyncProvider>
-        </ThemeProvider>
-      </AuthProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </Router>
   );
 };

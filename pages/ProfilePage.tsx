@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
@@ -5,7 +6,7 @@ import { ComplianceDoc, Role } from '../types';
 import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
-const logo = '/assets/logo.png';
+const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
     const styles = {
@@ -36,7 +37,6 @@ const ProfilePage = () => {
       phone: user?.phone || '',
       address: user?.address || ''
   });
-  const [showPin, setShowPin] = useState(false);
   
   // Role Request State
   const [showRoleModal, setShowRoleModal] = useState(false);
@@ -82,7 +82,7 @@ const ProfilePage = () => {
               role: Role.Admin,
               status: 'Active',
               employeeId: 'AMS-ADMIN-001',
-              pin: '0000'
+              // Note: PIN is now handled separately via updatePin, cannot simple update doc here
           });
           alert("System Initialized. You are now Admin.");
           await refreshUser();
@@ -122,7 +122,7 @@ const ProfilePage = () => {
           setShowPinModal(false);
           setNewPin('');
           setConfirmPin('');
-          alert("PIN updated successfully.");
+          alert("PIN updated securely.");
       } catch (e) {
           setPinError("Failed to update PIN. Check connection.");
       }
@@ -269,7 +269,7 @@ const ProfilePage = () => {
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
                   <div className="bg-slate-900 dark:bg-slate-950 p-4 text-white flex justify-between items-center">
                       <h3 className="font-bold flex items-center gap-2"><Shield className="w-4 h-4 text-ams-blue" /> Digital ID</h3>
-                      <img src={logo} className="h-6 w-auto opacity-80" alt="Logo" />
+                      <img src={logo} className="h-6 w-auto opacity-80" alt="Logo" onError={(e) => e.currentTarget.style.display = 'none'} />
                   </div>
                   <div className="p-6 space-y-4">
                       {user?.employeeId ? (
@@ -282,22 +282,25 @@ const ProfilePage = () => {
                                 <div className="flex justify-between items-end mb-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase">Signing PIN</label>
                                     <button onClick={() => setShowPinModal(true)} className="text-[10px] font-bold text-ams-blue hover:underline flex items-center gap-1">
-                                        <Key className="w-3 h-3" /> Update
+                                        <Key className="w-3 h-3" /> {user.pin ? 'Reset PIN' : 'Set PIN'}
                                     </button>
                                 </div>
                                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 flex justify-between items-center h-10 px-3">
-                                    {showPin ? (
-                                        <span className="font-mono font-bold text-slate-800 dark:text-white text-lg tracking-widest">{user.pin || 'N/A'}</span>
+                                    {user.pin ? (
+                                        <div className="flex gap-2 items-center text-slate-500 font-medium">
+                                            <Lock className="w-3 h-3" />
+                                            <span>•••• (PIN Set)</span>
+                                        </div>
                                     ) : (
-                                        <div className="flex gap-1">
-                                            {[1,2,3,4].map(i => <div key={i} className="w-2 h-2 bg-slate-400 rounded-full"></div>)}
+                                        <div className="text-xs text-red-500 font-bold flex items-center gap-1">
+                                            <AlertCircle className="w-3 h-3" /> Not Set
                                         </div>
                                     )}
-                                    <button onClick={() => setShowPin(!showPin)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                                        {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                    </button>
                                 </div>
-                                <p className="text-[10px] text-slate-400 mt-1">Use this PIN to sign off documents.</p>
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                    Use your PIN to sign ePRFs. 
+                                    <br/><strong>Note:</strong> PINs are stored as secure hashes and cannot be viewed. If forgotten, please reset.
+                                </p>
                             </div>
                           </>
                       ) : (
@@ -416,10 +419,14 @@ const ProfilePage = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Key className="w-5 h-5" /> Update PIN</h3>
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2"><Key className="w-5 h-5" /> Update Secure PIN</h3>
                       <button onClick={() => setShowPinModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
                   </div>
                   <form onSubmit={handleChangePin} className="space-y-4">
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl text-xs text-blue-700 dark:text-blue-300">
+                          <strong className="block mb-1">Security Notice</strong>
+                          This PIN will be securely hashed before storage. It cannot be viewed by anyone, including administrators.
+                      </div>
                       <div>
                           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">New 4-Digit PIN</label>
                           <input 

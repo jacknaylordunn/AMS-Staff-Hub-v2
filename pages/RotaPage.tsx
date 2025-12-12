@@ -10,7 +10,7 @@ import {
 import { Shift, Role, User, ShiftSlot, Vehicle, MedicalKit, ShiftResource, TimeRecord } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, Timestamp, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, orderBy, Timestamp, getDocs, writeBatch, limit, startAfter } from 'firebase/firestore';
 import { sendNotification } from '../services/notificationService';
 import { analyzeRotaCoverage } from '../services/geminiService';
 
@@ -25,6 +25,11 @@ const RotaPage = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // List Pagination
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   // Manager Data (Staff & Assets)
   const [allStaff, setAllStaff] = useState<User[]>([]); 
   const [allVehicles, setAllVehicles] = useState<Vehicle[]>([]);
@@ -114,7 +119,56 @@ const RotaPage = () => {
       return days;
   };
 
+  const fetchListShifts = async (isInitial = true) => {
+      if (isInitial) setIsLoading(true);
+      else setLoadingMore(true);
+
+      try {
+          const now = new Date();
+          now.setHours(0,0,0,0);
+          
+          let q = query(
+              collection(db, 'shifts'),
+              where('start', '>=', Timestamp.fromDate(now)),
+              orderBy('start', 'asc'),
+              limit(20)
+          );
+
+          if (!isInitial && lastDoc) {
+              q = query(
+                  collection(db, 'shifts'),
+                  where('start', '>=', Timestamp.fromDate(now)),
+                  orderBy('start', 'asc'),
+                  startAfter(lastDoc),
+                  limit(20)
+              );
+          }
+
+          const snapshot = await getDocs(q);
+          const fetchedShifts: Shift[] = snapshot.docs.map(doc => {
+              const data = doc.data();
+              return { id: doc.id, ...data, start: data.start.toDate(), end: data.end.toDate() } as Shift;
+          });
+
+          if (snapshot.docs.length < 20) setHasMore(false);
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+
+          setShifts(prev => isInitial ? fetchedShifts : [...prev, ...fetchedShifts]);
+      } catch (e) {
+          console.error("List fetch error", e);
+      } finally {
+          setIsLoading(false);
+          setLoadingMore(false);
+      }
+  };
+
   useEffect(() => {
+    if (viewMode === 'List') {
+        fetchListShifts(true);
+        return;
+    }
+
+    // Standard Grid Logic
     let startRange = new Date(currentDate);
     let endRange = new Date(currentDate);
 
@@ -129,10 +183,6 @@ const RotaPage = () => {
         startRange = getStartOfWeek(currentDate);
         endRange = new Date(startRange);
         endRange.setDate(endRange.getDate() + 6);
-    } else {
-        startRange.setDate(1);
-        startRange.setMonth(startRange.getMonth()-1);
-        endRange.setMonth(endRange.getMonth()+2);
     }
     
     startRange.setHours(0,0,0,0);
@@ -154,17 +204,21 @@ const RotaPage = () => {
         setIsLoading(false);
     });
     
-    if (isManager) {
+    return () => unsubscribe();
+  }, [currentDate, viewMode]);
+
+  // Load Manager Data Once
+  useEffect(() => {
+    if (isManager && allStaff.length === 0) {
         getDocs(collection(db, 'users')).then(snap => setAllStaff(snap.docs.map(d => ({ uid: d.id, ...d.data() } as User)).filter(u => u.status === 'Active')));
         getDocs(collection(db, 'fleet')).then(snap => setAllVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle))));
         getDocs(collection(db, 'medical_kits')).then(snap => setAllKits(snap.docs.map(d => ({ id: d.id, ...d.data() } as MedicalKit))));
     }
-    return () => unsubscribe();
-  }, [currentDate, viewMode, isManager]);
+  }, [isManager]);
 
   // --- Real-time Sync for Staff Modal ---
   useEffect(() => {
-      if (selectedShift && !isEditorOpen) {
+      if (selectedShift && !isEditorOpen && viewMode !== 'List') {
           const freshData = shifts.find(s => s.id === selectedShift.id);
           if (freshData) setSelectedShift(freshData);
       }
@@ -345,6 +399,8 @@ const RotaPage = () => {
 
           await batch.commit();
           setIsEditorOpen(false); setSelectedShift(null); setIsRepeating(false); setIsNewShift(false);
+          // If in List view, refresh manually
+          if (viewMode === 'List') fetchListShifts(true);
       } catch (e) {
           console.error("Save failed", e);
           alert("Failed to save shift.");
@@ -362,13 +418,19 @@ const RotaPage = () => {
           await updateDoc(doc(db, 'shifts', selectedShift.id), { status: 'Cancelled', tags: [...currentTags, 'Cancelled'] });
           selectedShift.slots?.forEach(slot => { if (slot.userId) sendNotification(slot.userId, "Shift Cancelled", `${selectedShift.location} shift cancelled.`, "alert", "/rota"); });
           setIsEditorOpen(false); setSelectedShift(null);
+          if (viewMode === 'List') fetchListShifts(true);
       } catch (e) { alert("Failed to cancel."); } finally { setIsOperating(false); }
   };
 
   const handleDeleteShift = async () => {
       if (!selectedShift || !confirm("Delete permanently?")) return;
       setIsOperating(true);
-      try { await deleteDoc(doc(db, 'shifts', selectedShift.id)); setIsEditorOpen(false); setSelectedShift(null); } catch(e) { alert("Failed to delete."); } finally { setIsOperating(false); }
+      try { 
+          await deleteDoc(doc(db, 'shifts', selectedShift.id)); 
+          setIsEditorOpen(false); 
+          setSelectedShift(null);
+          if (viewMode === 'List') fetchListShifts(true);
+      } catch(e) { alert("Failed to delete."); } finally { setIsOperating(false); }
   };
 
   const handleBid = async (slotIndex: number) => {
@@ -423,7 +485,7 @@ const RotaPage = () => {
   const handleRunAiAnalysis = async () => {
       if (!shifts.length) return;
       setAnalyzingRota(true);
-      const summary = shifts.map(s => ({
+      const summary = shifts.slice(0, 50).map(s => ({
           date: s.start.toLocaleDateString(),
           location: s.location,
           status: s.status,
@@ -601,6 +663,18 @@ const RotaPage = () => {
                       </div>
                   </div>
               ))}
+              
+              {hasMore && (
+                  <div className="text-center pt-4">
+                      <button 
+                        onClick={() => fetchListShifts(false)} 
+                        disabled={loadingMore}
+                        className="px-6 py-2 bg-slate-100 dark:bg-slate-800 rounded-full font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                      >
+                          {loadingMore ? 'Loading...' : 'Load More Shifts'}
+                      </button>
+                  </div>
+              )}
           </div>
       );
   };
@@ -614,232 +688,168 @@ const RotaPage = () => {
               <div className="flex justify-between items-start relative z-10">
                   <div>
                       <h3 className="text-lg font-bold flex items-center gap-2 mb-2"><Sparkles className="w-5 h-5 text-purple-400" /> AI Rota Insight</h3>
-                      <div className="text-sm text-purple-100 whitespace-pre-line leading-relaxed max-w-2xl">{rotaAnalysis}</div>
+                      <p className="text-sm text-purple-100 whitespace-pre-line">{rotaAnalysis}</p>
                   </div>
-                  <button onClick={() => setRotaAnalysis(null)} className="text-purple-300 hover:text-white"><X className="w-5 h-5" /></button>
+                  <button onClick={() => setRotaAnalysis(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-5 h-5" /></button>
               </div>
           </div>
       )}
 
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-center gap-4 sticky top-0 z-20">
-          <div className="flex items-center gap-4 w-full lg:w-auto">
-              <h1 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2"><CalendarIcon className="w-6 h-6 text-ams-blue" /> Rota</h1>
-              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-                  {(['Month', 'Week', 'List'] as const).map(m => (
-                      <button key={m} onClick={() => setViewMode(m)} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === m ? 'bg-white dark:bg-slate-600 shadow-sm text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{m}</button>
+      {/* Header Controls */}
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex items-center gap-4">
+              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl">
+                  <button onClick={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()-1); setCurrentDate(d); }} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-lg transition-colors"><ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>
+                  <button onClick={() => setCurrentDate(new Date())} className="px-4 text-sm font-bold text-slate-600 dark:text-slate-300 hover:text-ams-blue transition-colors">Today</button>
+                  <button onClick={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()+1); setCurrentDate(d); }} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-lg transition-colors"><ChevronRight className="w-5 h-5 text-slate-600 dark:text-slate-300" /></button>
+              </div>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <CalendarIcon className="w-6 h-6 text-ams-blue" />
+                  {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+              </h2>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl">
+                  {['Month', 'Week', 'List'].map(m => (
+                      <button key={m} onClick={() => setViewMode(m as any)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === m ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{m}</button>
                   ))}
               </div>
-          </div>
-          <div className="flex items-center gap-2 w-full lg:w-auto bg-slate-50 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700 justify-between lg:justify-start">
-              <button onClick={() => { const d = new Date(currentDate); viewMode==='Week'?d.setDate(d.getDate()-7):d.setMonth(d.getMonth()-1); setCurrentDate(d); }} className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg"><ChevronLeft className="w-4 h-4" /></button>
-              <span className="text-sm font-bold w-32 text-center">{currentDate.toLocaleDateString('en-GB', {month: 'long', year: 'numeric'})}</span>
-              <button onClick={() => { const d = new Date(currentDate); viewMode==='Week'?d.setDate(d.getDate()+7):d.setMonth(d.getMonth()+1); setCurrentDate(d); }} className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg"><ChevronRight className="w-4 h-4" /></button>
-          </div>
-          <div className="flex gap-2 w-full lg:w-auto">
-              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg flex-1">
-                  <button onClick={() => setFilterMode('All')} className={`flex-1 px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${filterMode === 'All' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>All</button>
-                  <button onClick={() => setFilterMode('MyShifts')} className={`flex-1 px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${filterMode === 'MyShifts' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>My Shifts</button>
-                  <button onClick={() => setFilterMode('Available')} className={`flex-1 px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${filterMode === 'Available' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}>Available</button>
+              
+              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl">
+                  {['All', 'MyShifts', 'Available'].map(f => (
+                      <button key={f} onClick={() => setFilterMode(f as any)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterMode === f ? 'bg-white dark:bg-slate-600 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>
+                          {f === 'MyShifts' ? 'My Shifts' : f}
+                      </button>
+                  ))}
               </div>
+
               {isManager && (
                   <>
-                    <button onClick={handleRunAiAnalysis} disabled={analyzingRota} className="px-3 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center justify-center gap-1 shadow-sm border border-purple-200 dark:border-purple-800">
-                        {analyzingRota ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Analyze
+                    <button onClick={() => handleCreateInit()} className="px-4 py-2 bg-ams-blue text-white rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 transition-all flex items-center gap-2">
+                        <Plus className="w-4 h-4" /> New Shift
                     </button>
-                    <button onClick={() => handleCreateInit()} className="px-4 py-2 bg-ams-blue text-white text-xs font-bold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-1 shadow-sm"><Plus className="w-4 h-4" /> Add</button>
+                    <button onClick={handleRunAiAnalysis} disabled={analyzingRota} className="px-4 py-2 bg-purple-600 text-white rounded-xl font-bold text-sm shadow-md hover:bg-purple-700 transition-all flex items-center gap-2 disabled:opacity-50">
+                        {analyzingRota ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} AI Analyze
+                    </button>
                   </>
               )}
           </div>
       </div>
 
-      {isLoading ? <div className="h-64 flex justify-center items-center"><Loader2 className="w-8 h-8 animate-spin text-ams-blue" /></div> : (
-          <>
-              {viewMode === 'Month' && renderMonthView()}
-              {viewMode === 'Week' && renderWeekView()}
-              {viewMode === 'List' && renderListView()}
-          </>
-      )}
+      {/* Main Content */}
+      {viewMode === 'Month' && renderMonthView()}
+      {viewMode === 'Week' && renderWeekView()}
+      {viewMode === 'List' && renderListView()}
 
-      {/* Editor Modal (Manager) */}
-      {isEditorOpen && (
-          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
+      {/* Shift Editor (Manager) */}
+      {isEditorOpen && formData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
+                  {/* ... Editor Content ... */}
                   <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
-                      <h3 className="font-bold text-xl text-slate-800 dark:text-white flex items-center gap-2">
-                          {isNewShift ? <Plus className="w-5 h-5 text-ams-blue" /> : <Edit3 className="w-5 h-5 text-ams-blue" />}
-                          {isNewShift ? 'Create Shift' : 'Edit Shift Details'}
-                      </h3>
-                      <button onClick={() => { setIsEditorOpen(false); setSelectedShift(null); }} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white">{isNewShift ? 'Create Shift' : 'Edit Shift'}</h3>
+                      <button onClick={() => setIsEditorOpen(false)}><X className="w-6 h-6 text-slate-400" /></button>
                   </div>
                   
                   <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                      <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Start Time</label>
-                              <input type="datetime-local" className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" value={formData.start ? new Date(formData.start.getTime() - formData.start.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} onChange={e => setFormData({...formData, start: new Date(e.target.value)})} />
-                          </div>
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">End Time</label>
-                              <input type="datetime-local" className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" value={formData.end ? new Date(formData.end.getTime() - formData.end.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} onChange={e => setFormData({...formData, end: new Date(e.target.value)})} />
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Shift Name / Event</label>
-                              <div className="relative">
-                                  <Briefcase className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-                                  <input className="w-full p-3 pl-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" placeholder="e.g. Glastonbury Team 1" value={formData.location || ''} onChange={e => setFormData({...formData, location: e.target.value})} />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Left: Details */}
+                          <div className="space-y-4">
+                              <div><label className="text-xs font-bold text-slate-500 uppercase">Location / Event Name</label><input className="w-full p-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600 dark:text-white" value={formData.location || ''} onChange={e => setFormData({...formData, location: e.target.value})} /></div>
+                              <div>
+                                  <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">Address <button onClick={useCurrentLocation} className="text-ams-blue flex items-center gap-1"><MapPin className="w-3 h-3" /> GPS</button></label>
+                                  <input className="w-full p-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600 dark:text-white" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
                               </div>
-                          </div>
-                          <div>
-                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1 flex justify-between">
-                                  Site Address
-                                  <button onClick={useCurrentLocation} className="text-[10px] text-ams-blue flex items-center gap-1 hover:underline"><Navigation className="w-3 h-3" /> Get Current Location</button>
-                              </label>
-                              <div className="relative">
-                                  <MapPin className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-                                  <input className="w-full p-3 pl-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white outline-none focus:ring-2 focus:ring-ams-blue" placeholder="e.g. 123 Farm Lane, Pilton, BA4 4AZ" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} />
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div><label className="text-xs font-bold text-slate-500 uppercase">Start</label><input type="datetime-local" className="w-full p-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600 dark:text-white" value={formData.start ? new Date(formData.start.getTime() - (formData.start.getTimezoneOffset() * 60000)).toISOString().slice(0,16) : ''} onChange={e => setFormData({...formData, start: new Date(e.target.value)})} /></div>
+                                  <div><label className="text-xs font-bold text-slate-500 uppercase">End</label><input type="datetime-local" className="w-full p-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600 dark:text-white" value={formData.end ? new Date(formData.end.getTime() - (formData.end.getTimezoneOffset() * 60000)).toISOString().slice(0,16) : ''} onChange={e => setFormData({...formData, end: new Date(e.target.value)})} /></div>
                               </div>
-                          </div>
-                      </div>
-
-                      {/* Recurrence Options */}
-                      <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                          <div className="flex items-center justify-between mb-2">
-                              <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                  <Repeat className="w-4 h-4 text-ams-blue" /> Recurrence & Duplication
-                              </h4>
-                              {!isNewShift && (
-                                  <button onClick={handleDuplicate} className="text-xs flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 py-1.5 rounded-lg font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm text-slate-700 dark:text-slate-200">
-                                      <Copy className="w-3 h-3" /> Duplicate
-                                  </button>
-                              )}
-                          </div>
-                          
-                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 font-medium cursor-pointer mb-3">
-                              <input type="checkbox" checked={isRepeating} onChange={e => setIsRepeating(e.target.checked)} className="w-4 h-4 text-ams-blue rounded" />
-                              Repeat this shift pattern
-                          </label>
-
-                          {isRepeating && (
-                              <div className="grid grid-cols-2 gap-4 animate-in fade-in">
-                                  <div>
-                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Frequency</label>
-                                      <select className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none" value={repeatFrequency} onChange={e => setRepeatFrequency(e.target.value as any)}>
-                                          <option value="Weekly">Weekly</option>
-                                          <option value="Daily">Daily</option>
-                                      </select>
-                                  </div>
-                                  <div>
-                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Until Date</label>
-                                      <input type="date" className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none dark:text-white" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={new Date().toISOString().split('T')[0]} />
-                                  </div>
-                              </div>
-                          )}
-                      </div>
-
-                      {/* Resources & Kit */}
-                      <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
-                          <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-2">Resources & Assets</h4>
-                          <div className="flex gap-2 mb-3">
-                              <select className="bg-slate-100 dark:bg-slate-700 rounded-lg px-3 py-2 text-xs font-bold border-none outline-none dark:text-white" value={resourceType} onChange={e => setResourceType(e.target.value as any)}>
-                                  <option>Vehicle</option><option>Kit</option>
-                              </select>
-                              <select className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none dark:text-white" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}>
-                                  <option value="">-- Select {resourceType} --</option>
-                                  {resourceType === 'Vehicle' ? allVehicles.map(v => <option key={v.id} value={v.id}>{v.callSign} ({v.registration})</option>) : allKits.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
-                              </select>
-                              <button onClick={addResource} disabled={!selectedAssetId} className="px-4 bg-ams-blue text-white rounded-lg text-xs font-bold disabled:opacity-50">Add</button>
-                          </div>
-                          <div className="space-y-2 max-h-32 overflow-y-auto">
-                              {formData.resources?.map(r => (
-                                  <div key={r.id} className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
-                                      <div className="flex items-center gap-2">
-                                          {r.type === 'Vehicle' ? <Truck className="w-4 h-4 text-blue-500" /> : <Briefcase className="w-4 h-4 text-green-500" />}
-                                          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{r.name}</span>
-                                      </div>
-                                      <button onClick={() => removeResource(r.id)} className="text-red-400 hover:text-red-600 p-1"><X className="w-4 h-4" /></button>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-
-                      {/* Staffing Slots */}
-                      <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
-                          <div className="flex justify-between items-center mb-4">
-                              <h4 className="font-bold text-sm text-slate-800 dark:text-white">Crew Allocation</h4>
-                              <button onClick={addSlot} className="text-xs bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-1"><Plus className="w-3 h-3" /> Add Slot</button>
-                          </div>
-                          <div className="space-y-3 max-h-[250px] overflow-y-auto pr-1">
-                              {formSlots.map((slot, idx) => (
-                                  <div key={idx} className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                                      <div className="flex gap-3 items-center">
-                                          <select className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-sm outline-none font-bold text-slate-600 dark:text-slate-300 w-28" value={slot.role} onChange={e => updateSlot(idx, 'role', e.target.value)}>{Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}</select>
-                                          <div className="flex-1 relative">
-                                              <select className={`w-full bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 text-sm outline-none transition-colors ${slot.userId ? 'border-green-300 text-green-700 font-bold' : 'border-slate-200 text-slate-500'}`} value={slot.userId || ''} onChange={e => updateSlot(idx, 'userId', e.target.value)}>
-                                                  <option value="">( Unassigned / Open )</option>
-                                                  {allStaff.map(s => <option key={s.uid} value={s.uid}>{s.name} - {s.role}</option>)}
-                                              </select>
-                                              {!slot.userId && slot.bids && slot.bids.length > 0 && (
-                                                  <div className="absolute top-0 right-0 -mt-2 -mr-2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                                                      {slot.bids.length} Bids
-                                                  </div>
-                                              )}
-                                          </div>
-                                          {slot.userId && (
-                                              <button onClick={() => openTimeManager(slot.userId!, slot.userName!)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Manage Time">
-                                                  <DollarSign className="w-4 h-4" />
-                                              </button>
-                                          )}
-                                          <button onClick={() => removeSlot(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                                      </div>
-                                      
-                                      {/* Bid Management for Manager */}
-                                      {!slot.userId && slot.bids && slot.bids.length > 0 && (
-                                          <div className="mt-2 pl-2 border-l-2 border-blue-200 ml-2">
-                                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Applicants</p>
-                                              {slot.bids.map((bid, bIdx) => (
-                                                  <div key={bIdx} className="flex justify-between items-center text-sm mb-1 bg-white dark:bg-slate-800 p-2 rounded shadow-sm">
-                                                      <span>{bid.userName} <span className="text-xs text-slate-400">({bid.userRole})</span></span>
-                                                      <button 
-                                                          onClick={() => handleAcceptBid(idx, bIdx)}
-                                                          className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold hover:bg-green-200"
-                                                      >
-                                                          Accept
-                                                      </button>
-                                                  </div>
-                                              ))}
+                              <div><label className="text-xs font-bold text-slate-500 uppercase">Notes</label><textarea className="w-full p-2 border rounded-lg dark:bg-slate-700 dark:border-slate-600 dark:text-white" rows={3} value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} /></div>
+                              
+                              {/* Repeating Options */}
+                              {isNewShift && (
+                                  <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border dark:border-slate-700">
+                                      <label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-300 text-sm mb-2"><input type="checkbox" checked={isRepeating} onChange={e => setIsRepeating(e.target.checked)} /> Repeat Shift</label>
+                                      {isRepeating && (
+                                          <div className="flex gap-2">
+                                              <select className="p-2 rounded border text-sm dark:bg-slate-700 dark:text-white" value={repeatFrequency} onChange={e => setRepeatFrequency(e.target.value as any)}><option>Daily</option><option>Weekly</option></select>
+                                              <input type="date" className="p-2 rounded border text-sm dark:bg-slate-700 dark:text-white" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} />
                                           </div>
                                       )}
                                   </div>
-                              ))}
+                              )}
                           </div>
-                      </div>
-                      
-                      <div>
-                          <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Notes</label>
-                          <textarea className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm resize-none dark:text-white focus:ring-2 focus:ring-ams-blue outline-none" rows={2} placeholder="Internal shift notes..." value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} />
+
+                          {/* Right: Slots & Resources */}
+                          <div className="space-y-6">
+                              <div>
+                                  <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-sm text-slate-700 dark:text-white">Staffing Slots</h4><button onClick={addSlot} className="text-xs bg-ams-blue text-white px-2 py-1 rounded">+ Add Slot</button></div>
+                                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                                      {formSlots.map((slot, idx) => (
+                                          <div key={idx} className="p-3 border rounded-lg bg-slate-50 dark:bg-slate-900 dark:border-slate-700">
+                                              <div className="flex justify-between mb-2">
+                                                  <select className="text-xs p-1 rounded border dark:bg-slate-700 dark:text-white" value={slot.role} onChange={e => updateSlot(idx, 'role', e.target.value)}>{Object.values(Role).map(r => <option key={r}>{r}</option>)}</select>
+                                                  <button onClick={() => removeSlot(idx)} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
+                                              </div>
+                                              <select className="w-full text-xs p-2 rounded border dark:bg-slate-700 dark:text-white" value={slot.userId || ''} onChange={e => updateSlot(idx, 'userId', e.target.value)}>
+                                                  <option value="">-- Unassigned --</option>
+                                                  {allStaff.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.role})</option>)}
+                                              </select>
+                                              {/* Bids */}
+                                              {slot.bids && slot.bids.length > 0 && !slot.userId && (
+                                                  <div className="mt-2 pt-2 border-t dark:border-slate-700">
+                                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Applicants:</span>
+                                                      {slot.bids.map((bid, bIdx) => (
+                                                          <div key={bIdx} className="flex justify-between items-center text-xs mt-1 bg-white dark:bg-slate-800 p-1 rounded">
+                                                              <span>{bid.userName} ({bid.userRole})</span>
+                                                              <button onClick={() => handleAcceptBid(idx, bIdx)} className="text-green-600 font-bold hover:underline">Accept</button>
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
+                                          </div>
+                                      ))}
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-sm text-slate-700 dark:text-white">Resources</h4></div>
+                                  <div className="flex gap-2 mb-2">
+                                      <select className="flex-1 text-xs p-2 rounded border dark:bg-slate-700 dark:text-white" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}>
+                                          <option value="">Select Asset...</option>
+                                          {resourceType === 'Vehicle' ? allVehicles.map(v => <option key={v.id} value={v.id}>{v.callSign}</option>) : allKits.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                                      </select>
+                                      <button onClick={() => setResourceType(resourceType === 'Vehicle' ? 'Kit' : 'Vehicle')} className="px-2 border rounded text-xs dark:text-white">{resourceType}</button>
+                                      <button onClick={addResource} className="px-3 bg-green-500 text-white rounded text-xs font-bold">+</button>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                      {formData.resources?.map(r => (
+                                          <span key={r.id} className="bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-xs flex items-center gap-1 dark:text-white">
+                                              {r.type === 'Vehicle' ? <Truck className="w-3 h-3" /> : <Briefcase className="w-3 h-3" />} {r.name}
+                                              <button onClick={() => removeResource(r.id)}><X className="w-3 h-3 hover:text-red-500" /></button>
+                                          </span>
+                                      ))}
+                                  </div>
+                              </div>
+                          </div>
                       </div>
                   </div>
 
-                  <div className="p-6 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex justify-between gap-4">
-                      {!isNewShift && (
-                          <div className="flex gap-2">
-                              <button onClick={handleDeleteShift} disabled={isOperating} type="button" className="px-4 py-3 text-red-600 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors flex items-center gap-2 text-sm border border-transparent hover:border-red-200 disabled:opacity-50">
-                                  {isOperating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Delete
-                              </button>
-                              {formData.status !== 'Cancelled' && (
-                                <button onClick={handleCancelShift} disabled={isOperating} type="button" className="px-4 py-3 text-amber-600 font-bold hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-colors flex items-center gap-2 text-sm border border-transparent hover:border-amber-200 disabled:opacity-50">
-                                    {isOperating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} Cancel Shift
-                                </button>
-                              )}
-                          </div>
-                      )}
-                      <div className="flex gap-3 ml-auto w-full md:w-auto">
-                          <button onClick={() => { setIsEditorOpen(false); setSelectedShift(null); }} disabled={isOperating} className="flex-1 md:flex-none px-6 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50">Cancel</button>
-                          <button onClick={handleSaveShift} disabled={isOperating} className="flex-1 md:flex-none px-8 py-3 bg-ams-blue text-white font-bold rounded-xl shadow-lg hover:bg-blue-900 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                              {isOperating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {isNewShift ? 'Publish Shift' : 'Save Changes'}
+                  <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center">
+                      <div className="flex gap-2">
+                          {!isNewShift && (
+                              <>
+                                <button onClick={handleDeleteShift} className="px-4 py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-bold text-sm border border-red-200 dark:border-red-800">Delete</button>
+                                <button onClick={handleDuplicate} className="px-4 py-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg font-bold text-sm border border-blue-200 dark:border-blue-800">Duplicate</button>
+                                <button onClick={handleCancelShift} className="px-4 py-2 text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg font-bold text-sm border border-slate-300 dark:border-slate-600">Cancel Shift</button>
+                              </>
+                          )}
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={() => setIsEditorOpen(false)} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-200 rounded-lg transition-colors">Close</button>
+                          <button onClick={handleSaveShift} disabled={isOperating} className="px-8 py-2 bg-ams-blue text-white font-bold rounded-lg hover:bg-blue-700 shadow-md flex items-center gap-2">
+                              {isOperating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
                           </button>
                       </div>
                   </div>
@@ -847,117 +857,58 @@ const RotaPage = () => {
           </div>
       )}
 
-      {/* Manual Time Entry Modal */}
-      {manageTimeUser && (
-          <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm">
-                  <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Adjust Timesheet: {manageTimeUser.name}</h3>
-                  <div className="space-y-4">
-                      <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clock In</label>
-                          <input type="datetime-local" className="w-full input-field" value={manageTimeData.in} onChange={e => setManageTimeData({...manageTimeData, in: e.target.value})} />
-                      </div>
-                      <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Clock Out</label>
-                          <input type="datetime-local" className="w-full input-field" value={manageTimeData.out} onChange={e => setManageTimeData({...manageTimeData, out: e.target.value})} />
-                      </div>
-                  </div>
-                  <div className="flex gap-2 mt-6">
-                      <button onClick={() => setManageTimeUser(null)} className="flex-1 py-2 bg-slate-100 rounded-lg font-bold text-slate-600">Cancel</button>
-                      <button onClick={saveTimeData} className="flex-1 py-2 bg-ams-blue text-white rounded-lg font-bold">Save Record</button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Briefing Modal */}
+      {/* Briefing Modal (Staff) */}
       {isBriefingOpen && selectedShift && (
-          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
-                  <div className={`p-6 text-white bg-slate-900 dark:bg-black flex justify-between items-start`}>
-                      <div>
-                          <h2 className="text-xl font-bold">{selectedShift.location}</h2>
-                          {selectedShift.address && <p className="text-xs opacity-75 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {selectedShift.address}</p>}
-                          <div className="flex items-center gap-2 mt-2 opacity-80 text-sm">
-                              <Clock className="w-4 h-4" />
-                              {selectedShift.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {selectedShift.end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                          </div>
-                      </div>
-                      <button onClick={() => setIsBriefingOpen(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <div className="bg-ams-blue p-6 text-white relative">
+                      <h3 className="text-xl font-bold">{selectedShift.location}</h3>
+                      <p className="opacity-90 text-sm flex items-center gap-2 mt-1"><Clock className="w-4 h-4" /> {selectedShift.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {selectedShift.end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                      <button onClick={() => setIsBriefingOpen(false)} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full"><X className="w-5 h-5" /></button>
                   </div>
+                  
                   <div className="p-6 space-y-6">
-                      {(selectedShift.resources?.length || 0) > 0 && (
-                          <div>
-                              <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3">Assigned Assets</h4>
-                              <div className="flex flex-wrap gap-2">
-                                  {selectedShift.resources?.map(r => (
-                                      <span key={r.id} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 rounded-full text-xs font-bold flex items-center gap-1 dark:text-white">
-                                          {r.type === 'Vehicle' ? <Truck className="w-3 h-3" /> : <Briefcase className="w-3 h-3" />} {r.name}
-                                      </span>
-                                  ))}
+                      {selectedShift.address && (
+                          <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                              <MapPin className="w-5 h-5 text-ams-blue mt-0.5" />
+                              <div>
+                                  <p className="text-sm font-bold text-slate-700 dark:text-white">Address / Coordinates</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">{selectedShift.address}</p>
+                                  <a href={`https://maps.google.com/?q=${selectedShift.address}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 font-bold hover:underline mt-1 block">Open Maps</a>
                               </div>
                           </div>
                       )}
-                      <div>
-                          <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3">Crew Configuration</h4>
-                          <div className="space-y-2">
-                              {selectedShift.slots.map((slot, idx) => {
-                                  const isAssignedToMe = slot.userId === user?.uid;
-                                  const isFilled = !!slot.userId;
-                                  const hasBid = slot.bids && slot.bids.some(b => b.userId === user?.uid);
 
-                                  return (
-                                      <div key={idx} className={`flex justify-between items-center p-3 rounded-xl border ${isAssignedToMe ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : 'bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700'}`}>
-                                          <div className="flex items-center gap-3">
-                                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isFilled ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-white dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400'}`}>
-                                                  {isFilled ? (slot.userName ? slot.userName.charAt(0) : '?') : <UserPlus className="w-4 h-4" />}
-                                              </div>
-                                              <div>
-                                                  <div className={`font-bold text-sm ${isFilled ? 'text-slate-800 dark:text-white' : 'text-slate-400 italic'}`}>
-                                                      {isFilled ? (slot.userName || 'Unknown') : 'Open Slot'}
-                                                  </div>
-                                                  <div className="text-[10px] text-slate-500 uppercase font-bold">{slot.role}</div>
-                                              </div>
-                                          </div>
-                                          
-                                          {isAssignedToMe ? (
-                                              <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-full font-bold">YOU</span>
-                                          ) : !isFilled ? (
-                                              hasBid ? (
-                                                  <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-full font-bold flex items-center gap-1">
-                                                      <Clock className="w-3 h-3" /> Bid Sent
-                                                  </span>
-                                              ) : (
-                                                  <button 
-                                                      onClick={() => handleBid(idx)} 
-                                                      disabled={isOperating}
-                                                      className="text-[10px] bg-ams-blue text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-900 transition-colors shadow-sm flex items-center gap-1"
-                                                  >
-                                                      {isOperating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Hand className="w-3 h-3" />} Apply
-                                                  </button>
-                                              )
-                                          ) : null}
+                      <div>
+                          <h4 className="text-sm font-bold text-slate-500 uppercase mb-2">Team & Roles</h4>
+                          <div className="space-y-2">
+                              {selectedShift.slots?.map((slot, idx) => (
+                                  <div key={idx} className="flex justify-between items-center p-2 rounded bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
+                                      <div className="flex items-center gap-2">
+                                          <div className={`w-2 h-2 rounded-full ${slot.userId ? 'bg-green-500' : 'bg-red-500'}`} />
+                                          <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{slot.role}</span>
                                       </div>
-                                  );
-                              })}
+                                      <span className="text-sm text-slate-600 dark:text-slate-400">{slot.userName || 'Open'}</span>
+                                      {/* Bid Button if slot is open and user matches role */}
+                                      {!slot.userId && !isManager && (
+                                          <button 
+                                            onClick={() => handleBid(idx)} 
+                                            disabled={slot.bids?.some(b => b.userId === user?.uid)}
+                                            className="px-3 py-1 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 disabled:opacity-50"
+                                          >
+                                              {slot.bids?.some(b => b.userId === user?.uid) ? 'Applied' : 'Apply'}
+                                          </button>
+                                      )}
+                                  </div>
+                              ))}
                           </div>
                       </div>
-                      
-                      {selectedShift.slots.some(s => s.userId === user?.uid) && (
-                          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                              <button onClick={handleReportSick} disabled={isOperating} className="col-span-2 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"><AlertOctagon className="w-4 h-4" /> Report Sick / Drop Shift</button>
-                              
-                              {selectedShift.tags?.includes('Swap Requested') ? (
-                                  <div className="py-3 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-bold text-xs flex flex-col items-center gap-1 text-center"><RefreshCw className="w-5 h-5" /> Swap Requested</div>
-                              ) : (
-                                  <button onClick={handleRequestSwap} disabled={isOperating} className="py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-amber-100 transition-colors"><RefreshCw className="w-5 h-5" /> Request Swap</button>
-                              )}
 
-                              {selectedShift.tags?.includes('Offer Pending') ? (
-                                  <div className="py-3 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-xl font-bold text-xs flex flex-col items-center gap-1 text-center"><Hand className="w-5 h-5" /> Offered</div>
-                              ) : (
-                                  <button onClick={handleOfferShift} disabled={isOperating} className="py-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-xl font-bold text-xs flex flex-col items-center gap-1 hover:bg-blue-100 transition-colors"><Hand className="w-5 h-5" /> Offer to Pool</button>
-                              )}
+                      {/* My Actions */}
+                      {selectedShift.slots?.some(s => s.userId === user?.uid) && (
+                          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
+                              <button onClick={handleRequestSwap} className="py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50">Request Swap</button>
+                              <button onClick={handleReportSick} className="py-2 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-xs font-bold">Report Sick</button>
                           </div>
                       )}
                   </div>

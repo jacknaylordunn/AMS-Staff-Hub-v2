@@ -7,7 +7,7 @@ import { useAuth } from './useAuth';
 interface DataSyncContextType {
   isOnline: boolean;
   syncStatus: 'Synced' | 'Syncing' | 'Offline' | 'Error';
-  saveEPRF: (data: any) => Promise<void>;
+  saveEPRF: (data: any, immediate?: boolean) => Promise<void>;
   loadEPRF: (id: string) => Promise<any>;
   deleteEPRF: (id: string) => Promise<void>;
   currentEPRF: any | null;
@@ -47,19 +47,18 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, []);
 
-  const saveEPRF = async (data: any) => {
+  const saveEPRF = async (data: any, immediate = false) => {
     if (!user) return;
     
-    // Immediately indicate to UI that we are handling changes
     setSyncStatus('Syncing');
     
-    // Clear any existing pending write to prevent flooding the queue
+    // Clear any existing pending write
     if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
     }
-    
-    // Schedule the write execution
-    saveTimeoutRef.current = setTimeout(async () => {
+
+    const performSave = async () => {
         try {
             const draftId = `draft_${user.uid}_${data.id}`;
             
@@ -79,8 +78,18 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } catch (e) {
             console.error("Save failed", e);
             setSyncStatus('Error');
+            throw e; // Propagate error for immediate saves
         }
-    }, 2000); // 2-second debounce window
+    };
+    
+    if (immediate) {
+        await performSave();
+    } else {
+        // Schedule the write execution (Debounce)
+        saveTimeoutRef.current = setTimeout(() => {
+            performSave().catch(e => console.error("Background save failed", e));
+        }, 2000); 
+    }
   };
 
   const loadEPRF = async (id: string) => {

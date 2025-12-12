@@ -1,0 +1,171 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Helper Functions ---
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function getUserData() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Check if user is Manager or Admin
+    function isManager() {
+        return isAuthenticated() && (
+            getUserData().role == 'Manager' ||
+            getUserData().role == 'Admin'
+        );
+    }
+
+    // --- Users Collection ---
+    match /users/{userId} {
+      // Allow reading profiles (for directory, witness, etc.)
+      // Note: Hashed PINs are in 'pinHash' field, users should not have permission to read pinHash of OTHERS if possible,
+      // but Firestore rules return the whole document. We rely on client not to display it and the fact it is hashed.
+      allow read: if isAuthenticated();
+      
+      // CRITICAL: Allow finding a user by Badge ID for login (requires limit(1) query)
+      allow list: if request.query.limit <= 1; 
+      
+      // Managers can create/update users (e.g. approving roles)
+      // Users can only update their OWN 'phone', 'address', 'pinHash', 'pinLastUpdated'
+      allow create: if isAuthenticated(); // Self-registration
+      
+      allow update: if isAuthenticated() && (
+          isManager() || 
+          (isOwner(userId) && 
+           // User cannot change their own Role or Status or ID
+           request.resource.data.role == resource.data.role &&
+           request.resource.data.status == resource.data.status &&
+           request.resource.data.employeeId == resource.data.employeeId
+          )
+      );
+      
+      match /cpd/{entry} {
+        allow read, write: if isAuthenticated() && (isOwner(userId) || isManager());
+      }
+
+      match /notifications/{notifId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow create: if isManager() || isOwner(userId);
+        allow update: if isAuthenticated() && isOwner(userId);
+      }
+    }
+
+    // --- ePRFs (Clinical Records) ---
+    match /eprfs/{document} {
+      allow create: if isAuthenticated();
+      
+      // Read: Access List members OR Managers
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager());
+      
+      // Update: 
+      // 1. Must be in access list or Manager
+      // 2. CANNOT update if status is 'Submitted' (WORM compliance), UNLESS it is a Manager unlocking it (rare)
+      //    or adding a review note.
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager()) 
+                    && (resource.data.status != 'Submitted' || isManager());
+      
+      // Delete: Only if NOT Submitted (Drafts only)
+      allow delete: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager())
+                    && resource.data.status != 'Submitted';
+    }
+
+    // --- Rota & Shifts ---
+    match /shifts/{shiftId} {
+      allow read: if isAuthenticated();
+      
+      // Only Managers create/delete shifts
+      allow create, delete: if isManager();
+      
+      // Update: 
+      // Managers can do anything.
+      // Staff can ONLY update specific fields like 'slots' (for bidding) or 'timeRecords' (clocking in)
+      allow update: if isManager() || (
+        isAuthenticated() && 
+        (
+           // Allow updating slots (bidding) or timeRecords
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'timeRecords'])
+        )
+      );
+    }
+
+    // --- Assets (Fleet & Kits) ---
+    match /fleet/{vehicle} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+      allow update: if isAuthenticated(); // Staff update mileage/status via VDI
+    }
+    
+    match /medical_kits/{kit} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+      allow update: if isAuthenticated(); // Staff update checklist/status
+    }
+    
+    match /asset_checks/{check} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+    
+    // --- Drugs & Stock ---
+    match /stock/{item} {
+      allow read: if isAuthenticated();
+      // Allow updates (stock count changes) by staff
+      allow update: if isAuthenticated();
+    }
+    
+    match /drug_audit/{entry} {
+      allow read: if isManager();
+      allow create: if isAuthenticated(); // Audit log is append-only
+      allow update, delete: if false; // Audit logs are immutable
+    }
+
+    // --- System / Communication ---
+    match /system/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated(); // Major Incident Declaration
+    }
+    
+    match /announcements/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    match /kudos/{id} {
+      allow read, create: if isAuthenticated();
+    }
+    
+    match /feedback/{id} {
+      allow create: if isAuthenticated();
+      allow read: if isManager();
+    }
+    
+    match /oh_referrals/{id} {
+      allow create: if isAuthenticated();
+      allow read: if isManager() || request.auth.uid == resource.data.userId;
+    }
+    
+    match /major_incident_logs/{id} {
+      allow read, create: if isAuthenticated();
+    }
+    
+    match /audit_logs/{id} {
+        allow create: if isAuthenticated();
+        allow read: if isManager();
+        allow update, delete: if false;
+    }
+
+    match /documents/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+  }
+}
