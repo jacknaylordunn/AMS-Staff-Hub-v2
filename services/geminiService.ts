@@ -1,7 +1,12 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// --------------------------------------------------------
+// GOOGLE GEMINI API KEY
+// --------------------------------------------------------
+const apiKey = process.env.API_KEY;
+
+const ai = new GoogleGenAI({ apiKey });
 
 export const analyzeSafeguarding = async (narrative: string): Promise<{ detected: boolean; type?: string; reasoning?: string }> => {
   try {

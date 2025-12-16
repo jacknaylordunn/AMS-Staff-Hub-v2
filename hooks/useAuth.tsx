@@ -10,7 +10,7 @@ import {
   EmailAuthProvider,
   User as FirebaseUser 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp, limit } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, updateDoc, Timestamp, limit, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { User, Role } from '../types';
 import { hashPin } from '../utils/crypto';
@@ -79,40 +79,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       setFirebaseUser(fbUser);
       
       if (fbUser) {
-        // Ensure loading stays true while we fetch the profile to prevent race conditions
         setIsLoading(true);
-        try {
-          const userDocRef = doc(db, 'users', fbUser.uid);
-          const userDoc = await getDoc(userDocRef);
+        // Real-time listener for user profile
+        const userDocRef = doc(db, 'users', fbUser.uid);
+        const unsubscribeSnapshot = onSnapshot(userDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const userData = docSnap.data() as User;
+                // Fix pinHash display logic
+                if (userData.pinHash && !userData.pin) {
+                    userData.pin = '****';
+                }
+                setUser(userData);
+            } else {
+                // Initial fallback
+                setUser({
+                    uid: fbUser.uid,
+                    email: fbUser.email || '',
+                    name: fbUser.displayName || 'User',
+                    role: Role.Pending,
+                    status: 'Pending',
+                    compliance: []
+                });
+            }
+            setIsLoading(false);
+        }, (err) => {
+            console.error("Profile sync error", err);
+            setIsLoading(false);
+        });
 
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as User;
-            setUser(userData);
-          } else {
-            // Fallback if Firestore doc creation is lagging slightly
-            setUser({
-                uid: fbUser.uid,
-                email: fbUser.email || '',
-                name: fbUser.displayName || 'User',
-                role: Role.Pending,
-                status: 'Pending',
-                compliance: []
-            });
-          }
-        } catch (err) {
-          console.error('Error fetching user profile:', err);
-        }
+        return () => unsubscribeSnapshot();
       } else {
         setUser(null);
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -130,7 +136,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithBadge = async (badgeId: string, password: string) => {
       setError(null);
       try {
-          // IMPORTANT: Must include limit(1) to satisfy Firestore security rules for unauthenticated queries
           const q = query(collection(db, 'users'), where('employeeId', '==', badgeId), limit(1));
           const snapshot = await getDocs(q);
           
@@ -143,14 +148,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       } catch (err: any) {
           console.error(err);
-          // Specific check for Firestore permission issues
           if (err.code === 'permission-denied' || err.message.includes('permission-denied')) {
-              console.warn("DEVELOPER: Add this to Firestore Rules to enable Badge Login:\nmatch /users/{userId} { allow list: if request.query.limit <= 1; }");
               const errObj = { code: 'permission-denied', message: 'Badge Login disabled by security policy.' };
               setError(getFriendlyErrorMessage(errObj));
               throw new Error("Badge Login is disabled. Please use Email Login.");
           }
-          
           const msg = getFriendlyErrorMessage(err);
           setError(msg);
           throw new Error(msg);
@@ -158,9 +160,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithPin = async (badgeId: string, pin: string) => {
-    // Note: True secure PIN login requires a backend custom token generator.
-    // For this implementation, we use Login with Badge + Password as primary.
-    // PIN is used for signing actions.
     throw new Error("Please use Badge ID + Password for initial login.");
   };
 
@@ -173,12 +172,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           if (userDoc.exists()) {
               const data = userDoc.data();
-              // Check for Hashed PIN first (New System)
               if (data.pinHash) {
                   const inputHash = await hashPin(pin);
                   return inputHash === data.pinHash;
               }
-              // Fallback to legacy plain text PIN (Old System)
               if (data.pin) {
                   return data.pin === pin;
               }
@@ -196,19 +193,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       try {
           const hashed = await hashPin(newPin);
-          
-          // We clear the legacy 'pin' field when setting 'pinHash' to enforce upgrade
           await updateDoc(doc(db, 'users', user.uid), {
               pinHash: hashed,
-              pin: null, // Clear plaintext legacy pin
+              pin: null, 
               pinLastUpdated: new Date().toISOString()
           });
-          
-          // Update local state locally to avoid full reload delay
-          // We set 'pin' property in local state to '****' just to indicate it exists
-          setUser(prev => prev ? { ...prev, pin: '****' } : null);
-          
-          await refreshUser();
       } catch (e) {
           console.error(e);
           throw new Error("Failed to update PIN");
@@ -220,8 +209,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const fbUser = userCredential.user;
-
-      // Send verification before proceeding
       await sendEmailVerification(fbUser);
 
       const newUser: User = {
@@ -235,8 +222,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       await setDoc(doc(db, 'users', fbUser.uid), newUser);
-      
-      // Update local state immediately to speed up UI transition
       setUser(newUser);
       setFirebaseUser(fbUser);
       
@@ -264,21 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (auth.currentUser) {
           try {
               await auth.currentUser.reload();
-              // Create a new object reference to force React to detect change
-              const updatedUser = auth.currentUser; 
-              setFirebaseUser({ ...updatedUser } as FirebaseUser);
-              
-              // Re-fetch profile to ensure role/status is up to date
-              const userDocRef = doc(db, 'users', updatedUser.uid);
-              const userDoc = await getDoc(userDocRef);
-              if (userDoc.exists()) {
-                  const data = userDoc.data() as User;
-                  // If pinHash exists but pin is null, we treat pin as existing in the type
-                  if (data.pinHash && !data.pin) {
-                      data.pin = '****';
-                  }
-                  setUser(data);
-              }
+              setFirebaseUser({ ...auth.currentUser } as FirebaseUser);
           } catch (err) {
               console.error("Error refreshing user", err);
           }

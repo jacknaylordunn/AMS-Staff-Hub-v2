@@ -1,10 +1,21 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Aegis Staff Hub</title>
+    <title>AMS Staff Hub</title>
+    
+    <!-- PWA / Favicon -->
+    <link rel="icon" type="image/png" href="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" />
+    <link rel="apple-touch-icon" href="https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png" />
     <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0052CC" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AMS Hub" />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       // Immediate Theme Application
@@ -39,13 +50,14 @@
               }
             },
             fontFamily: {
-              sans: ['Inter', 'system-ui', 'sans-serif'],
-              mono: ['JetBrains Mono', 'monospace'],
+              sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+              mono: ['JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
             },
             boxShadow: {
-              'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+              'glass': '0 4px 30px rgba(0, 0, 0, 0.1)',
               'glass-hover': '0 8px 32px 0 rgba(31, 38, 135, 0.15)',
               'glow': '0 0 15px rgba(0, 82, 204, 0.3)',
+              'card': '0 2px 8px rgba(0,0,0,0.05)',
             },
             animation: {
               'blob': 'blob 10s infinite',
@@ -76,38 +88,68 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #F4F5F7;
+        background-color: #F4F6F8;
         color: #172B4D;
         -webkit-tap-highlight-color: transparent;
-        overscroll-behavior-y: none;
+        overscroll-behavior-y: none; /* Prevent bounce on iPad */
         min-height: 100vh;
       }
       @media (prefers-color-scheme: dark) { body { background-color: #0F1115; color: #F4F5F7; } }
       html.dark body { background-color: #0F1115; color: #F4F5F7; }
       
-      /* Global Component Classes */
-      .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.5); }
-      html.dark .glass-panel { background: rgba(23, 32, 48, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); }
+      /* Global Component Classes - iPad Optimized */
+      .glass-panel { 
+        background: rgba(255, 255, 255, 0.85); 
+        backdrop-filter: blur(16px); 
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.6); 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      }
+      html.dark .glass-panel { 
+        background: rgba(23, 32, 48, 0.7); 
+        border: 1px solid rgba(255, 255, 255, 0.08); 
+      }
       
-      .input-field { width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; background-color: #ffffff; color: #0f172a; outline: none; transition: all 0.2s; font-weight: 500; font-size: 0.875rem; }
+      /* Larger touch targets for inputs */
+      .input-field { 
+        width: 100%; 
+        padding: 0.875rem 1rem; /* Taller touch target (approx 48px height) */
+        border-radius: 0.75rem; 
+        border: 1px solid #e2e8f0; 
+        background-color: #ffffff; 
+        color: #0f172a; 
+        outline: none; 
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-weight: 500; 
+        font-size: 16px; /* Prevents iOS zoom on focus */
+        appearance: none;
+      }
       html.dark .input-field { background-color: #1e293b; border-color: #334155; color: #ffffff; }
-      .input-field:focus { border-color: #0052CC; box-shadow: 0 0 0 4px rgba(0, 82, 204, 0.1); }
+      .input-field:focus { 
+        border-color: #0052CC; 
+        box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.15); 
+        transform: translateY(-1px);
+      }
       
-      .input-label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 0.375rem; margin-left: 0.25rem; }
+      .input-label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.025em; color: #64748b; margin-bottom: 0.375rem; margin-left: 0.25rem; }
       html.dark .input-label { color: #94a3b8; }
       
-      /* Scrollbar */
+      /* Smooth Scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #DFE1E6; border-radius: 3px; }
-      html.dark ::-webkit-scrollbar-thumb { background: #2C3B55; }
+      ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+      html.dark ::-webkit-scrollbar-thumb { background: #334155; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      /* Leaflet Z-Index Fix for Modals */
+      .leaflet-container { z-index: 0; font-family: inherit; }
     </style>
 <script type="importmap">
 {
   "imports": {
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
@@ -123,7 +165,9 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "jsqr": "https://esm.sh/jsqr@1.4.0",
-    "qrcode": "https://esm.sh/qrcode@1.5.3"
+    "qrcode": "https://esm.sh/qrcode@1.5.3",
+    "leaflet": "https://esm.sh/leaflet@1.9.4",
+    "react-leaflet": "https://esm.sh/react-leaflet@4.2.1?external=react,react-dom,leaflet"
   }
 }
 </script>

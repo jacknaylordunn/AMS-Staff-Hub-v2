@@ -15,7 +15,6 @@ const NeuroAssessment: React.FC<NeuroAssessmentProps> = ({ data, onChange }) => 
     const updatedFast = { ...data.fast, [field]: val };
     
     // Auto-calculate Positive Status
-    // If any component is abnormal (Droop, Weakness, Slurred), auto-check Positive
     if (field === 'face' || field === 'arms' || field === 'speech') {
         const isPositive = updatedFast.face === 'Droop' || updatedFast.arms === 'Weakness' || updatedFast.speech === 'Slurred';
         updatedFast.testPositive = isPositive;
@@ -76,9 +75,10 @@ const NeuroAssessment: React.FC<NeuroAssessmentProps> = ({ data, onChange }) => 
           <td className="py-2 pr-2">
               <select 
                 className="w-full text-sm px-2 py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-ams-blue"
-                value={data.limbs[limbKey].power}
+                value={data.limbs[limbKey].power || ''}
                 onChange={e => updateLimb(limbKey, 'power', e.target.value)}
               >
+                  <option value="">Select...</option>
                   <option>Normal (5)</option>
                   <option>Mild Weakness (4)</option>
                   <option>Severe Weakness (3)</option>
@@ -90,9 +90,10 @@ const NeuroAssessment: React.FC<NeuroAssessmentProps> = ({ data, onChange }) => 
           <td className="py-2">
               <select 
                 className="w-full text-sm px-2 py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-ams-blue"
-                value={data.limbs[limbKey].sensation}
+                value={data.limbs[limbKey].sensation || ''}
                 onChange={e => updateLimb(limbKey, 'sensation', e.target.value)}
               >
+                  <option value="">Select...</option>
                   <option>Normal</option>
                   <option>Reduced</option>
                   <option>Absent</option>
@@ -158,20 +159,20 @@ const NeuroAssessment: React.FC<NeuroAssessmentProps> = ({ data, onChange }) => 
             <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="flex flex-col">
                     <span className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Face</span>
-                    <select className="input-field py-2 text-xs" value={data.fast.face} onChange={e => updateFast('face', e.target.value)}>
-                        <option>Normal</option><option>Droop</option>
+                    <select className="input-field py-2 text-xs" value={data.fast.face || ''} onChange={e => updateFast('face', e.target.value)}>
+                        <option value="">Select...</option><option>Normal</option><option>Droop</option>
                     </select>
                 </div>
                 <div className="flex flex-col">
                     <span className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Arms</span>
-                    <select className="input-field py-2 text-xs" value={data.fast.arms} onChange={e => updateFast('arms', e.target.value)}>
-                        <option>Normal</option><option>Weakness</option>
+                    <select className="input-field py-2 text-xs" value={data.fast.arms || ''} onChange={e => updateFast('arms', e.target.value)}>
+                        <option value="">Select...</option><option>Normal</option><option>Weakness</option>
                     </select>
                 </div>
                 <div className="flex flex-col">
                     <span className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Speech</span>
-                    <select className="input-field py-2 text-xs" value={data.fast.speech} onChange={e => updateFast('speech', e.target.value)}>
-                        <option>Normal</option><option>Slurred</option>
+                    <select className="input-field py-2 text-xs" value={data.fast.speech || ''} onChange={e => updateFast('speech', e.target.value)}>
+                        <option value="">Select...</option><option>Normal</option><option>Slurred</option>
                     </select>
                 </div>
             </div>

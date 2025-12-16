@@ -163,7 +163,7 @@ const WellbeingPage = () => {
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">To Staff Member</label>
                                 <select 
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ams-blue outline-none dark:text-white"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ams-blue outline-none text-slate-900 dark:text-white"
                                     value={newKudos.toUid}
                                     onChange={e => setNewKudos({...newKudos, toUid: e.target.value})}
                                     required
@@ -176,7 +176,7 @@ const WellbeingPage = () => {
                                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Message</label>
                                 <textarea 
                                     rows={3}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ams-blue outline-none dark:text-white resize-none"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ams-blue outline-none text-slate-900 dark:text-white resize-none"
                                     value={newKudos.message}
                                     onChange={e => setNewKudos({...newKudos, message: e.target.value})}
                                     placeholder="Great job on..."
@@ -186,7 +186,7 @@ const WellbeingPage = () => {
                             
                             {/* Improved Toggle Layout */}
                             <div className="flex flex-wrap items-center gap-2 bg-slate-50 dark:bg-slate-900 p-2 rounded-lg justify-between">
-                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer px-2">
+                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer px-2 text-slate-700 dark:text-slate-300">
                                     <input 
                                         type="radio" 
                                         checked={newKudos.isPublic} 
@@ -195,7 +195,7 @@ const WellbeingPage = () => {
                                     />
                                     <Globe className="w-3 h-3 text-slate-500" /> Public
                                 </label>
-                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer px-2">
+                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer px-2 text-slate-700 dark:text-slate-300">
                                     <input 
                                         type="radio" 
                                         checked={!newKudos.isPublic} 
@@ -274,7 +274,7 @@ const WellbeingPage = () => {
                                     <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Reason for Referral</label>
                                     <textarea 
                                         required
-                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 text-sm outline-none focus:ring-2 focus:ring-ams-blue resize-none dark:text-white"
+                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 text-sm outline-none focus:ring-2 focus:ring-ams-blue resize-none text-slate-900 dark:text-white"
                                         rows={4}
                                         placeholder="Briefly describe the issue (e.g. Back pain, Stress, Exposure)..."
                                         value={ohForm.reason}
@@ -285,7 +285,7 @@ const WellbeingPage = () => {
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Urgency</label>
                                         <select 
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm outline-none dark:text-white"
+                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm outline-none text-slate-900 dark:text-white"
                                             value={ohForm.urgency}
                                             onChange={e => setOhForm({...ohForm, urgency: e.target.value as any})}
                                         >
@@ -296,7 +296,7 @@ const WellbeingPage = () => {
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Contact Preference</label>
                                         <select 
-                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm outline-none dark:text-white"
+                                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm outline-none text-slate-900 dark:text-white"
                                             value={ohForm.contact}
                                             onChange={e => setOhForm({...ohForm, contact: e.target.value as any})}
                                         >

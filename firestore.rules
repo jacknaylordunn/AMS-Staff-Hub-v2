@@ -24,24 +24,22 @@ service cloud.firestore {
         );
     }
 
+    // Check if user account is Active (Approved)
+    function isActive() {
+        return isAuthenticated() && getUserData().status == 'Active';
+    }
+
     // --- Users Collection ---
     match /users/{userId} {
-      // Allow reading profiles (for directory, witness, etc.)
-      // Note: Hashed PINs are in 'pinHash' field, users should not have permission to read pinHash of OTHERS if possible,
-      // but Firestore rules return the whole document. We rely on client not to display it and the fact it is hashed.
-      allow read: if isAuthenticated();
-      
-      // CRITICAL: Allow finding a user by Badge ID for login (requires limit(1) query)
-      allow list: if request.query.limit <= 1; 
-      
-      // Managers can create/update users (e.g. approving roles)
-      // Users can only update their OWN 'phone', 'address', 'pinHash', 'pinLastUpdated'
-      allow create: if isAuthenticated(); // Self-registration
+      // Allow specific get for profiles
+      allow get: if isAuthenticated();
+      // Allow list for everyone (directory) or Badge Login
+      allow list: if isAuthenticated() || request.query.limit <= 1;
+      allow create: if isAuthenticated(); 
       
       allow update: if isAuthenticated() && (
           isManager() || 
           (isOwner(userId) && 
-           // User cannot change their own Role or Status or ID
            request.resource.data.role == resource.data.role &&
            request.resource.data.status == resource.data.status &&
            request.resource.data.employeeId == resource.data.employeeId
@@ -59,19 +57,31 @@ service cloud.firestore {
       }
     }
 
+    // --- Rota Unavailability ---
+    match /unavailability/{docId} {
+      allow read: if isAuthenticated() && (isManager() || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && (isManager() || resource.data.userId == request.auth.uid);
+    }
+
     // --- ePRFs (Clinical Records) ---
     match /eprfs/{document} {
       allow create: if isAuthenticated();
       
-      // Read: Access List members OR Managers
-      allow read: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager());
+      // Read: Access List members OR Managers OR Active Staff (Spine Search)
+      // We allow any Active staff member to read (query) records to support patient history lookup (Spine Search).
+      // Confidentiality is enforced via UI flows and Audit Logging.
+      allow read: if isAuthenticated() && (
+          request.auth.uid in resource.data.accessUids || 
+          isManager() ||
+          isActive()
+      );
       
       // Update: 
       // 1. Must be in access list or Manager
-      // 2. CANNOT update if status is 'Submitted' (WORM compliance), UNLESS it is a Manager unlocking it (rare)
-      //    or adding a review note.
+      // 2. STRICT: CANNOT update if status is 'Submitted'. Once submitted, it is locked for everyone.
       allow update: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager()) 
-                    && (resource.data.status != 'Submitted' || isManager());
+                    && resource.data.status != 'Submitted';
       
       // Delete: Only if NOT Submitted (Drafts only)
       allow delete: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager())
@@ -81,33 +91,24 @@ service cloud.firestore {
     // --- Rota & Shifts ---
     match /shifts/{shiftId} {
       allow read: if isAuthenticated();
-      
-      // Only Managers create/delete shifts
       allow create, delete: if isManager();
-      
-      // Update: 
-      // Managers can do anything.
-      // Staff can ONLY update specific fields like 'slots' (for bidding) or 'timeRecords' (clocking in)
       allow update: if isManager() || (
         isAuthenticated() && 
-        (
-           // Allow updating slots (bidding) or timeRecords
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'timeRecords'])
-        )
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'timeRecords']))
       );
     }
 
     // --- Assets (Fleet & Kits) ---
     match /fleet/{vehicle} {
       allow read: if isAuthenticated();
-      allow write: if isManager();
-      allow update: if isAuthenticated(); // Staff update mileage/status via VDI
+      allow write: if isManager(); // Fixes "Error adding asset"
+      allow update: if isAuthenticated(); // Allow staff to update status via VDI
     }
     
     match /medical_kits/{kit} {
       allow read: if isAuthenticated();
-      allow write: if isManager();
-      allow update: if isAuthenticated(); // Staff update checklist/status
+      allow write: if isManager(); // Fixes "Error adding asset"
+      allow update: if isAuthenticated();
     }
     
     match /asset_checks/{check} {
@@ -118,20 +119,19 @@ service cloud.firestore {
     // --- Drugs & Stock ---
     match /stock/{item} {
       allow read: if isAuthenticated();
-      // Allow updates (stock count changes) by staff
       allow update: if isAuthenticated();
     }
     
     match /drug_audit/{entry} {
       allow read: if isManager();
-      allow create: if isAuthenticated(); // Audit log is append-only
-      allow update, delete: if false; // Audit logs are immutable
+      allow create: if isAuthenticated();
+      allow update, delete: if false; 
     }
 
     // --- System / Communication ---
     match /system/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated(); // Major Incident Declaration
+      allow write: if isAuthenticated(); 
     }
     
     match /announcements/{id} {

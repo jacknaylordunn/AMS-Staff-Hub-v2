@@ -1,3 +1,4 @@
+
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
@@ -5,6 +6,9 @@ import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
 
+// --------------------------------------------------------
+// HARDCODED FIREBASE CONFIGURATION
+// --------------------------------------------------------
 const firebaseConfig = {
     apiKey: "AIzaSyD9V_vgen-T0xF0BGD3MYjsnw_Ehh9ajSs",
     authDomain: "ams-staff-hub-e0b7d.firebaseapp.com",
@@ -22,7 +26,6 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 // Initialize Firestore with single-tab persistence to avoid QuotaExceededError
-// This uses IndexedDB for data but avoids heavy LocalStorage usage for tab coordination
 export const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
 });

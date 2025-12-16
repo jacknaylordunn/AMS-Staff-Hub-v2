@@ -3,7 +3,7 @@ import React from 'react';
 import { PersonStanding, Armchair, HelpCircle } from 'lucide-react';
 
 interface ClinicalFrailtyScaleProps {
-  value: number;
+  value?: number; // Made optional
   onChange: (value: number) => void;
 }
 

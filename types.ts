@@ -1,195 +1,327 @@
 
-
 export enum Role {
-  Pending = 'Pending',
-  FirstAider = 'First Aider',
-  Welfare = 'Welfare',
-  FREC3 = 'FREC3',
-  FREC4 = 'FREC4',
-  EMT = 'EMT',
-  Paramedic = 'Paramedic',
-  Nurse = 'Nurse',
-  Doctor = 'Doctor',
-  Manager = 'Manager',
-  Admin = 'Admin'
-}
-
-export interface RoleChangeRequest {
-  newRole: Role;
-  reason: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
-  requestDate: string;
+    Admin = 'Admin',
+    Manager = 'Manager',
+    Doctor = 'Doctor',
+    Nurse = 'Nurse',
+    Paramedic = 'Paramedic',
+    EMT = 'EMT',
+    FREC4 = 'FREC4',
+    FREC3 = 'FREC3',
+    FirstAider = 'FirstAider',
+    Welfare = 'Welfare',
+    Pending = 'Pending'
 }
 
 export interface AppNotification {
-  id: string;
-  userId: string;
-  title: string;
-  message: string;
-  type: 'info' | 'alert' | 'success';
-  read: boolean;
-  timestamp: string;
-  link?: string;
-}
-
-export interface UserStats {
-  totalHours: number;
-  completedShifts: number;
-  lastShiftDate?: string;
-}
-
-export interface User {
-  uid: string;
-  email: string;
-  name: string;
-  role: Role;
-  status: 'Active' | 'Pending' | 'Suspended' | 'Rejected';
-  employeeId?: string;
-  regNumber?: string;
-  pin?: string | null;
-  pinHash?: string;
-  pinLastUpdated?: string;
-  phone?: string;
-  address?: string;
-  compliance: ComplianceDoc[];
-  roleChangeRequest?: RoleChangeRequest;
-  approvedAt?: string;
-  approvedBy?: string;
-  stats?: UserStats;
+    id: string;
+    userId: string;
+    title: string;
+    message: string;
+    type: 'info' | 'alert' | 'success';
+    read: boolean;
+    timestamp: string;
+    link?: string;
 }
 
 export interface ComplianceDoc {
-  id: string;
-  name: string;
-  expiryDate: string;
-  status: 'Valid' | 'Expiring' | 'Expired' | 'Pending';
-  fileUrl?: string;
-  uploadedAt: string;
+    id: string;
+    name: string;
+    expiryDate: string;
+    status: 'Valid' | 'Expiring' | 'Expired' | 'Pending';
+    fileUrl?: string;
+    uploadedAt?: string;
 }
 
-export interface CompanyDocument {
-  id: string;
-  title: string;
-  category: 'Clinical' | 'Operational' | 'HR' | 'Policy' | 'Memo';
-  version: string;
-  lastUpdated: string;
-  url: string;
-  uploadedBy: string;
-  description?: string;
+export interface User {
+    uid: string;
+    email: string;
+    name: string;
+    role: Role;
+    status: 'Active' | 'Pending' | 'Suspended' | 'Rejected';
+    regNumber?: string;
+    photoURL?: string;
+    compliance?: ComplianceDoc[];
+    pin?: string;
+    pinHash?: string;
+    pinLastUpdated?: string;
+    employeeId?: string;
+    phone?: string;
+    address?: string;
+    stats?: {
+        totalHours: number;
+        completedShifts: number;
+        lastShiftDate: string;
+    };
+    roleChangeRequest?: {
+        newRole: string;
+        reason: string;
+        status: string;
+        requestDate: string;
+    };
 }
 
-export interface Patient {
-  id: string;
-  firstName: string;
-  lastName: string;
-  dob: string;
-  nhsNumber?: string;
-  address: string;
-  postcode?: string;
+export interface ShiftSlot {
+    id: string;
+    role: Role;
+    userId?: string;
+    userName?: string;
+    bids?: ShiftBid[];
+}
+
+export interface ShiftBid {
+    userId: string;
+    userName: string;
+    userRole: string;
+    timestamp: string;
+}
+
+export interface TimeRecord {
+    userId: string;
+    clockInTime?: string;
+    clockInLocation?: string;
+    clockOutTime?: string;
+    durationMinutes?: number;
+}
+
+export interface ShiftResource {
+    id: string;
+    type: 'Vehicle' | 'Kit';
+    name: string;
+}
+
+export interface Shift {
+    id: string;
+    start: Date;
+    end: Date;
+    location: string;
+    address?: string;
+    notes?: string;
+    status: 'Open' | 'Filled' | 'Cancelled';
+    tags?: string[];
+    slots: ShiftSlot[];
+    timeRecords?: Record<string, TimeRecord>;
+    resources?: ShiftResource[];
+    createdBy?: string;
+}
+
+export interface Announcement {
+    id: string;
+    title: string;
+    message: string;
+    priority: 'Normal' | 'Urgent';
+    date: any;
+    author: string;
+    readBy: string[];
+}
+
+export interface Vehicle {
+    id: string;
+    callSign: string;
+    registration: string;
+    type: string;
+    status: string;
+    mileage?: number;
+    checklist?: ChecklistItem[];
+    lastCheck?: string;
+}
+
+export interface MedicalKit {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+    lastCheck?: string;
+    earliestExpiry?: string;
+    checklist?: ChecklistItem[];
+}
+
+export interface ChecklistItem {
+    id: string;
+    label: string;
+    category: string;
+}
+
+export interface AssetCheck {
+    id: string;
+    assetId: string;
+    assetType: 'Vehicle' | 'Kit';
+    userId: string;
+    userName: string;
+    timestamp: string;
+    status: 'Pass' | 'Fail';
+    faults?: string[];
+    checklistData?: Record<string, boolean>;
+}
+
+export interface MajorIncidentReport {
+    id: string;
+    active: boolean;
+    declaredBy: string;
+    declaredByRole?: string;
+    timeDeclared: string;
+    type: 'DECLARATION' | 'METHANE_REPORT';
+    linkedShiftId?: string;
+    methane: {
+        majorIncidentDeclared: boolean;
+        exactLocation: string;
+        typeOfIncident: string;
+        hazards: string;
+        access: string;
+        numberOfCasualties: string;
+        emergencyServices: string;
+    };
+}
+
+export interface Unavailability {
+    id: string;
+    userId: string;
+    start: string;
+    end: string;
+    reason?: string;
+    type: 'Holiday' | 'Sick' | 'Other';
+}
+
+export interface CPDEntry {
+    id: string;
+    title: string;
+    date: string;
+    type: 'Self-directed' | 'Work-based' | 'Formal';
+    hours: number;
+    reflection: string;
+    evidenceUrl?: string;
+    timestamp: any;
+}
+
+export interface Kudos {
+    id: string;
+    fromUser: string;
+    fromUid: string;
+    toUser: string;
+    toUid: string;
+    message: string;
+    isPublic: boolean;
+    timestamp: any;
+    tags?: string[];
+}
+
+export interface InjuryMark {
+    id: string;
+    x: number;
+    y: number;
+    view: 'Anterior' | 'Posterior';
+    type: 'Injury' | 'Pain' | 'IV' | 'Other';
+    subtype?: string;
+    location?: string;
+    success?: boolean;
 }
 
 export interface VitalsEntry {
-  time: string;
-  hr: number;
-  rr: number;
-  bpSystolic: number;
-  bpDiastolic: number;
-  spo2: number;
-  oxygen: boolean;
-  oxygenFlow?: string;
-  oxygenDevice?: string;
-  temp: number;
-  gcs: number;
-  bloodGlucose?: number;
-  news2Score: number;
-  popsScore?: number;
-  avpu: 'A' | 'V' | 'P' | 'U';
-  painScore?: number;
+    time: string;
+    hr?: number;
+    rr?: number;
+    spo2?: number;
+    bpSystolic?: number;
+    bpDiastolic?: number;
+    news2Score: number;
+    temp?: number;
+    oxygen: boolean;
+    oxygenDevice?: string;
+    oxygenFlow?: string;
+    avpu?: 'A' | 'V' | 'P' | 'U';
+    gcs?: number;
+    bloodGlucose?: number;
+    painScore?: number;
+    popsScore?: number;
+    bpPosition?: string;
+    bpLimb?: string;
+    rrRefused?: boolean;
+    spo2Refused?: boolean;
+    hrRefused?: boolean;
+    bpRefused?: boolean;
+    tempRefused?: boolean;
+    gcsRefused?: boolean;
+    bloodGlucoseRefused?: boolean;
+    painScoreRefused?: boolean;
 }
 
 export interface DrugAdministration {
-  id: string;
-  time: string;
-  drugName: string;
-  dose: string;
-  route: string;
-  batchNumber?: string;
-  expiryDate?: string;
-  authorisation: string;
-  administeredBy: string;
-  witnessedBy?: string;
-  witnessUid?: string;
-  authClinician?: string;
+    id: string;
+    time: string;
+    drugName: string;
+    dose: string;
+    route: string;
+    batchNumber?: string;
+    authorisation: string;
+    administeredBy: string;
+    witnessedBy?: string;
+    witnessUid?: string;
 }
 
 export interface Procedure {
-  id: string;
-  time: string;
-  type: string;
-  size?: string;
-  details?: string;
-  site?: string;
-  attempts?: number;
-  success: boolean;
-  performedBy: string;
-  notes?: string;
+    id: string;
+    time: string;
+    type: string;
+    site?: string;
+    size?: string;
+    success: boolean;
+    attempts?: number;
+    performedBy: string;
+    details?: string;
+    etco2?: string;
+    depth?: string;
+    secureMethod?: string;
+}
+
+export interface LinkedRecord {
+    id: string;
+    incidentNumber: string;
+    date: string;
+    diagnosis: string;
+}
+
+export interface WoundAssessment {
+    id: string;
+    site: string;
+    classification: string;
+    dimensions: string;
+    contamination: string;
+    tetanusStatus: string;
+    closure?: string;
 }
 
 export interface ResusEvent {
     id: string;
     timestamp: string;
     action: string;
-    type: 'Shock' | 'Drug' | 'Airway' | 'Mechanical' | 'Procedure' | 'Status' | 'Other';
+    type: 'Shock' | 'Drug' | 'Airway' | 'Mechanical' | 'Status' | 'Other';
     user: string;
 }
 
-export interface InjuryMark {
-  id: string;
-  x: number;
-  y: number;
-  view: 'Anterior' | 'Posterior';
-  type: 'Injury' | 'IV' | 'Pain' | 'Other'; 
-  subtype?: string;
-  location?: string;
-  description?: string;
-  notes?: string;
-  success?: boolean;
+export interface MediaAttachment {
+    id: string;
+    type: 'Photo';
+    url: string;
+    timestamp: string;
+    notes?: string;
 }
 
 export interface CranialNerveStatus {
-    nerve: string; 
-    test: string; 
+    nerve: string;
+    test: string;
     status: 'Normal' | 'Abnormal' | 'Not Tested';
     notes?: string;
 }
 
-export interface NeuroAssessment {
-  gcs: {
-    eyes: number;
-    verbal: number;
-    motor: number;
-    total: number;
-  };
-  pupils: {
-    leftSize: number;
-    leftReaction: 'Brisk' | 'Sluggish' | 'Fixed' | 'None';
-    rightSize: number;
-    rightReaction: 'Brisk' | 'Sluggish' | 'Fixed' | 'None';
-  };
-  fast: {
-    face: 'Normal' | 'Droop';
-    arms: 'Normal' | 'Weakness';
-    speech: 'Normal' | 'Slurred';
-    testPositive: boolean;
-    time: string;
-  };
-  limbs: {
-    leftArm: { power: string; sensation: string; };
-    rightArm: { power: string; sensation: string; };
-    leftLeg: { power: string; sensation: string; };
-    rightLeg: { power: string; sensation: string; };
-  };
-  cranialNerves?: CranialNerveStatus[];
+export interface CompanyDocument {
+    id: string;
+    title: string;
+    category: 'Policy' | 'Clinical' | 'Operational' | 'HR' | 'Memo';
+    description?: string;
+    version: string;
+    url: string;
+    lastUpdated: string;
+    uploadedBy: string;
 }
 
 export interface TraumaTriageResult {
@@ -199,102 +331,24 @@ export interface TraumaTriageResult {
     special: boolean;
     isMajorTrauma: boolean;
     criteria: string[];
+    vehiclePosition?: string;
+    estSpeed?: string;
+    seatbeltWorn?: string;
+    airbagsDeployed?: string;
+    extrication?: string;
 }
 
-export interface PrimarySurvey {
-    catastrophicHaemorrhage?: boolean;
-    airway: {
-        status: string;
-        patency?: 'Patent' | 'Partial' | 'Complete' | 'Managed';
-        notes: string;
-        intervention?: string;
+export interface NeuroAssessment {
+    gcs: { eyes?: number; verbal?: number; motor?: number; total?: number };
+    pupils: { leftSize: number; leftReaction: string; rightSize: number; rightReaction: string };
+    fast: { face: string; arms: string; speech: string; time: string; testPositive: boolean };
+    limbs: {
+        leftArm: { power: string; sensation: string };
+        rightArm: { power: string; sensation: string };
+        leftLeg: { power: string; sensation: string };
+        rightLeg: { power: string; sensation: string };
     };
-    breathing: {
-        rate: string;
-        rhythm: string;
-        depth: string;
-        effort: string;
-        airEntryL: string;
-        airEntryR: string;
-        soundsL: string;
-        soundsR: string;
-        oxygenSats: string;
-        chestExpansion?: 'Equal' | 'Unequal';
-    };
-    circulation: {
-        radialPulse: string;
-        character: string;
-        capRefill: string;
-        skin: string;
-        temp: string;
-        systolicBP?: string;
-        diastolicBP?: string;
-    };
-    disability: {
-        avpu: string;
-        gcs?: string;
-        pupils: string;
-        bloodGlucose: string;
-    };
-    exposure: {
-        injuriesFound: boolean;
-        rash: boolean;
-        temp: string;
-    };
-}
-
-export interface CardiacAssessment {
-    chestPainPresent: boolean;
-    socrates: {
-        site: string;
-        onset: string;
-        character: string;
-        radiation: string;
-        associations: string;
-        timeCourse: string;
-        exacerbatingRelieving: string;
-        severity: string;
-    };
-    ecg: {
-        rhythm: string;
-        rate: string;
-        stElevation: boolean;
-        twelveLeadNotes: string;
-    };
-}
-
-export interface RespiratoryAssessment {
-    cough: string;
-    sputumColor: string;
-    peakFlowPre: string;
-    peakFlowPost: string;
-    nebulisersGiven: boolean;
-    history: string;
-}
-
-export interface AbdominalAssessment {
-    abdominalPain: boolean;
-    painLocation: string;
-    palpation: string;
-    distension: boolean;
-    bowelSounds: string;
-    lastMeal: string;
-    lastBowelMovement: string;
-    urineOutput: string;
-    nauseaVomiting: boolean;
-    fastScan?: 'Positive' | 'Negative' | 'Indeterminate' | 'Not Performed';
-}
-
-export interface ObsGynaeAssessment {
-    pregnant: boolean;
-    gestationWeeks?: string;
-    gravida?: string;
-    para?: string;
-    contractions?: string;
-    membranesRuptured?: boolean;
-    bleeding?: boolean;
-    foetalMovements?: boolean;
-    notes?: string;
+    cranialNerves?: CranialNerveStatus[];
 }
 
 export interface MentalHealthAssessment {
@@ -305,423 +359,228 @@ export interface MentalHealthAssessment {
     perception?: string;
     riskToSelf: boolean;
     riskToOthers: boolean;
-    capacityStatus: string;
+    capacityStatus?: string; 
+    selfHarmHistory?: string; 
+    suicideRisk?: string; 
+    mentalHealthHistory?: string; 
 }
 
-export interface BurnsAssessment {
-    estimatedPercentage: string;
-    depth: string;
-    site: string;
-}
-
-export interface WoundAssessment {
-    id: string;
-    site: string;
-    classification: string;
-    length?: string;
-    width?: string;
-    dimensions?: string;
-    contamination: string;
-    tetanusStatus: string;
-    closure?: string;
-}
-
-export interface FallsAssessment {
-    historyOfFalls: boolean;
-    unsteadyWalk: boolean;
-    visualImpairment: boolean;
-    alteredMentalState: boolean;
-    medications: boolean;
-    anticoagulants?: boolean;
-}
-
-export interface MobilityAssessment {
-    preMorbidMobility: string;
-    currentMobility: string;
-    transferAbility: string;
-    aidsUsed: string;
-}
-
-export interface SepsisAssessment {
-    screeningTrigger: boolean;
-    suspectedSource: string[];
-    redFlags: string[];
-    riskFactors: string[];
-    outcome: string;
-}
-
-export interface Assessment {
-    clinicalNarrative: string;
-    primary: PrimarySurvey;
-    neuro: NeuroAssessment;
-    traumaTriage?: TraumaTriageResult;
-    falls?: FallsAssessment;
-    mobility?: MobilityAssessment;
-    cfsScore?: number;
-    minorInjuryAssessment?: string;
-    cardiac?: CardiacAssessment;
-    respiratory?: RespiratoryAssessment;
-    gastrointestinal?: AbdominalAssessment;
-    obsGynae?: ObsGynaeAssessment;
-    mentalHealth?: MentalHealthAssessment;
-    burns?: BurnsAssessment;
-    wounds?: WoundAssessment[];
-    sepsis?: SepsisAssessment;
-}
-
-export interface ClinicalDecision {
-    workingImpression: string; 
-    differentialDiagnosis: string; 
-    managementPlan: string; 
-    finalDisposition: string; 
-    destinationLocation?: string;
-    receivingUnit?: string;
-}
-
-export interface MediaAttachment {
-    id: string;
-    type: 'Photo' | 'ECG' | 'Other';
-    url: string;
-    timestamp: string;
-    notes?: string;
-}
-
-export interface LogEntry {
-  id: string;
-  timestamp: string;
-  category: 'Info' | 'Comms' | 'Scene' | 'Clinical';
-  message: string;
-  author: string;
-}
-
-export interface ReviewNote {
-  id: string;
-  timestamp: string;
-  managerName: string;
-  note: string;
-  action: 'Approved' | 'Returned';
-}
-
-export interface AssistingClinician {
-    uid: string;
-    name: string;
-    role: string;
-    badgeNumber: string;
+export interface PrimarySurvey {
+    catastrophicHaemorrhage?: boolean;
+    airway: { status: string; patency?: string; notes: string; intervention: string };
+    breathing: { rate: string | number; effort: string; oxygenSats: string | number; chestExpansion?: string; airEntryL: string; airEntryR: string; soundsL: string; soundsR: string; rhythm: string; depth: string };
+    circulation: { radialPulse: string; character?: string; skin: string; capRefill: string; color: string; systolicBP: string | number; diastolicBP: string | number; temp: string | number };
+    disability: { avpu: string; gcs: string; pupils: string; bloodGlucose: string | number };
+    exposure: { injuriesFound: boolean; rash: boolean; temp: string | number };
 }
 
 export interface EPRF {
-  id: string;
-  incidentNumber: string;
-  shiftId?: string;
-  status: 'Draft' | 'Submitted' | 'Review' | 'Approved';
-  mode: 'Clinical' | 'Welfare' | 'Minor';
-  callSign: string;
-  location: string;
-  lastUpdated: string;
-  accessUids: string[];
-  assistingClinicians: AssistingClinician[];
-  
-  // Timings
-  times: {
-    callReceived: string;
-    mobile: string;
-    onScene: string;
-    patientContact: string;
-    departScene: string;
-    atHospital: string;
-    clear?: string;
-  };
-
-  // Patient
-  patient: {
-    firstName: string;
-    lastName: string;
-    dob: string;
-    nhsNumber?: string;
-    address: string;
-    postcode?: string;
-    gender: string;
-    chronicHypoxia: boolean;
-  };
-
-  // History & SAMPLE
-  history: {
-    presentingComplaint: string;
-    historyOfPresentingComplaint: string;
-    pastMedicalHistory: string;
-    allergies: string;
-    medications: string;
-    sample?: {
-        symptoms: string;
+    id: string;
+    incidentNumber: string;
+    callSign: string;
+    location: string;
+    mode: 'Clinical' | 'Welfare' | 'Minor';
+    status: 'Draft' | 'Submitted';
+    userId: string;
+    accessUids?: string[];
+    lastUpdated: string;
+    lastSync?: string;
+    shiftId?: string;
+    assistingClinicians?: {
+        name: string;
+        role: string;
+        badgeNumber: string;
+    }[];
+    times: {
+        callReceived: string;
+        mobile: string;
+        onScene: string;
+        patientContact: string;
+        departScene: string;
+        atHospital: string;
+        clear: string;
+    };
+    patient: {
+        firstName: string;
+        lastName: string;
+        dob: string;
+        gender: string;
+        nhsNumber: string;
+        address: string;
+        postcode: string;
+        chronicHypoxia: boolean;
+    };
+    history: {
+        presentingComplaint: string;
+        historyOfPresentingComplaint: string;
+        sample?: {
+            symptoms: string;
+            allergies: string;
+            medications: string;
+            pastMedicalHistory: string;
+            lastOralIntake: string;
+            eventsPrior: string;
+        };
         allergies: string;
         medications: string;
-        pastHistory: string;
-        lastOralIntake: string;
-        eventsPrior: string;
+        pastMedicalHistory: string;
     };
-  };
-
-  assessment: Assessment;
-  clinicalDecision: ClinicalDecision;
-  vitals: VitalsEntry[];
-  
-  // Body Maps
-  injuries: InjuryMark[];
-  bodyMapImage?: string; 
-  accessMapImage?: string;
-
-  treatments: {
-    drugs: DrugAdministration[];
-    procedures: Procedure[];
-    resusLog?: ResusEvent[];
-    role?: {
-        criteriaMet: string[];
-        timeVerified: string;
-        verifiedBy: string;
-        notes: string;
-        // Cardiac Arrest Specifics
-        arrestWitnessed?: boolean;
-        bystanderCPR?: boolean;
-        downTimeMinutes?: number;
-        initialRhythm?: string;
-        totalShocks?: number;
-        totalAdrenaline?: number;
-        airwaySecured?: string;
-        lucasUsed?: boolean;
-    };
-    minorTreatment?: string;
-  };
-
-  // Governance & Safeguarding
-  governance: {
-    safeguarding: {
-        concerns: boolean;
-        category?: 'Child' | 'Adult at Risk';
-        type: string[]; // e.g. Physical, Sexual, Neglect
-        details: string;
-        referralMade?: boolean;
-        referralReference?: string;
-    };
-    capacity: {
-        status: 'Capacity Present' | 'Capacity Lacking';
-        stage1: {
-            impairment: boolean;
-            nexus: boolean; // Causative nexus
+    assessment: {
+        primary: PrimarySurvey;
+        clinicalNarrative: string;
+        neuro: NeuroAssessment;
+        cardiac?: {
+            chestPainPresent: boolean;
+            ecg?: { rhythm: string; rate: string; time: string; stElevation: boolean; twelveLeadNotes?: string };
+            socrates?: any;
+            wellsCriteria?: string[];
+            wellsScore?: number;
         };
-        stage2Functional: {
-          understand: boolean;
-          retain: boolean;
-          weigh: boolean;
-          communicate: boolean;
+        respiratory?: {
+            cough: string;
+            sputumColor: string;
+            peakFlowPre: string;
+            peakFlowPost: string;
+            airEntry: string;
+            addedSounds: string;
+            accessoryMuscleUse: boolean;
+            nebulisersGiven?: boolean;
+            history?: string;
         };
-        bestInterestsRationale?: string;
+        gastrointestinal?: {
+            abdominalPain: boolean;
+            distension: string;
+            palpation: string;
+            bowelSounds: string;
+            fastScan?: string;
+            urineOutput: string;
+            vomitDescription: string;
+            stoolDescription: string;
+            painLocation: string;
+            lastMeal?: string;
+            lastBowelMovement?: string;
+            nauseaVomiting?: boolean;
+        };
+        obsGynae?: {
+            pregnant: boolean;
+            gestationWeeks?: string;
+            gravida?: string;
+            para?: string;
+            contractions?: string;
+            membranesRuptured?: boolean;
+            bleeding?: boolean;
+            bleedAmount?: string;
+            foetalMovements?: boolean;
+            notes?: string;
+        };
+        mentalHealth?: MentalHealthAssessment;
+        traumaTriage?: TraumaTriageResult;
+        sepsis?: {
+            redFlags: string[];
+            suspectedSource?: string[];
+            riskFactors: string[];
+            screeningTrigger?: boolean;
+            outcome?: string;
+        };
+        wounds?: WoundAssessment[];
+        burns?: { estimatedPercentage: string; depth: string; site?: string };
+        cfsScore?: number;
+        mobility?: { preMorbidMobility: string; currentMobility: string; transferAbility: string; aidsUsed: string };
+        falls?: { 
+            historyOfFalls: boolean; 
+            anticoagulants?: string; 
+            unsteadyWalk: boolean;
+            visualImpairment?: boolean;
+            alteredMentalState?: boolean;
+            medications?: boolean;
+        };
+        minorInjuryAssessment?: string;
     };
-    handoverClinician?: string;
-    worseningAdviceDetails?: string;
-    discharge?: string;
-    refusal: {
-        isRefusal: boolean;
-        witnessName?: string;
-        witnessSignature?: string;
-        risksExplained: boolean;
-        alternativesOffered: boolean;
-        capacityConfirmed: boolean;
-        worseningAdviceGiven: boolean;
+    treatments: {
+        drugs: DrugAdministration[];
+        procedures: Procedure[];
+        minorTreatment?: string;
+        role?: {
+            timeVerified: string;
+            verifiedBy: string;
+            arrestWitnessed: boolean;
+            bystanderCPR: boolean;
+            downTimeMinutes: number;
+            totalShocks: number;
+            criteriaMet: string[];
+        };
+        resusLog?: ResusEvent[];
+    };
+    clinicalDecision: {
+        workingImpression: string;
+        differentialDiagnosis: string;
+        managementPlan: string;
+        finalDisposition: string;
+        destinationTrust?: string;
+        destinationRegion?: string;
+        destinationHospital?: string;
+        destinationDepartment?: string;
+        gpPractice?: string;
+        gpName?: string;
+        gpCallTime?: string;
+        gpRefNumber?: string;
+    };
+    governance: {
+        capacity: {
+            status: string;
+            stage1?: { impairment: boolean; nexus: boolean };
+            stage2Functional?: { understand: boolean; retain: boolean; weigh: boolean; communicate: boolean };
+            bestInterestsRationale: string;
+        };
+        safeguarding: {
+            concerns: boolean;
+            category: string;
+            type?: string[];
+            details: string;
+            referralMade: boolean;
+            referralReference: string;
+        };
+        refusal: {
+            isRefusal: boolean;
+            type: string;
+            details: string;
+            risksExplained: boolean;
+            capacityConfirmed: boolean;
+            alternativesOffered: boolean;
+            worseningAdviceGiven: boolean;
+            patientRefusedToSign: boolean;
+            patientSignature?: string;
+            patientSigTime?: string;
+            witnessName?: string;
+            witnessSignature?: string;
+            witnessSigTime?: string;
+            staffSignature?: string;
+            staffSigTime?: string;
+        };
+        worseningAdviceDetails?: string;
+    };
+    handover: {
+        handoverType: string;
+        receivingName: string;
+        receivingPin: string;
+        receivingTime: string;
+        sbar?: string;
+        atmist?: string;
+        media?: MediaAttachment[];
+        clinicianSignature?: string;
+        clinicianSigTime?: string;
+        receivingClinicianSignature?: string;
+        receivingSigTime?: string;
         patientSignature?: string;
-        signatureType?: 'Signed' | 'Unable' | 'Refused';
+        patientSigTime?: string;
+        digitalToken?: string;
     };
-  };
-
-  handover: {
-      sbar: string;
-      clinicianSignature: string;
-      receivingClinicianSignature: string;
-      patientSignature?: string;
-      media: MediaAttachment[];
-      digitalToken?: string;
-  };
-  
-  logs: LogEntry[];
-  reviewNotes?: ReviewNote[];
-}
-
-export interface ShiftBid {
-  userId: string;
-  userName: string;
-  userRole: Role;
-  timestamp: string;
-}
-
-export interface ShiftSlot {
-  id: string;
-  role: Role;
-  userId?: string;
-  userName?: string;
-  bids: ShiftBid[];
-}
-
-export interface ShiftResource {
-  id: string;
-  type: 'Vehicle' | 'Kit';
-  name: string;
-}
-
-export interface TimeRecord {
-  userId: string;
-  clockInTime: string;
-  clockOutTime?: string;
-  clockInLocation: string;
-  clockOutLocation?: string;
-  durationMinutes?: number;
-}
-
-export interface Shift {
-  id: string;
-  start: Date;
-  end: Date;
-  location: string; // Used as Shift Name / Title
-  address?: string; // Physical Address / Coordinates
-  slots: ShiftSlot[]; 
-  status: 'Open' | 'Filled' | 'Cancelled' | 'Completed';
-  resources?: ShiftResource[];
-  vehicleId?: string;
-  kitBagId?: string;
-  notes?: string;
-  createdBy: string;
-  timeRecords?: Record<string, TimeRecord>;
-  color?: string;
-  tags?: string[];
-}
-
-export interface LeaveRequest {
-    id: string;
-    userId: string;
-    userName: string;
-    startDate: string;
-    endDate: string;
-    type: 'Annual Leave' | 'Sick' | 'Study' | 'Other';
-    reason?: string;
-    status: 'Pending' | 'Approved' | 'Rejected';
-}
-
-export interface ChecklistItem {
-    id: string;
-    label: string;
-    category?: string;
-}
-
-export interface Vehicle {
-  id: string;
-  registration: string;
-  callSign: string;
-  type: 'Ambulance' | 'RRV' | '4x4' | 'PTS';
-  status: 'Operational' | 'Maintenance' | 'Off Road';
-  lastCheck?: string;
-  mileage: number;
-  checklist?: ChecklistItem[];
-  notes?: string;
-}
-
-export interface KitItem {
-  id: string;
-  name: string;
-  quantity: number;
-  batchNumber?: string;
-  expiryDate?: string;
-  earliestExpiry?: string; 
-}
-
-export interface MedicalKit {
-  id: string;
-  name: string;
-  type: 'Paramedic Bag' | 'Response Bag' | 'Trauma Bag' | 'Drug Pack' | 'O2 Bag' | 'Welfare Bag';
-  status: 'Ready' | 'Restock Needed' | 'Quarantined';
-  assignedToUser?: string;
-  lastCheck?: string;
-  contents: KitItem[];
-  checklist?: ChecklistItem[];
-  notes?: string;
-  earliestExpiry?: string;
-}
-
-export interface AssetCheck {
-  id: string;
-  assetId: string;
-  assetType: 'Vehicle' | 'Kit';
-  userId: string;
-  userName: string;
-  timestamp: string;
-  status: 'Pass' | 'Fail';
-  faults: string[];
-  checklistData: Record<string, boolean>;
-}
-
-export interface MajorIncidentReport {
-  id: string;
-  declaredBy: string;
-  declaredByRole?: string;
-  timeDeclared: string;
-  active: boolean;
-  type: 'METHANE_REPORT' | 'DECLARATION';
-  linkedShiftId?: string;
-  methane: {
-    majorIncidentDeclared: boolean;
-    exactLocation: string;
-    typeOfIncident: string;
-    hazards: string;
-    access: string;
-    numberOfCasualties: string;
-    emergencyServices: string;
-  };
-}
-
-export interface CPDEntry {
-  id: string;
-  date: string;
-  title: string;
-  type: 'Formal' | 'Work-based' | 'Self-directed';
-  hours: number;
-  reflection: string;
-  evidenceUrl?: string;
-}
-
-export interface Kudos {
-  id: string;
-  fromUser: string;
-  fromUid: string;
-  toUser: string;
-  toUid?: string;
-  message: string;
-  timestamp: string;
-  tags?: string[];
-  isPublic: boolean;
-}
-
-export interface OhReferral {
-    id: string;
-    userId: string;
-    userName: string;
-    date: string;
-    reason: string;
-    urgency: 'Routine' | 'Urgent';
-    contactPreference: 'Phone' | 'Email';
-    status: 'Submitted' | 'In Review' | 'Actioned';
-}
-
-export interface Announcement {
-  id: string;
-  title: string;
-  message: string;
-  priority: 'Normal' | 'Urgent';
-  date: string;
-  author: string;
-}
-
-export interface AuditEntry {
-    action: string;
-    details: string;
-    userId: string;
-    userName: string;
-    timestamp: string;
-    category: 'Clinical' | 'Operational' | 'Security' | 'Drug';
+    vitals: VitalsEntry[];
+    injuries: InjuryMark[];
+    logs: any[];
+    linkedRecords?: LinkedRecord[];
+    bodyMapImage?: string;
+    accessMapImage?: string;
+    pdfUrl?: string;
+    locked?: boolean;
 }

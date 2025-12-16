@@ -1,8 +1,11 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { db } from '../services/firebase';
+import { db, storage } from '../services/firebase';
 import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { useAuth } from './useAuth';
+import { useToast } from '../context/ToastContext';
+import { sanitizeData } from '../utils/dataHelpers';
 
 interface DataSyncContextType {
   isOnline: boolean;
@@ -18,6 +21,7 @@ const DataSyncContext = createContext<DataSyncContextType | undefined>(undefined
 
 export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'Synced' | 'Syncing' | 'Offline' | 'Error'>('Synced');
   const [currentEPRF, setCurrentEPRF] = useState<any | null>(null);
@@ -30,7 +34,8 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     const handleOnline = () => {
         setIsOnline(true);
-        setSyncStatus('Synced');
+        setSyncStatus('Syncing');
+        processOfflineUploads(); // Trigger sync
     };
     
     const handleOffline = () => {
@@ -45,11 +50,56 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [currentEPRF]); // Re-bind if EPRF changes so we access latest state
+
+  // Recursive function to find and replace OFFLINE_PENDING strings
+  const processOfflineUploads = async () => {
+      if (!currentEPRF) {
+          setSyncStatus('Synced');
+          return;
+      }
+
+      let hasChanges = false;
+      const dataCopy = JSON.parse(JSON.stringify(currentEPRF));
+
+      const traverseAndUpload = async (obj: any) => {
+          for (const key in obj) {
+              if (typeof obj[key] === 'string' && obj[key].startsWith('OFFLINE_PENDING::')) {
+                  // Found one!
+                  const [_, folder, base64] = obj[key].split('::');
+                  try {
+                      const fileName = `${Date.now()}_synced_image.png`;
+                      const storageRef = ref(storage, `${folder}/${fileName}`);
+                      await uploadString(storageRef, base64, 'data_url');
+                      const url = await getDownloadURL(storageRef);
+                      
+                      obj[key] = url; // Replace with actual URL
+                      hasChanges = true;
+                  } catch (e) {
+                      console.error("Background sync failed for image", e);
+                  }
+              } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                  await traverseAndUpload(obj[key]);
+              }
+          }
+      };
+
+      await traverseAndUpload(dataCopy);
+
+      if (hasChanges) {
+          toast.info("Offline images synced to cloud.");
+          saveEPRF(dataCopy, true); // Save the updated URLs
+      } else {
+          setSyncStatus('Synced');
+      }
+  };
 
   const saveEPRF = async (data: any, immediate = false) => {
     if (!user) return;
     
+    // We sanitize locally for state consistency, but critical for the Firestore payload
+    const safeData = sanitizeData(data);
+    setCurrentEPRF(safeData); 
     setSyncStatus('Syncing');
     
     // Clear any existing pending write
@@ -60,11 +110,11 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const performSave = async () => {
         try {
-            const draftId = `draft_${user.uid}_${data.id}`;
+            const draftId = `draft_${user.uid}_${safeData.id}`;
             
-            // Perform the write
+            // Perform the write with sanitized data
             await setDoc(doc(db, 'eprfs', draftId), {
-                ...data,
+                ...safeData,
                 userId: user.uid,
                 lastSync: new Date().toISOString()
             }, { merge: true });
@@ -78,7 +128,7 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } catch (e) {
             console.error("Save failed", e);
             setSyncStatus('Error');
-            throw e; // Propagate error for immediate saves
+            // Do not throw, allows app to continue working "locally"
         }
     };
     
@@ -97,7 +147,12 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       try {
           const docRef = doc(db, 'eprfs', `draft_${user.uid}_${id}`);
           const docSnap = await getDoc(docRef);
-          return docSnap.exists() ? docSnap.data() : null;
+          if (docSnap.exists()) {
+              const data = docSnap.data();
+              setCurrentEPRF(data);
+              return data;
+          }
+          return null;
       } catch (e) {
           console.error("Load error", e);
           return null;
@@ -107,13 +162,10 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const deleteEPRF = async (id: string) => {
       if (!user) return;
       try {
-          // If we are deleting, ensure no pending saves overwrite the deletion
-          if (saveTimeoutRef.current) {
-              clearTimeout(saveTimeoutRef.current);
-          }
-
+          if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
           const draftId = `draft_${user.uid}_${id}`;
           await deleteDoc(doc(db, 'eprfs', draftId));
+          setCurrentEPRF(null);
       } catch (e) {
           console.error("Delete error", e);
           throw e;

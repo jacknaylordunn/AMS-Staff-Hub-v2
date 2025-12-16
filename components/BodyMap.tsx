@@ -1,7 +1,8 @@
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { RefreshCcw, Plus, X } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { RefreshCcw, Plus, X, Camera, Loader2, Check } from 'lucide-react';
 import { InjuryMark } from '../types';
+import { uploadDataUrl } from '../services/storage';
 
 // Using hosted public assets
 const ANTERIOR_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Front.jpeg';
@@ -12,7 +13,7 @@ interface BodyMapProps {
     onChange: (marks: InjuryMark[]) => void;
     mode?: 'injury' | 'intervention'; // Default to 'injury'
     onMarkerSelect?: (mark: InjuryMark) => void;
-    onImageChange?: (dataUrl: string) => void;
+    onImageChange?: (url: string) => void; // Now expects URL, not base64
 }
 
 const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury', onMarkerSelect, onImageChange }) => {
@@ -20,6 +21,8 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
   const [view, setView] = useState<'Anterior' | 'Posterior'>('Anterior');
   const [pendingMark, setPendingMark] = useState<{x: number, y: number} | null>(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
   
   // Cache images to prevent reloading/flicker
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
@@ -110,12 +113,6 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
           ctx.arc(pmX, pmY, 10, 0, 2 * Math.PI);
           ctx.stroke();
       }
-
-      // Export image data
-      if (onImageChange) {
-          const dataUrl = canvas.toDataURL('image/png');
-          onImageChange(dataUrl);
-      }
     }
   }, [view, value, pendingMark, mode, imageLoaded]);
 
@@ -124,8 +121,6 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
     if (!canvas) return;
     
     const rect = canvas.getBoundingClientRect();
-    // Calculate percentage (0-1) relative to displayed size
-    // This makes the click independent of CSS scaling vs internal resolution
     const xPct = (e.clientX - rect.left) / rect.width;
     const yPct = (e.clientY - rect.top) / rect.height;
 
@@ -134,63 +129,103 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
   };
 
   const getLocationName = (xPct: number, yPct: number, view: 'Anterior' | 'Posterior') => {
-      // Relative Coordinate Mapping (0-1)
-      let location = 'Unknown';
-      
-      // Head (Top 11.6%)
-      if (yPct < 0.116) location = 'Head/Face';
-      // Neck (11.6% - 16.6%)
-      else if (yPct >= 0.116 && yPct < 0.166) location = 'Neck';
-      // Torso vs Arms (16.6% - 41.6%)
-      else if (yPct >= 0.166 && yPct < 0.416) {
-          if (xPct < 0.25) location = view === 'Anterior' ? 'Right Arm' : 'Left Arm';
-          else if (xPct > 0.75) location = view === 'Anterior' ? 'Left Arm' : 'Right Arm';
-          else location = view === 'Anterior' ? 'Chest' : 'Back';
+      let side = '';
+      if (view === 'Anterior') {
+          // Anterior View: Viewer Left (x < 0.5) is Patient Right
+          side = xPct < 0.5 ? 'Right' : 'Left';
+      } else {
+          // Posterior View: Viewer Left (x < 0.5) is Patient Left
+          side = xPct < 0.5 ? 'Left' : 'Right';
       }
-      // Abdomen/Pelvis/Forearms (41.6% - 53.3%)
-      else if (yPct >= 0.416 && yPct < 0.533) {
-          if (xPct < 0.25) location = view === 'Anterior' ? 'Right Forearm' : 'Left Forearm';
-          else if (xPct > 0.75) location = view === 'Anterior' ? 'Left Forearm' : 'Right Forearm';
-          else location = view === 'Anterior' ? 'Abdomen/Pelvis' : 'Lower Back';
+
+      // Head / Neck
+      if (yPct < 0.125) return `Head/Face (${view})`;
+      if (yPct < 0.17) return `Neck (${view})`;
+
+      // Torso X Boundaries (approx 25% to 75% is central body width, arms outside)
+      // Assuming 300px width, shoulders/arms are typically outside x=75 and x=225 (0.25/0.75)
+      const isTorsoX = xPct > 0.25 && xPct < 0.75;
+
+      // Upper Body (Chest/Back/Arms)
+      if (yPct < 0.45) {
+          if (isTorsoX) {
+              if (yPct < 0.35) return view === 'Anterior' ? 'Chest' : 'Upper Back';
+              return view === 'Anterior' ? 'Abdomen' : 'Mid Back';
+          } else {
+              // Arms
+              if (yPct < 0.22) return `${side} Shoulder`;
+              if (yPct < 0.38) return `${side} Upper Arm`;
+              return `${side} Elbow`;
+          }
+      } 
+      // Mid Body (Pelvis/Lower Back/Forearms)
+      else if (yPct < 0.52) {
+          if (isTorsoX) {
+              return view === 'Anterior' ? 'Pelvis/Groin' : 'Lower Back/Buttocks';
+          } else {
+              return `${side} Forearm`;
+          }
       }
-      // Legs (> 53.3%)
+      // Hips / Hands
+      else if (yPct < 0.62) {
+          // Hands usually hang down here if arms straight
+          if (!isTorsoX) return `${side} Hand/Wrist`;
+          // Otherwise upper thigh/hip area
+          return view === 'Anterior' ? `${side} Hip/Groin` : `${side} Buttock`;
+      }
+      // Legs
       else {
-          if (xPct < 0.5) location = view === 'Anterior' ? 'Right Leg' : 'Left Leg';
-          else location = view === 'Anterior' ? 'Left Leg' : 'Right Leg';
+          if (yPct < 0.72) return `${side} Thigh`;
+          if (yPct < 0.77) return `${side} Knee`;
+          if (yPct < 0.92) return view === 'Anterior' ? `${side} Shin` : `${side} Calf`;
+          return `${side} Foot/Ankle`;
       }
-      
-      return `${location} (${view})`;
   };
 
   const saveMark = (type: string, subtype: string) => {
       if (!pendingMark) return;
-      
       const locationName = getLocationName(pendingMark.x, pendingMark.y, view);
-
       const newMark: InjuryMark = {
           id: Date.now().toString(),
-          x: pendingMark.x, // Store percentage
-          y: pendingMark.y, // Store percentage
+          x: pendingMark.x,
+          y: pendingMark.y,
           view,
           type: type as any,
           subtype: subtype,
           location: locationName,
           success: true
       };
-      
       const newMarks = [...value, newMark];
       onChange(newMarks);
       if (onMarkerSelect) onMarkerSelect(newMark);
-      
       setShowTypeModal(false);
       setPendingMark(null);
+      setLastSaved(null); // Reset saved status on modification
+  };
+
+  const saveSnapshot = async () => {
+      if (!canvasRef.current || !onImageChange) return;
+      setIsUploading(true);
+      try {
+          const dataUrl = canvasRef.current.toDataURL('image/png');
+          const url = await uploadDataUrl(dataUrl, 'body_maps');
+          onImageChange(url);
+          setLastSaved(new Date().toLocaleTimeString());
+      } catch (e) {
+          alert("Failed to save snapshot.");
+      } finally {
+          setIsUploading(false);
+      }
   };
 
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="flex justify-between w-full max-w-[300px]">
           <span className="text-xs font-bold text-slate-400 uppercase self-center">{mode === 'injury' ? 'Body Map' : 'Access Map'}</span>
-          <button onClick={() => setView(view === 'Anterior' ? 'Posterior' : 'Anterior')} className="px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm">
+          <button 
+            onClick={() => setView(view === 'Anterior' ? 'Posterior' : 'Anterior')} 
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-500 text-slate-700 dark:text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm transition-colors"
+          >
               <RefreshCcw className="w-3 h-3" /> Flip Body
           </button>
       </div>
@@ -228,7 +263,22 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
               </div>
           )}
       </div>
-      <div className="text-[10px] text-slate-400 font-medium">
+      
+      {onImageChange && (
+          <div className="flex items-center gap-2">
+              <button 
+                onClick={saveSnapshot}
+                disabled={isUploading}
+                className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-slate-900 disabled:opacity-50"
+              >
+                  {isUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
+                  Save Snapshot
+              </button>
+              {lastSaved && <span className="text-xs text-green-600 font-bold flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
+          </div>
+      )}
+      
+      <div className="text-[10px] text-slate-400 font-medium text-center">
           {mode === 'injury' ? 'Tap to mark injury locations' : 'Tap to mark vascular access sites'}
       </div>
     </div>

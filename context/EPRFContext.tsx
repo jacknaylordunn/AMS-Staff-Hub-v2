@@ -3,12 +3,15 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { EPRF, VitalsEntry, DrugAdministration, Procedure } from '../types';
 import { useDataSync } from '../hooks/useDataSync';
 import { useAuth } from '../hooks/useAuth';
+import { db } from '../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { sanitizeData } from '../utils/dataHelpers';
 
 interface EPRFContextType {
     activeDraft: EPRF | null;
     setActiveDraft: (draft: EPRF | null) => void;
     updateDraft: (updates: Partial<EPRF>) => void;
-    submitDraft: (token: string) => Promise<void>;
+    submitDraft: (token: string, pdfUrl?: string) => Promise<void>;
     handleNestedUpdate: (path: string[], value: any) => void;
     addVitals: (entry: VitalsEntry) => void;
     addDrug: (entry: DrugAdministration) => void;
@@ -19,52 +22,99 @@ interface EPRFContextType {
 
 const EPRFContext = createContext<EPRFContextType | undefined>(undefined);
 
-// Helper to remove undefined values for Firestore
-const sanitizeData = (data: any): any => {
-    if (Array.isArray(data)) {
-        return data.map(sanitizeData);
-    } else if (data !== null && typeof data === 'object') {
-        const newObj: any = {};
-        Object.keys(data).forEach(key => {
-            const val = data[key];
-            if (val === undefined) {
-                newObj[key] = null; // Convert undefined to null
-            } else {
-                newObj[key] = sanitizeData(val);
-            }
-        });
-        return newObj;
-    }
-    return data;
-};
+const STORAGE_KEY = 'aegis_local_draft_backup';
 
 export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: EPRF | null }> = ({ children, initialDraft }) => {
     const { saveEPRF, deleteEPRF } = useDataSync();
+    const { user } = useAuth();
     const [activeDraft, setActiveDraftState] = useState<EPRF | null>(initialDraft);
 
     useEffect(() => {
         if (initialDraft) setActiveDraftState(initialDraft);
     }, [initialDraft]);
 
+    // Real-time Sync for Active Draft
+    useEffect(() => {
+        if (!activeDraft || !user) return;
+
+        // If it's a new draft not saved yet (no ID in DB), skip listener
+        // Assuming ID format 'draft_uid_timestamp'
+        const draftDocId = `draft_${user.uid}_${activeDraft.id}`;
+        
+        const unsub = onSnapshot(doc(db, 'eprfs', draftDocId), (snapshot) => {
+            if (snapshot.exists()) {
+                const remoteData = snapshot.data() as EPRF;
+                
+                // Only update if remote is newer or different to prevent loop with local typing
+                // We use lastUpdated timestamp
+                const localTime = new Date(activeDraft.lastUpdated).getTime();
+                const remoteTime = new Date(remoteData.lastUpdated).getTime();
+
+                // Allow 2 second buffer for clock skew / latency to prefer local if actively typing
+                if (remoteTime > localTime + 2000) {
+                    console.log("Syncing from remote...");
+                    setActiveDraftState(remoteData);
+                }
+            }
+        }, (error) => {
+            console.error("Context snapshot error (likely permissions)", error);
+        });
+
+        return () => unsub();
+    }, [activeDraft?.id, user]); // Only re-bind if the ID changes
+
+    // Local Storage Recovery
+    useEffect(() => {
+        if (!activeDraft) {
+            const backup = localStorage.getItem(STORAGE_KEY);
+            if (backup) {
+                try {
+                    const parsed = JSON.parse(backup);
+                    // Only restore if less than 24 hours old
+                    const age = Date.now() - new Date(parsed.lastUpdated).getTime();
+                    if (age < 24 * 60 * 60 * 1000) {
+                        console.log("Restoring ePRF draft from local storage");
+                    } else {
+                        localStorage.removeItem(STORAGE_KEY);
+                    }
+                } catch (e) {
+                    localStorage.removeItem(STORAGE_KEY);
+                }
+            }
+        }
+    }, []);
+
     const setActiveDraft = (draft: EPRF | null) => {
         setActiveDraftState(draft);
+        if (draft) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+        } else {
+            localStorage.removeItem(STORAGE_KEY);
+        }
+    };
+
+    const persist = (draft: EPRF, immediate = false) => {
+        const safeData = sanitizeData(draft);
+        setActiveDraftState(safeData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(safeData)); // Instant local backup
+        saveEPRF(safeData, immediate); // Firestore sync
     };
 
     const updateDraft = (updates: Partial<EPRF>) => {
         if (!activeDraft) return;
         const updated = { ...activeDraft, ...updates, lastUpdated: new Date().toISOString() };
-        const safeData = sanitizeData(updated);
-        setActiveDraftState(safeData);
-        saveEPRF(safeData, false); // Auto-save (debounced)
+        persist(updated);
     };
 
     // Specific function for final submission to ensure data integrity
-    const submitDraft = async (token: string) => {
+    const submitDraft = async (token: string, pdfUrl?: string) => {
         if (!activeDraft) return;
         
         const updates = {
             status: 'Submitted' as const,
             lastUpdated: new Date().toISOString(),
+            pdfUrl: pdfUrl,
+            locked: true,
             handover: {
                 ...activeDraft.handover,
                 digitalToken: token
@@ -76,6 +126,7 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         
         // Update local state immediately for UI responsiveness
         setActiveDraftState(safeData);
+        localStorage.removeItem(STORAGE_KEY); // Clear backup on submission
         
         // FORCE SAVE IMMEDIATE
         await saveEPRF(safeData, true);
@@ -84,7 +135,6 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     const handleNestedUpdate = (path: string[], value: any) => {
         if (!activeDraft) return;
         
-        // Performance Upgrade: Use structuredClone
         const newDraft = structuredClone(activeDraft); 
         let current = newDraft;
         
@@ -95,10 +145,7 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         current[path[path.length - 1]] = value;
         
         newDraft.lastUpdated = new Date().toISOString();
-        const safeData = sanitizeData(newDraft);
-        
-        setActiveDraftState(safeData);
-        saveEPRF(safeData, false); // Auto-save (debounced)
+        persist(newDraft);
     };
 
     const addVitals = (entry: VitalsEntry) => {
@@ -126,15 +173,19 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         const yyyy = now.getFullYear();
         const mm = String(now.getMonth() + 1).padStart(2, '0');
         const dd = String(now.getDate()).padStart(2, '0');
-        // Random 4 digit suffix
         const xxxx = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
         return `AMS${yyyy}${mm}${dd}${xxxx}`;
     };
 
     const deleteCurrentDraft = async () => {
         if (!activeDraft) return;
+        if (activeDraft.status === 'Submitted') {
+            alert("Cannot delete a submitted record.");
+            return;
+        }
         await deleteEPRF(activeDraft.id);
         setActiveDraftState(null);
+        localStorage.removeItem(STORAGE_KEY);
     };
 
     return (

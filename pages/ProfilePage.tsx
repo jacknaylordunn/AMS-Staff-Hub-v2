@@ -1,10 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key } from 'lucide-react';
+import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key, Camera } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../context/ToastContext';
 import { ComplianceDoc, Role } from '../types';
 import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { uploadFile } from '../services/storage';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 
 const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
@@ -30,8 +33,21 @@ const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
     );
 };
 
+const DOC_TYPES = [
+    'DBS Certificate',
+    'Driving License',
+    'HCPC / NMC Registration',
+    'Clinical Qualification (FREC/Para/Nurse)',
+    'Blue Light Driving',
+    'Manual Handling',
+    'Safeguarding L2/L3',
+    'Immunisation Record',
+    'Other'
+];
+
 const ProfilePage = () => {
   const { user, refreshUser, updatePin } = useAuth();
+  const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
       phone: user?.phone || '',
@@ -46,9 +62,13 @@ const ProfilePage = () => {
   // Document Upload State
   const [showDocModal, setShowDocModal] = useState(false);
   const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('');
   const [docExpiry, setDocExpiry] = useState('');
-  const [docFile, setDocFile] = useState<string | null>(null); // storing base64 for demo
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Document Viewer State
+  const [viewingDoc, setViewingDoc] = useState<{url: string, title: string} | null>(null);
 
   // PIN Change State
   const [showPinModal, setShowPinModal] = useState(false);
@@ -82,9 +102,8 @@ const ProfilePage = () => {
               role: Role.Admin,
               status: 'Active',
               employeeId: 'AMS-ADMIN-001',
-              // Note: PIN is now handled separately via updatePin, cannot simple update doc here
           });
-          alert("System Initialized. You are now Admin.");
+          toast.success("System Initialized. You are now Admin.");
           await refreshUser();
           window.location.reload();
       } catch (e) {
@@ -100,9 +119,28 @@ const ProfilePage = () => {
               address: formData.address
           });
           setIsEditing(false);
+          toast.success("Profile updated");
       } catch (e) {
           console.error("Update failed", e);
-          alert("Failed to update profile.");
+          toast.error("Failed to update profile.");
+      }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!user || !e.target.files || !e.target.files[0]) return;
+      const file = e.target.files[0];
+      setUploading(true);
+      try {
+          // Use common storage service
+          const url = await uploadFile(file, 'avatars');
+          await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
+          await refreshUser();
+          toast.success("Profile picture updated");
+      } catch (err) {
+          toast.error("Failed to upload photo");
+          console.error(err);
+      } finally {
+          setUploading(false);
       }
   };
 
@@ -122,7 +160,7 @@ const ProfilePage = () => {
           setShowPinModal(false);
           setNewPin('');
           setConfirmPin('');
-          alert("PIN updated securely.");
+          toast.success("PIN updated securely.");
       } catch (e) {
           setPinError("Failed to update PIN. Check connection.");
       }
@@ -141,50 +179,59 @@ const ProfilePage = () => {
               }
           });
           setShowRoleModal(false);
-          alert("Role change request submitted to management.");
+          toast.success("Role change request submitted to management.");
       } catch (e) {
           console.error("Role request failed", e);
-          alert("Failed to submit request.");
+          toast.error("Failed to submit request.");
       }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-              if (ev.target?.result) {
-                  setDocFile(ev.target.result as string);
-              }
-          };
-          reader.readAsDataURL(e.target.files[0]);
+          setSelectedFile(e.target.files[0]);
       }
   };
 
   const handleDocUpload = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!user || !docName || !docExpiry) return;
+      if (!user || (!docName && !docType) || !docExpiry) return;
+      
+      const finalName = docType === 'Other' ? docName : docType;
+      
       setUploading(true);
       try {
-          const newDoc: ComplianceDoc = {
+          // 1. Upload File first if selected to Storage (Not Base64 in Firestore)
+          let downloadUrl = null;
+          if (selectedFile) {
+              downloadUrl = await uploadFile(selectedFile, `compliance/${user.uid}`);
+          }
+
+          // 2. Construct document object safely
+          const newDoc: any = {
               id: Date.now().toString(),
-              name: docName,
+              name: finalName || 'Document', // Ensure string
               expiryDate: docExpiry,
               status: 'Pending', // Always pending verification initially
               uploadedAt: new Date().toISOString(),
-              fileUrl: docFile || undefined
+              fileUrl: downloadUrl || null // Allow null, avoiding undefined
           };
 
           await updateDoc(doc(db, 'users', user.uid), {
               compliance: arrayUnion(newDoc)
           });
           
+          // 3. Silent Refresh - Update local user context to reflect new doc immediately
+          await refreshUser();
+
           setShowDocModal(false);
           setDocName('');
+          setDocType('');
           setDocExpiry('');
-          setDocFile(null);
+          setSelectedFile(null);
+          toast.success("Document uploaded successfully");
       } catch (e) {
           console.error("Upload failed", e);
-          alert("Failed to upload document.");
+          toast.error("Failed to upload document.");
       } finally {
           setUploading(false);
       }
@@ -218,11 +265,23 @@ const ProfilePage = () => {
       <div className="relative bg-gradient-to-r from-ams-blue to-blue-900 rounded-2xl overflow-hidden shadow-lg">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
           <div className="relative p-8 flex flex-col md:flex-row items-center gap-6">
-              <div className="w-24 h-24 bg-white rounded-full p-1 shadow-xl">
-                  <div className="w-full h-full rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                      <User className="w-12 h-12" />
+              <div className="relative group">
+                  <div className="w-24 h-24 bg-white rounded-full p-1 shadow-xl overflow-hidden relative">
+                      {user?.photoURL ? (
+                          <img src={user.photoURL} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                          <div className="w-full h-full rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                              <User className="w-12 h-12" />
+                          </div>
+                      )}
+                      {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="w-6 h-6 text-white animate-spin" /></div>}
                   </div>
+                  <label className="absolute bottom-0 right-0 p-2 bg-ams-blue text-white rounded-full cursor-pointer hover:bg-blue-700 transition-colors shadow-md">
+                      <Camera className="w-4 h-4" />
+                      <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={uploading} />
+                  </label>
               </div>
+              
               <div className="text-center md:text-left text-white flex-1">
                   <div className="flex items-center justify-center md:justify-start gap-3">
                     <h1 className="text-3xl font-bold">{user?.name}</h1>
@@ -255,7 +314,7 @@ const ProfilePage = () => {
                         onClick={() => setShowRoleModal(true)}
                         className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/30 rounded-xl text-white text-sm font-bold transition-all"
                       >
-                          <ArrowUpCircle className="w-4 h-4" /> Request Upgrade
+                          <ArrowUpCircle className="w-4 h-4" /> Request Role Change
                       </button>
                   )}
               </div>
@@ -334,7 +393,7 @@ const ProfilePage = () => {
                                     type="tel" 
                                     value={formData.phone}
                                     onChange={e => setFormData({...formData, phone: e.target.value})}
-                                    className="w-full text-sm border-b border-ams-blue focus:outline-none py-1 bg-transparent dark:text-white"
+                                    className="w-full text-sm border-b border-ams-blue focus:outline-none py-1 bg-transparent dark:text-white text-slate-900"
                                   />
                               ) : (
                                   <span className="text-slate-700 dark:text-slate-200">{user?.phone || 'Not set'}</span>
@@ -349,7 +408,7 @@ const ProfilePage = () => {
                                   <textarea 
                                     value={formData.address}
                                     onChange={e => setFormData({...formData, address: e.target.value})}
-                                    className="w-full text-sm border border-slate-200 dark:border-slate-600 rounded p-2 focus:ring-1 focus:ring-ams-blue outline-none bg-transparent dark:text-white"
+                                    className="w-full text-sm border border-slate-200 dark:border-slate-600 rounded p-2 focus:ring-1 focus:ring-ams-blue outline-none bg-transparent dark:text-white text-slate-900"
                                     rows={2}
                                   />
                               ) : (
@@ -396,7 +455,12 @@ const ProfilePage = () => {
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                       {doc.fileUrl && (
-                                          <button onClick={() => window.open(doc.fileUrl)} className="text-ams-blue hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-bold">View</button>
+                                          <button 
+                                            onClick={() => setViewingDoc({ url: doc.fileUrl!, title: doc.name })} 
+                                            className="text-ams-blue hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-bold"
+                                          >
+                                            View
+                                          </button>
                                       )}
                                   </td>
                               </tr>
@@ -434,7 +498,7 @@ const ProfilePage = () => {
                             inputMode="numeric"
                             pattern="[0-9]*"
                             maxLength={4}
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white focus:ring-2 focus:ring-ams-blue"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white text-slate-900 focus:ring-2 focus:ring-ams-blue"
                             value={newPin}
                             onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
                             required
@@ -447,7 +511,7 @@ const ProfilePage = () => {
                             inputMode="numeric"
                             pattern="[0-9]*"
                             maxLength={4}
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white focus:ring-2 focus:ring-ams-blue"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-center font-mono text-lg tracking-widest outline-none dark:text-white text-slate-900 focus:ring-2 focus:ring-ams-blue"
                             value={confirmPin}
                             onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
                             required
@@ -472,7 +536,7 @@ const ProfilePage = () => {
                       <div>
                           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">New Role</label>
                           <select 
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
                             value={requestedRole}
                             onChange={e => setRequestedRole(e.target.value as Role)}
                             required
@@ -484,7 +548,7 @@ const ProfilePage = () => {
                       <div>
                           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Reason / Justification</label>
                           <textarea 
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none resize-none dark:text-white"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none resize-none dark:text-white text-slate-900"
                             rows={3}
                             placeholder="E.g. Completed FREC4 course."
                             value={requestReason}
@@ -508,20 +572,36 @@ const ProfilePage = () => {
                   </div>
                   <form onSubmit={handleDocUpload} className="space-y-4">
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Name</label>
-                          <input 
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
-                            placeholder="e.g. DBS Certificate"
-                            value={docName}
-                            onChange={e => setDocName(e.target.value)}
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Type</label>
+                          <select
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
+                            value={docType}
+                            onChange={e => setDocType(e.target.value)}
                             required
-                          />
+                          >
+                              <option value="">Select Document Type...</option>
+                              {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
                       </div>
+                      
+                      {docType === 'Other' && (
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Name</label>
+                              <input 
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
+                                placeholder="e.g. Specific Course Cert"
+                                value={docName}
+                                onChange={e => setDocName(e.target.value)}
+                                required
+                              />
+                          </div>
+                      )}
+
                       <div>
                           <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Expiry Date</label>
                           <input 
                             type="date"
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
                             value={docExpiry}
                             onChange={e => setDocExpiry(e.target.value)}
                             required
@@ -529,8 +609,8 @@ const ProfilePage = () => {
                       </div>
                       <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 relative">
                           <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} accept="image/*,application/pdf" required />
-                          {docFile ? (
-                              <span className="text-green-600 font-bold text-sm flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> File Selected</span>
+                          {selectedFile ? (
+                              <span className="text-green-600 font-bold text-sm flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> {selectedFile.name}</span>
                           ) : (
                               <span className="text-slate-400 text-sm flex items-center justify-center gap-2"><Upload className="w-4 h-4" /> Tap to Upload</span>
                           )}
@@ -545,6 +625,14 @@ const ProfilePage = () => {
                   </form>
               </div>
           </div>
+      )}
+
+      {viewingDoc && (
+          <DocumentViewerModal 
+              url={viewingDoc.url} 
+              title={viewingDoc.title} 
+              onClose={() => setViewingDoc(null)} 
+          />
       )}
     </div>
   );

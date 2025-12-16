@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { BarChart, Clock, Users, Award, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
+import { BarChart, Clock, Users, Award, TrendingUp, Loader2, AlertCircle, Bell } from 'lucide-react';
 import { Role, User, ComplianceDoc } from '../types';
 import { db } from '../services/firebase';
 import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { sendNotification } from '../services/notificationService';
+import { useToast } from '../context/ToastContext';
 
 const AnalyticsCard = ({ icon: Icon, label, value, trend, color }: any) => (
   <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
@@ -31,7 +33,8 @@ const StaffAnalytics = () => {
   const [totalHours, setTotalHours] = useState(0);
   const [activeStaffCount, setActiveStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [expiringDocs, setExpiringDocs] = useState<{name: string, docName: string, days: number}[]>([]);
+  const [expiringDocs, setExpiringDocs] = useState<{userId: string, name: string, docName: string, days: number}[]>([]);
+  const { toast } = useToast();
 
   useEffect(() => {
       const calculateStats = async () => {
@@ -49,7 +52,7 @@ const StaffAnalytics = () => {
               setTotalHours(Math.round(grandTotalHours));
 
               // Compliance Risk Scan
-              const risks: {name: string, docName: string, days: number}[] = [];
+              const risks: {userId: string, name: string, docName: string, days: number}[] = [];
               const now = new Date();
               users.forEach(u => {
                   u.compliance?.forEach(doc => {
@@ -58,7 +61,7 @@ const StaffAnalytics = () => {
                           const diffTime = exp.getTime() - now.getTime();
                           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                           if (diffDays < 30) {
-                              risks.push({ name: u.name, docName: doc.name, days: diffDays });
+                              risks.push({ userId: u.uid, name: u.name, docName: doc.name, days: diffDays });
                           }
                       }
                   });
@@ -74,6 +77,21 @@ const StaffAnalytics = () => {
 
       calculateStats();
   }, []);
+
+  const handleNotify = async (userId: string, docName: string) => {
+      if (!confirm(`Send notification to user about ${docName}?`)) return;
+      try {
+          await sendNotification(
+              userId, 
+              "Compliance Expiry Warning", 
+              `Your document '${docName}' is expiring or expired. Please upload a new version.`,
+              'alert'
+          );
+          toast.success("Notification sent");
+      } catch (e) {
+          toast.error("Failed to send notification");
+      }
+  };
 
   if (loading) return <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-ams-blue" /></div>;
 
@@ -156,14 +174,19 @@ const StaffAnalytics = () => {
                         <p className="text-sm text-slate-400 italic">No expiry warnings.</p>
                     ) : (
                         expiringDocs.map((item, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-red-50 dark:bg-red-900/10 rounded-lg">
+                            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-red-50 dark:bg-red-900/10 rounded-lg group">
                                 <div>
                                     <div className="font-bold text-slate-800 dark:text-slate-200">{item.name}</div>
                                     <div className="text-xs text-slate-500">{item.docName}</div>
                                 </div>
-                                <span className={`text-xs font-bold px-2 py-1 rounded ${item.days < 0 ? 'bg-red-200 text-red-800 dark:bg-red-900/30 dark:text-red-300' : 'bg-amber-200 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
-                                    {item.days < 0 ? 'EXPIRED' : `${item.days} days`}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded ${item.days < 0 ? 'bg-red-200 text-red-800 dark:bg-red-900/30 dark:text-red-300' : 'bg-amber-200 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                                        {item.days < 0 ? 'EXPIRED' : `${item.days} days`}
+                                    </span>
+                                    <button onClick={() => handleNotify(item.userId, item.docName)} className="p-1.5 bg-white dark:bg-slate-800 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-ams-blue transition-colors shadow-sm" title="Notify Staff">
+                                        <Bell className="w-3 h-3" />
+                                    </button>
+                                </div>
                             </div>
                         ))
                     )}
