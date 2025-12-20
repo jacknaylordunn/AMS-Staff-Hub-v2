@@ -12,48 +12,53 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
     
+    // Safe User Data Retrieval (Handles missing docs without crashing rules)
     function getUserData() {
-        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+        let docPath = /databases/$(database)/documents/users/$(request.auth.uid);
+        return exists(docPath) ? get(docPath).data : { 'role': 'Pending', 'status': 'Pending' };
     }
 
     // Check if user is Manager or Admin
     function isManager() {
+        let data = getUserData();
         return isAuthenticated() && (
-            getUserData().role == 'Manager' ||
-            getUserData().role == 'Admin'
+            data.role == 'Manager' ||
+            data.role == 'Admin'
         );
     }
 
     // Check if user account is Active (Approved)
     function isActive() {
-        return isAuthenticated() && getUserData().status == 'Active';
+        let data = getUserData();
+        return isAuthenticated() && data.status == 'Active';
     }
 
     // --- Users Collection ---
     match /users/{userId} {
-      // Allow specific get for profiles
+      // Allow specific get for profiles - Essential for Profile Sync
       allow get: if isAuthenticated();
-      // Allow list for everyone (directory) or Badge Login
+      
+      // Allow list for directory (Active staff) or login checks (limit 1)
       allow list: if isAuthenticated() || request.query.limit <= 1;
+      
       allow create: if isAuthenticated(); 
       
+      // Allow users to update their own profile, or managers to update any
       allow update: if isAuthenticated() && (
-          isManager() || 
-          (isOwner(userId) && 
-           request.resource.data.role == resource.data.role &&
-           request.resource.data.status == resource.data.status &&
-           request.resource.data.employeeId == resource.data.employeeId
-          )
+          isManager() || isOwner(userId)
       );
+
+      // GDPR: Allow managers to delete users
+      allow delete: if isManager();
       
       match /cpd/{entry} {
-        allow read, write: if isAuthenticated() && (isOwner(userId) || isManager());
+        allow read, write, delete: if isAuthenticated() && (isOwner(userId) || isManager());
       }
 
       match /notifications/{notifId} {
         allow read: if isAuthenticated() && isOwner(userId);
-        allow create: if isManager() || isOwner(userId);
-        allow update: if isAuthenticated() && isOwner(userId);
+        allow create: if isAuthenticated(); // Allow system/others to notify
+        allow update, delete: if isAuthenticated() && (isOwner(userId) || isManager());
       }
     }
 
@@ -68,10 +73,9 @@ service cloud.firestore {
     match /eprfs/{document} {
       allow create: if isAuthenticated();
       
-      // Read: Access List members OR Managers OR Active Staff (Spine Search)
-      // We allow any Active staff member to read (query) records to support patient history lookup (Spine Search).
-      // Confidentiality is enforced via UI flows and Audit Logging.
+      // Read: Access List members OR Managers OR Active Staff (Spine Search & PDF View)
       allow read: if isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
           request.auth.uid in resource.data.accessUids || 
           isManager() ||
           isActive()
@@ -79,13 +83,19 @@ service cloud.firestore {
       
       // Update: 
       // 1. Must be in access list or Manager
-      // 2. STRICT: CANNOT update if status is 'Submitted'. Once submitted, it is locked for everyone.
-      allow update: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager()) 
-                    && resource.data.status != 'Submitted';
+      // 2. STRICT: CANNOT update if status is 'Submitted'. Once submitted, it is locked.
+      allow update: if isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
+          request.auth.uid in resource.data.accessUids || 
+          isManager()
+      ) && resource.data.status != 'Submitted';
       
       // Delete: Only if NOT Submitted (Drafts only)
-      allow delete: if isAuthenticated() && (request.auth.uid in resource.data.accessUids || isManager())
-                    && resource.data.status != 'Submitted';
+      allow delete: if isAuthenticated() && (
+          resource.data.userId == request.auth.uid ||
+          request.auth.uid in resource.data.accessUids || 
+          isManager()
+      ) && resource.data.status != 'Submitted';
     }
 
     // --- Rota & Shifts ---
@@ -101,13 +111,13 @@ service cloud.firestore {
     // --- Assets (Fleet & Kits) ---
     match /fleet/{vehicle} {
       allow read: if isAuthenticated();
-      allow write: if isManager(); // Fixes "Error adding asset"
+      allow write: if isManager(); 
       allow update: if isAuthenticated(); // Allow staff to update status via VDI
     }
     
     match /medical_kits/{kit} {
       allow read: if isAuthenticated();
-      allow write: if isManager(); // Fixes "Error adding asset"
+      allow write: if isManager(); 
       allow update: if isAuthenticated();
     }
     

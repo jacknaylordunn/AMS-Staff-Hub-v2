@@ -1,18 +1,25 @@
 
 import React, { useState, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { Clock, MapPin, AlertTriangle, Crosshair, Loader2, Users, Plus, Trash2, User } from 'lucide-react';
+import { Clock, MapPin, AlertTriangle, Crosshair, Loader2, Users, Plus, Trash2, Calendar } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { User as UserType } from '../../types';
+import AddressAutocomplete from '../AddressAutocomplete';
 
 const IncidentTab = () => {
     const { activeDraft, handleNestedUpdate } = useEPRF();
     const { user } = useAuth();
     const [gettingLoc, setGettingLoc] = useState(false);
-    const [newStaffName, setNewStaffName] = useState('');
-    const [newStaffRole, setNewStaffRole] = useState('');
+    const [staffList, setStaffList] = useState<UserType[]>([]);
+    const [selectedStaffId, setSelectedStaffId] = useState('');
 
     useEffect(() => {
-        if (activeDraft && (!activeDraft.assistingClinicians || activeDraft.assistingClinicians.length === 0) && user) {
+        if (!activeDraft) return;
+
+        // Initial Self-Add
+        if ((!activeDraft.assistingClinicians || activeDraft.assistingClinicians.length === 0) && user) {
             const initialCrew = [{
                 name: user.name,
                 role: user.role,
@@ -20,6 +27,20 @@ const IncidentTab = () => {
             }];
             handleNestedUpdate(['assistingClinicians'], initialCrew);
         }
+
+        // Auto-fill date if missing
+        if (!activeDraft.times.incidentDate) {
+            const today = new Date().toISOString().split('T')[0];
+            handleNestedUpdate(['times', 'incidentDate'], today);
+        }
+
+        // Fetch Staff for dropdown
+        const fetchStaff = async () => {
+            const q = query(collection(db, 'users'), where('status', '==', 'Active'));
+            const snap = await getDocs(q);
+            setStaffList(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserType)));
+        };
+        fetchStaff();
     }, [activeDraft?.id, user]);
 
     if (!activeDraft) return null;
@@ -51,16 +72,18 @@ const IncidentTab = () => {
     };
 
     const addStaff = () => {
-        if (!newStaffName) return;
+        if (!selectedStaffId) return;
+        const staffMember = staffList.find(s => s.uid === selectedStaffId);
+        if (!staffMember) return;
+
         const newMember = {
-            name: newStaffName,
-            role: newStaffRole || 'Clinician',
-            badgeNumber: 'Manual Entry'
+            name: staffMember.name,
+            role: staffMember.role,
+            badgeNumber: staffMember.employeeId || 'Unknown'
         };
         const current = activeDraft.assistingClinicians || [];
         handleNestedUpdate(['assistingClinicians'], [...current, newMember]);
-        setNewStaffName('');
-        setNewStaffRole('');
+        setSelectedStaffId('');
     };
 
     const removeStaff = (index: number) => {
@@ -80,9 +103,18 @@ const IncidentTab = () => {
                     <div>
                         <label className="input-label">Incident Number</label>
                         <input 
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
                             value={activeDraft.incidentNumber} 
                             readOnly
+                        />
+                    </div>
+                    <div>
+                        <label className="input-label flex items-center gap-1"><Calendar className="w-3 h-3" /> Incident Date</label>
+                        <input 
+                            type="date"
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
+                            value={activeDraft.times.incidentDate || ''}
+                            onChange={e => handleNestedUpdate(['times', 'incidentDate'], e.target.value)}
                         />
                     </div>
                     <div>
@@ -94,13 +126,13 @@ const IncidentTab = () => {
                             </button>
                         </label>
                         <div className="relative">
-                            <MapPin className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
-                            <input 
-                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
+                            <AddressAutocomplete
+                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
                                 value={activeDraft.location} 
-                                onChange={e => handleNestedUpdate(['location'], e.target.value)} 
+                                onChange={val => handleNestedUpdate(['location'], val)} 
                                 placeholder="Address / Grid Ref"
                             />
+                            <MapPin className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                         </div>
                     </div>
                     <div>
@@ -143,33 +175,23 @@ const IncidentTab = () => {
                             </button>
                         </div>
                     ))}
-                    {(!activeDraft.assistingClinicians || activeDraft.assistingClinicians.length === 0) && (
-                        <p className="text-sm text-slate-400 italic">No staff assigned.</p>
-                    )}
                 </div>
 
                 <div className="flex gap-2 items-end bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
                     <div className="flex-1">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Name</label>
-                        <input 
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm outline-none dark:text-white"
-                            placeholder="Staff Name"
-                            value={newStaffName}
-                            onChange={e => setNewStaffName(e.target.value)}
-                        />
-                    </div>
-                    <div className="w-1/3">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Role</label>
-                        <input 
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm outline-none dark:text-white"
-                            placeholder="Role (e.g. Medic)"
-                            value={newStaffRole}
-                            onChange={e => setNewStaffRole(e.target.value)}
-                        />
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Search Staff Database</label>
+                        <select 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none dark:text-white"
+                            value={selectedStaffId}
+                            onChange={e => setSelectedStaffId(e.target.value)}
+                        >
+                            <option value="">-- Select Staff Member --</option>
+                            {staffList.map(s => <option key={s.uid} value={s.uid}>{s.name} ({s.role})</option>)}
+                        </select>
                     </div>
                     <button 
                         onClick={addStaff}
-                        disabled={!newStaffName}
+                        disabled={!selectedStaffId}
                         className="bg-ams-blue text-white p-1.5 rounded hover:bg-blue-700 disabled:opacity-50 transition-colors h-8 w-8 flex items-center justify-center"
                     >
                         <Plus className="w-4 h-4" />

@@ -28,10 +28,10 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { DataSyncProvider } from './hooks/useDataSync';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { ToastProvider } from './context/ToastContext';
-import { Role, AppNotification } from './types';
+import { Role, AppNotification, Shift } from './types';
 import { db } from './services/firebase';
-import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where } from 'firebase/firestore';
-import { requestBrowserPermission, sendBrowserNotification } from './services/notificationService';
+import { collection, query, orderBy, limit, onSnapshot, updateDoc, doc, where, getDocs, Timestamp } from 'firebase/firestore';
+import { requestBrowserPermission, sendBrowserNotification, sendNotification, notifyManagers } from './services/notificationService';
 
 // Use hosted company asset path
 const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
@@ -39,6 +39,7 @@ const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/A
 // Define Access Groups
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
 
+// ... (SidebarItem component omitted, same as original)
 interface SidebarItemProps {
   to: string;
   icon: any;
@@ -184,12 +185,135 @@ const NotificationBell = () => {
     );
 };
 
+// Hook for passive notifications (Reminders, Compliance, Manager Alerts)
+const useNotificationLogic = () => {
+    const { user } = useAuth();
+    const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
+
+    useEffect(() => {
+        if (!user) return;
+
+        const checkRoutine = async () => {
+            const now = new Date();
+            const nowStr = now.toDateString(); // Day granularity for compliance
+
+            // 1. Shift Reminders (1 hour before)
+            // Query shifts starting between now and now + 65 mins
+            const startWindow = new Date(now.getTime());
+            const endWindow = new Date(now.getTime() + 65 * 60 * 1000); // 65 mins window
+            
+            try {
+                const qShifts = query(
+                    collection(db, 'shifts'),
+                    where('start', '>=', Timestamp.fromDate(startWindow)),
+                    where('start', '<=', Timestamp.fromDate(endWindow))
+                );
+                
+                const snap = await getDocs(qShifts);
+                snap.docs.forEach(d => {
+                    const data = d.data();
+                    const shift = { 
+                        ...data, 
+                        id: d.id, 
+                        start: data.start.toDate(), 
+                        end: data.end.toDate() 
+                    } as Shift;
+
+                    // Check if I am on this shift
+                    if (shift.slots.some(s => s.userId === user.uid)) {
+                        const storageKey = `reminder_sent_${d.id}`;
+                        if (!localStorage.getItem(storageKey)) {
+                            // Send notification
+                            sendNotification(user.uid, "Upcoming Shift", `You have a shift at ${shift.location} starting soon (${shift.start.toLocaleTimeString()}).`, 'info', '/rota');
+                            sendBrowserNotification("Shift Reminder", `Shift at ${shift.location} starts in <1 hour.`);
+                            localStorage.setItem(storageKey, 'true');
+                        }
+                    }
+                });
+            } catch (e) { console.error("Shift reminder check failed", e); }
+
+            // 2. Compliance Check (Once per day)
+            const compCheckKey = `comp_check_${user.uid}_${nowStr}`;
+            if (!localStorage.getItem(compCheckKey)) {
+                user.compliance?.forEach(doc => {
+                    if (doc.expiryDate) {
+                        const exp = new Date(doc.expiryDate);
+                        const diffTime = exp.getTime() - now.getTime();
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        if (diffDays < 30) {
+                            sendNotification(user.uid, "Compliance Expiry", `Your ${doc.name} expires in ${diffDays} days.`, 'alert', '/profile');
+                        }
+                    }
+                });
+                localStorage.setItem(compCheckKey, 'true');
+            }
+
+            // 3. Manager Alerts (Uncovered Shifts & Failed Clock Outs)
+            if (isManager) {
+                const mgrCheckKey = `mgr_check_${now.getHours()}`; // Once per hour roughly
+                if (!localStorage.getItem(mgrCheckKey)) {
+                    // Check Uncovered Shifts < 24h
+                    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+                    const qUncovered = query(
+                        collection(db, 'shifts'),
+                        where('start', '>=', Timestamp.fromDate(now)),
+                        where('start', '<=', Timestamp.fromDate(tomorrow))
+                    );
+                    const snapUncov = await getDocs(qUncovered);
+                    let uncoveredCount = 0;
+                    snapUncov.docs.forEach(d => {
+                        const s = d.data() as Shift;
+                        if (s.status !== 'Cancelled' && s.slots.some(slot => !slot.userId)) uncoveredCount++;
+                    });
+                    
+                    if (uncoveredCount > 0) {
+                        sendNotification(user.uid, "Staffing Alert", `${uncoveredCount} shifts in the next 24h have open slots.`, 'alert', '/rota');
+                    }
+
+                    // Check Failed Clock Outs (Shift ended > 4 hours ago but no clock out)
+                    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+                    const qFailed = query(
+                        collection(db, 'shifts'),
+                        where('end', '>=', Timestamp.fromDate(yesterday)),
+                        where('end', '<=', Timestamp.fromDate(fourHoursAgo))
+                    );
+                    const snapFailed = await getDocs(qFailed);
+                    let failedCount = 0;
+                    snapFailed.docs.forEach(d => {
+                        const s = d.data() as Shift;
+                        if (s.timeRecords) {
+                            Object.values(s.timeRecords).forEach(tr => {
+                                if (tr.clockInTime && !tr.clockOutTime) failedCount++;
+                            });
+                        }
+                    });
+
+                    if (failedCount > 0) {
+                        sendNotification(user.uid, "Timesheet Alert", `${failedCount} staff members failed to clock out from yesterday's shifts.`, 'alert', '/rota');
+                    }
+
+                    localStorage.setItem(mgrCheckKey, 'true');
+                }
+            }
+        };
+
+        const interval = setInterval(checkRoutine, 60000); // Check every minute
+        checkRoutine(); // Run immediately
+
+        return () => clearInterval(interval);
+    }, [user, isManager]);
+};
+
 const MainLayout = ({ children }: { children?: React.ReactNode }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Invoke Notification Logic Hook
+  useNotificationLogic();
 
   const isClinical = user ? CLINICAL_ROLES.includes(user.role) : false;
   const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
@@ -357,8 +481,12 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
                             <p className="text-xs text-slate-500 dark:text-slate-400">{user?.role}</p>
                         </div>
                         <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-ams-blue to-cyan-500 p-[2px] shadow-sm group-hover:shadow-md transition-all">
-                            <div className="w-full h-full rounded-full bg-white dark:bg-slate-800 flex items-center justify-center text-ams-blue font-bold">
-                                {user?.name.charAt(0)}
+                            <div className="w-full h-full rounded-full bg-white dark:bg-slate-800 flex items-center justify-center text-ams-blue font-bold overflow-hidden">
+                                {user?.photoURL ? (
+                                    <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                                ) : (
+                                    user?.name.charAt(0)
+                                )}
                             </div>
                         </div>
                     </Link>

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mail, RefreshCw, LogOut, Send, AlertCircle, CheckCircle, Loader2, ArrowRight } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { sendEmailVerification } from 'firebase/auth';
@@ -11,6 +11,15 @@ const EmailVerification = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    let timer: any;
+    if (cooldown > 0) {
+      timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   const handleResend = async () => {
     if (!auth.currentUser) return;
@@ -21,9 +30,15 @@ const EmailVerification = () => {
     try {
       await sendEmailVerification(auth.currentUser);
       setMessage('Verification email sent! Please check your inbox and spam folder.');
+      setCooldown(60); // 60s cooldown to prevent API limits
     } catch (err: any) {
       console.error(err);
-      setError(getFriendlyErrorMessage(err));
+      if (err.code === 'auth/too-many-requests') {
+          setCooldown(60);
+          setError('Too many requests. Please wait 60 seconds before trying again.');
+      } else {
+          setError(getFriendlyErrorMessage(err));
+      }
     } finally {
       setIsSending(false);
     }
@@ -97,11 +112,15 @@ const EmailVerification = () => {
 
             <button 
                 onClick={handleResend}
-                disabled={isSending}
-                className="w-full py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors text-sm flex items-center justify-center gap-2"
+                disabled={isSending || cooldown > 0}
+                className={`w-full py-3 border rounded-xl font-bold transition-colors text-sm flex items-center justify-center gap-2
+                    ${isSending || cooldown > 0 
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed' 
+                        : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600'
+                    }`}
             >
                 {isSending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                {isSending ? 'Sending...' : 'Resend Verification Email'}
+                {isSending ? 'Sending...' : cooldown > 0 ? `Wait ${cooldown}s to Resend` : 'Resend Verification Email'}
             </button>
 
             <div className="pt-4 border-t border-slate-100 dark:border-slate-700 mt-4">

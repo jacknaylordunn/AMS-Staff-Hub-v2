@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FilePlus, Cloud, ArrowRight, AlertTriangle, User, ClipboardList, 
-  Activity, Pill, Lock, FileText, Signpost, Trash2, Home, Stethoscope, Printer, Loader2, ChevronRight, ChevronLeft, Check, Plus, X, ShieldAlert, Filter, Database, Download, AlertOctagon
+  Activity, Pill, Lock, FileText, Signpost, Trash2, Home, Stethoscope, Printer, Loader2, ChevronRight, ChevronLeft, Check, Plus, X, ShieldAlert, Filter, Database, Download, AlertOctagon, FileCheck, Eye
 } from 'lucide-react';
 import { EPRFProvider, useEPRF } from '../context/EPRFContext';
 import { generateEPRF_PDF, generateSafeguardingPDF, generateGPReferral } from '../utils/pdfGenerator';
@@ -26,6 +25,7 @@ import HandoverTab from '../components/eprf/HandoverTab';
 import DiagnosisTab from '../components/eprf/DiagnosisTab';
 import PrimarySurveyTab from '../components/eprf/PrimarySurveyTab';
 import RefusalTab from '../components/eprf/RefusalTab';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 
 const DEFAULT_NEURO: NeuroAssessment = {
     gcs: { eyes: undefined, verbal: undefined, motor: undefined, total: undefined },
@@ -62,16 +62,16 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber' | 'userId'> = {
     lastUpdated: new Date().toISOString(),
     accessUids: [],
     assistingClinicians: [],
-    times: { callReceived: '', mobile: '', onScene: '', patientContact: '', departScene: '', atHospital: '', clear: '' },
-    patient: { firstName: '', lastName: '', dob: '', nhsNumber: '', address: '', postcode: '', gender: '', chronicHypoxia: false },
+    times: { incidentDate: '', callReceived: '', mobile: '', onScene: '', patientContact: '', departScene: '', atHospital: '', clear: '' },
+    patient: { firstName: '', lastName: '', dob: '', nhsNumber: '', address: '', postcode: '', gender: '', chronicHypoxia: false, dnacpr: { hasDNACPR: false, verified: false } },
     history: { presentingComplaint: '', historyOfPresentingComplaint: '', pastMedicalHistory: '', allergies: '', medications: '' },
     assessment: { 
         clinicalNarrative: '',
         primary: DEFAULT_PRIMARY, 
         neuro: DEFAULT_NEURO,
-        cardiac: { chestPainPresent: false, socrates: { site: '', onset: '', character: '', radiation: '', associations: '', timeCourse: '', exacerbatingRelieving: '', severity: '' }, ecg: { time: '', rhythm: '', rate: '', stElevation: false, twelveLeadNotes: '' } },
+        cardiac: { chestPainPresent: false, socrates: { site: '', onset: '', character: '', radiation: '', associations: '', timeCourse: '', exacerbatingRelieving: '', severity: '' }, ecg: { time: '', rhythm: '', rate: '', stChanges: false, twelveLeadNotes: '' } },
         respiratory: { cough: '', sputumColor: '', peakFlowPre: '', peakFlowPost: '', nebulisersGiven: false, history: '', airEntry: '', addedSounds: '', accessoryMuscleUse: false },
-        gastrointestinal: { abdominalPain: false, painLocation: '', palpation: '', distension: '', bowelSounds: '', lastMeal: '', lastBowelMovement: '', urineOutput: '', nauseaVomiting: false, vomitDescription: '', stoolDescription: '' },
+        gastrointestinal: { abdominalPain: false, painLocation: '', palpation: '', distension: '', bowelSounds: '', lastMeal: '', lastBowelMovement: '', urineOutput: '', nausea: false, vomiting: false, diarrhoea: false, vomitDescription: '', stoolDescription: '' },
         obsGynae: { pregnant: false },
         mentalHealth: { appearance: '', behaviour: '', speech: '', mood: '', riskToSelf: false, riskToOthers: false, capacityStatus: '' },
         burns: { estimatedPercentage: '', depth: '', site: '' },
@@ -87,7 +87,7 @@ const DEFAULT_EPRF: Omit<EPRF, 'id' | 'incidentNumber' | 'userId'> = {
     treatments: { drugs: [], procedures: [], resusLog: [] },
     governance: { 
         safeguarding: { concerns: false, category: '', type: [], details: '', referralMade: false, referralReference: '' }, 
-        capacity: { status: 'Capacity Present', stage1: { impairment: undefined, nexus: undefined }, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true }, bestInterestsRationale: '' }, 
+        capacity: { status: 'Not Assessed', stage1: { impairment: undefined, nexus: undefined }, stage2Functional: { understand: true, retain: true, weigh: true, communicate: true }, bestInterestsRationale: '' }, 
         refusal: { isRefusal: false, type: 'Conveyance', details: '', risksExplained: false, alternativesOffered: false, capacityConfirmed: false, worseningAdviceGiven: false, patientRefusedToSign: false }
     },
     handover: { handoverType: '', receivingName: '', receivingPin: '', receivingTime: '', sbar: '', clinicianSignature: '', patientSignature: '', receivingClinicianSignature: '', media: [], digitalToken: '' },
@@ -138,7 +138,7 @@ const getNavGroups = (mode: 'Clinical' | 'Welfare' | 'Minor') => {
                 items: [
                     { id: 'history', label: 'Situation', icon: FileText },
                     { id: 'assessment', label: 'Assessment', icon: ClipboardList }, 
-                    { id: 'treatment', label: 'Actions Taken', icon: Pill }, 
+                    { id: 'treatment', label: 'Actions / Log', icon: Pill }, 
                 ]
             },
             {
@@ -152,7 +152,6 @@ const getNavGroups = (mode: 'Clinical' | 'Welfare' | 'Minor') => {
         ];
     }
 
-    // Minor Injury
     return [
         ...base,
         {
@@ -176,14 +175,18 @@ const getNavGroups = (mode: 'Clinical' | 'Welfare' | 'Minor') => {
     ];
 };
 
-const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: any) => {
+const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, viewAll, setViewAll, setShowComplianceModal }: any) => {
     const { activeDraft, setActiveDraft, deleteCurrentDraft } = useEPRF();
+    const { toast } = useToast();
     const [activeTab, setActiveTab] = useState('incident');
     const [showShiftModal, setShowShiftModal] = useState(false);
     const [showExportMenu, setShowExportMenu] = useState(false);
     
     // Multi-Tab Management
     const [openDrafts, setOpenDrafts] = useState<EPRF[]>([]);
+    
+    // PDF Viewer State
+    const [viewingPdf, setViewingPdf] = useState<{url: string, title: string} | null>(null);
 
     useEffect(() => {
         if (activeDraft) {
@@ -203,7 +206,6 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
         }
     };
 
-    // Compute navigation logic based on current mode
     const navGroups = useMemo(() => getNavGroups(activeDraft?.mode || 'Clinical'), [activeDraft?.mode]);
 
     const handleCreate = async (shiftId: string | null) => {
@@ -213,7 +215,6 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
     };
 
     const handleStartNew = () => {
-        // Auto-select clocked-in shift logic
         const activeShift = availableShifts.find((s: Shift) => {
             if (!s.timeRecords || !user) return false;
             const record = s.timeRecords[user.uid];
@@ -228,15 +229,49 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
     };
 
     const handleDelete = async () => {
-        if (confirm("Are you sure you want to permanently delete this ePRF draft? This cannot be undone.")) {
+        if (confirm("Are you sure you want to permanently delete this ePRF draft?")) {
             await deleteCurrentDraft();
             setOpenDrafts(prev => prev.filter(d => d.id !== activeDraft?.id));
         }
     };
 
+    const handleRecordClick = (record: EPRF) => {
+        if (record.status === 'Submitted') {
+            // STRICT: Submitted records allow PDF View ONLY. No form access.
+            if (record.pdfUrl) {
+                setViewingPdf({ url: record.pdfUrl, title: `Record ${record.incidentNumber}` });
+            } else {
+                toast.error("PDF not available for this record.");
+            }
+        } else {
+            // Drafts open in the editor
+            setActiveDraft(record);
+        }
+    };
+
+    // --- DASHBOARD VIEW (NO ACTIVE DRAFT) ---
     if (!activeDraft) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[80vh] space-y-6 animate-in fade-in bg-slate-50 dark:bg-black p-4">
+            <div className="flex flex-col items-center justify-center min-h-[80vh] space-y-6 animate-in fade-in bg-slate-50 dark:bg-black p-4 relative">
+                
+                {/* Manager Tools - ONLY VISIBLE HERE */}
+                {(user?.role === 'Manager' || user?.role === 'Admin') && (
+                    <div className="absolute top-4 right-4 flex gap-2">
+                        <button 
+                            onClick={() => setShowComplianceModal(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl shadow-lg font-bold text-xs hover:bg-slate-700"
+                        >
+                            <Database className="w-3 h-3" /> Data Compliance
+                        </button>
+                        <button 
+                            onClick={() => setViewAll(!viewAll)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg font-bold text-xs transition-colors ${viewAll ? 'bg-ams-blue text-white' : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-white'}`}
+                        >
+                            <Filter className="w-3 h-3" /> {viewAll ? 'Submitted Records' : 'My Records'}
+                        </button>
+                    </div>
+                )}
+
                 <div className="w-20 h-20 bg-white dark:bg-slate-900 rounded-full flex items-center justify-center shadow-lg">
                     <FilePlus className="w-10 h-10 text-ams-blue" />
                 </div>
@@ -252,9 +287,11 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
                         </div>
                     </button>
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm h-96 flex flex-col">
-                        <h3 className="text-sm font-bold text-slate-500 uppercase ml-1 mb-3">
-                            {user.role === 'Manager' || user.role === 'Admin' ? 'All Recent Records' : 'Your Open Drafts'}
-                        </h3>
+                        <div className="flex justify-between items-center mb-3 px-1">
+                            <h3 className="text-sm font-bold text-slate-500 uppercase">
+                                {viewAll ? 'Submitted Records' : 'Your Open Drafts'}
+                            </h3>
+                        </div>
                         {loading ? (
                             <div className="flex justify-center p-4 flex-1 items-center"><Loader2 className="animate-spin text-slate-400" /></div>
                         ) : drafts.length === 0 ? (
@@ -272,10 +309,14 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
                                             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{d.location || 'No Location'} • {new Date(d.lastUpdated).toLocaleDateString()}</p>
                                         </div>
                                         <button 
-                                            onClick={() => setActiveDraft(d)}
-                                            className="px-3 py-1.5 bg-white dark:bg-slate-700 text-ams-blue dark:text-white text-xs font-bold rounded-lg shadow-sm hover:bg-blue-50 dark:hover:bg-slate-600"
+                                            onClick={() => handleRecordClick(d)}
+                                            className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm flex items-center gap-1 transition-colors ${
+                                                d.status === 'Submitted' 
+                                                ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' 
+                                                : 'bg-white dark:bg-slate-700 text-ams-blue dark:text-white hover:bg-blue-50 dark:hover:bg-slate-600'
+                                            }`}
                                         >
-                                            Open
+                                            {d.status === 'Submitted' ? <><Lock className="w-3 h-3" /> View PDF</> : <><FileText className="w-3 h-3" /> Edit</>}
                                         </button>
                                     </div>
                                 ))}
@@ -304,10 +345,20 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
                         </div>
                     </div>
                 )}
+
+                {/* PDF Viewer for Submitted Records */}
+                {viewingPdf && (
+                    <DocumentViewerModal 
+                        url={viewingPdf.url} 
+                        title={viewingPdf.title} 
+                        onClose={() => setViewingPdf(null)} 
+                    />
+                )}
             </div>
         );
     }
 
+    // --- FORM VIEW (ACTIVE DRAFT) ---
     const renderTabContent = () => {
         switch(activeTab) {
             case 'incident': return <IncidentTab />;
@@ -327,7 +378,6 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
 
     return (
         <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-black">
-            {/* Sidebar Navigation */}
             <div className="w-56 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-50">
                 <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
                     <h2 className="font-bold text-sm text-slate-800 dark:text-white tracking-tight px-1">Navigation</h2>
@@ -371,7 +421,6 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
                             </div>
                         )}
                     </div>
-                    {/* Allow deleting drafts OR managers deleting any record */}
                     {(activeDraft.status !== 'Submitted' || user?.role === 'Manager' || user?.role === 'Admin') && (
                         <button onClick={handleDelete} className="w-full py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2">
                             <Trash2 className="w-3 h-3" /> Delete
@@ -380,9 +429,7 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user }: an
                 </div>
             </div>
 
-            {/* Content Area */}
             <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-black relative overflow-hidden">
-                {/* Top Tab Bar for Open Drafts */}
                 <div className="flex items-center bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-2 h-12 flex-shrink-0 overflow-x-auto no-scrollbar">
                     {openDrafts.map(draft => (
                         <div 
@@ -447,7 +494,7 @@ const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
 
     const handleDelete = async () => {
         if (results.length === 0) return;
-        const confirmMsg = `WARNING: This will permanently delete ${results.length} record(s) for this patient. This is for GDPR 'Right to Erasure' only.\n\nType 'DELETE' to confirm.`;
+        const confirmMsg = `WARNING: This will permanently delete ${results.length} record(s). Type 'DELETE' to confirm.`;
         if (prompt(confirmMsg) === 'DELETE') {
             try {
                 await deletePatientData(results.map(r => r.id));
@@ -469,42 +516,36 @@ const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
                     <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
                 </div>
                 <div className="p-6">
-                    <p className="text-sm text-slate-500 mb-4">Use this tool to fulfill Subject Access Requests (SAR) or Data Erasure requests for patients.</p>
+                    <p className="text-sm text-slate-500 mb-4">Use this tool to fulfill Subject Access Requests (SAR) or Data Erasure requests.</p>
                     <form onSubmit={handleSearch} className="flex gap-2 mb-6">
                         <input 
-                            className="flex-1 p-3 border rounded-xl bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-ams-blue"
+                            className="flex-1 p-3 border rounded-xl bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white outline-none"
                             placeholder="Enter NHS Number or Surname..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
-                        <button type="submit" disabled={isSearching} className="px-6 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50">
+                        <button type="submit" disabled={isSearching} className="px-6 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-700">
                             {isSearching ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Search'}
                         </button>
                     </form>
 
-                    {results.length > 0 ? (
+                    {results.length > 0 && (
                         <div className="space-y-4">
                             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900">
                                 <h4 className="font-bold text-blue-800 dark:text-blue-300 mb-2">Found {results.length} Records</h4>
                                 <ul className="text-xs text-blue-700 dark:text-blue-200 space-y-1 max-h-40 overflow-y-auto">
-                                    {results.map(r => (
-                                        <li key={r.id}>
-                                            {new Date(r.lastUpdated).toLocaleDateString()} - {r.incidentNumber} ({r.patient.firstName} {r.patient.lastName})
-                                        </li>
-                                    ))}
+                                    {results.map(r => <li key={r.id}>{new Date(r.lastUpdated).toLocaleDateString()} - {r.incidentNumber}</li>)}
                                 </ul>
                             </div>
                             <div className="flex gap-4">
-                                <button onClick={handleExport} className="flex-1 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-2">
-                                    <Download className="w-4 h-4" /> Export SAR (JSON)
+                                <button onClick={handleExport} className="flex-1 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold flex items-center justify-center gap-2">
+                                    <Download className="w-4 h-4" /> Export (SAR)
                                 </button>
-                                <button onClick={handleDelete} className="flex-1 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-xl font-bold text-red-600 dark:text-red-300 hover:bg-red-100 flex items-center justify-center gap-2">
-                                    <AlertOctagon className="w-4 h-4" /> Erase All Data
+                                <button onClick={handleDelete} className="flex-1 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-xl font-bold text-red-600 dark:text-red-300 flex items-center justify-center gap-2">
+                                    <AlertOctagon className="w-4 h-4" /> Erase
                                 </button>
                             </div>
                         </div>
-                    ) : searchTerm && !isSearching && (
-                        <p className="text-center text-slate-400 italic">No records found matching criteria.</p>
                     )}
                 </div>
             </div>
@@ -515,13 +556,9 @@ const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
 const EPRFPage = () => {
     const { user } = useAuth();
     const { saveEPRF } = useDataSync();
-    const { toast } = useToast();
     const [drafts, setDrafts] = useState<EPRF[]>([]);
     const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
     const [loading, setLoading] = useState(true);
-    
-    // Manager Features
-    const isManager = user?.role === 'Manager' || user?.role === 'Admin';
     const [viewAll, setViewAll] = useState(false);
     const [showComplianceModal, setShowComplianceModal] = useState(false);
 
@@ -530,19 +567,20 @@ const EPRFPage = () => {
 
         let qDrafts;
         
-        if (viewAll && isManager) {
-            // Managers viewing ALL records (limit to recent 50 for perf)
+        if (viewAll && (user.role === 'Manager' || user.role === 'Admin')) {
             qDrafts = query(
                 collection(db, 'eprfs'),
+                where('status', '==', 'Submitted'),
                 orderBy('lastUpdated', 'desc'),
                 limit(50)
             );
         } else {
-            // Standard User View
+            // Regular users only see drafts, submitted ones vanish from list (but accessible via patient search)
             qDrafts = query(
                 collection(db, 'eprfs'),
-                where('accessUids', 'array-contains', user.uid),
-                // Note: Removing status check so they can see their submitted ones too in list
+                where('userId', '==', user.uid),
+                where('status', '!=', 'Submitted'),
+                orderBy('status'), // Composite index required: userId + status
                 orderBy('lastUpdated', 'desc')
             );
         }
@@ -551,35 +589,25 @@ const EPRFPage = () => {
             setDrafts(snap.docs.map(d => ({ id: d.id, ...d.data() } as EPRF)));
             setLoading(false);
         }, (err) => {
-            console.error("Drafts fetch error", err);
+            console.error(err);
             setLoading(false);
         });
 
-        // Fetch active shifts (last 24h)
         const now = new Date();
         const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const qShifts = query(
-            collection(db, 'shifts'),
-            where('start', '>=', Timestamp.fromDate(start)),
-            orderBy('start', 'asc')
-        );
+        const qShifts = query(collection(db, 'shifts'), where('start', '>=', Timestamp.fromDate(start)));
         
         getDocs(qShifts).then(snap => {
             setAvailableShifts(snap.docs.map(d => ({ id: d.id, ...d.data(), start: d.data().start.toDate(), end: d.data().end.toDate() } as Shift)));
-        }).catch(console.error);
+        });
 
         return () => unsubDrafts();
     }, [user, viewAll]);
 
     const handleCreateDraft = async (shiftId: string | null) => {
         if (!user) return null;
-        
         const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const xxxx = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-        const incidentNumber = `AMS-${yyyy}${mm}${dd}-${xxxx}`;
+        const incidentNumber = `AMS-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${Math.floor(Math.random()*9999).toString().padStart(4,'0')}`;
         
         const newDraft = {
             ...DEFAULT_EPRF,
@@ -590,7 +618,6 @@ const EPRFPage = () => {
             shiftId: shiftId || undefined,
             status: 'Draft',
             lastUpdated: new Date().toISOString(),
-            // Deep copy objects to avoid reference issues
             patient: { ...DEFAULT_EPRF.patient },
             history: { ...DEFAULT_EPRF.history },
             assessment: { ...DEFAULT_EPRF.assessment, primary: { ...DEFAULT_PRIMARY }, neuro: { ...DEFAULT_NEURO } },
@@ -602,39 +629,22 @@ const EPRFPage = () => {
             treatments: { drugs: [], procedures: [] },
             logs: []
         };
-        
         await saveEPRF(newDraft, true);
-        
         return newDraft as EPRF;
     };
 
     return (
         <EPRFProvider initialDraft={null}>
-            {isManager && (
-                <div className="absolute top-20 right-8 z-40 flex gap-2">
-                    <button 
-                        onClick={() => setShowComplianceModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl shadow-lg font-bold text-xs hover:bg-slate-700"
-                    >
-                        <Database className="w-3 h-3" /> Data Compliance
-                    </button>
-                    <button 
-                        onClick={() => setViewAll(!viewAll)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg font-bold text-xs transition-colors ${viewAll ? 'bg-ams-blue text-white' : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-white'}`}
-                    >
-                        <Filter className="w-3 h-3" /> {viewAll ? 'All Records' : 'My Records'}
-                    </button>
-                </div>
-            )}
-            
             <EPRFContent 
                 drafts={drafts} 
                 createDraft={handleCreateDraft} 
                 availableShifts={availableShifts} 
                 loading={loading}
                 user={user} 
+                viewAll={viewAll}
+                setViewAll={setViewAll}
+                setShowComplianceModal={setShowComplianceModal}
             />
-
             {showComplianceModal && <DataComplianceModal onClose={() => setShowComplianceModal(false)} />}
         </EPRFProvider>
     );

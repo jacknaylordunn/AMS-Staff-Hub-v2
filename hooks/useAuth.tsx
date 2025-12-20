@@ -49,7 +49,7 @@ export const getFriendlyErrorMessage = (error: any): string => {
         case 'auth/weak-password':
             return 'Password must be at least 6 characters.';
         case 'auth/too-many-requests':
-            return 'Account temporarily locked due to multiple failed attempts. Please try again later.';
+            return 'Too many requests. Please wait a moment before trying again.';
         case 'auth/network-request-failed':
             return 'Unable to connect. Please check your internet connection.';
         case 'auth/user-disabled':
@@ -211,6 +211,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fbUser = userCredential.user;
       await sendEmailVerification(fbUser);
 
+      // Generate AMS Badge ID: AMS + YY + MM + Random 4 Digits
+      const date = new Date();
+      const yy = date.getFullYear().toString().slice(-2);
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const rand = Math.floor(1000 + Math.random() * 9000); // 1000-9999
+      const employeeId = `AMS${yy}${mm}${rand}`;
+
       const newUser: User = {
         uid: fbUser.uid,
         email,
@@ -218,6 +225,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         status: 'Pending',
         regNumber,
+        employeeId, // Auto assigned
         compliance: []
       };
 

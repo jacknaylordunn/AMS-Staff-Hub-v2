@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation, Sparkles, Bot, AlertOctagon, User } from 'lucide-react';
+import { Clock, CalendarCheck, Truck, AlertTriangle, Play, CheckCircle, Loader2, Plus, Pill, FilePlus, Megaphone, X, ArrowRight, MapPin, ShieldCheck, Activity, Users, Settings, BellRing, Navigation, Sparkles, Bot, AlertOctagon, User, Upload, Trash2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, getDoc, orderBy, limit, onSnapshot, setDoc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { Shift, TimeRecord, Announcement, Role, ComplianceDoc, User as UserType } from '../types';
 import { useNavigate } from 'react-router-dom';
 import AnnouncementModal from '../components/AnnouncementModal';
 import LeafletMap from '../components/LeafletMap';
+import { uploadFile } from '../services/storage';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 
 const QuickAction = ({ icon: Icon, label, onClick, color, desc }: any) => (
     <button 
@@ -23,30 +25,52 @@ const QuickAction = ({ icon: Icon, label, onClick, color, desc }: any) => (
 );
 
 interface ComplianceItemProps {
-    name: string;
-    date: string;
-    status: 'Valid' | 'Expiring' | 'Expired' | 'Pending';
+    doc: ComplianceDoc;
+    onView?: () => void;
+    onDelete?: () => void;
 }
 
-const ComplianceItem: React.FC<ComplianceItemProps> = ({ name, date, status }) => (
-    <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 group hover:border-slate-200 transition-colors">
-        <div className="flex items-center gap-3">
-            <div className={`w-2 h-2 rounded-full ${status === 'Valid' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : status === 'Expiring' ? 'bg-amber-500 animate-pulse' : status === 'Pending' ? 'bg-blue-500' : 'bg-red-500'}`} />
-            <div>
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-ams-blue transition-colors">{name}</p>
-                <p className="text-[10px] text-slate-400 font-mono">EXP: {new Date(date).toLocaleDateString()}</p>
+const ComplianceItem: React.FC<ComplianceItemProps> = ({ doc, onView, onDelete }) => {
+    // Calculate real-time status to handle expired docs that haven't been updated in DB
+    const expiryDate = new Date(doc.expiryDate);
+    const now = new Date();
+    const diffTime = expiryDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    let displayStatus = doc.status;
+    
+    // Override 'Valid' status if the date has passed or is approaching
+    // We check this even if status is 'Valid' to ensure UI is accurate to the date
+    if (doc.status !== 'Pending' && doc.status !== 'Rejected') {
+        if (diffDays < 0) {
+            displayStatus = 'Expired';
+        } else if (diffDays < 30) {
+            displayStatus = 'Expiring';
+        }
+    }
+
+    return (
+        <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50 group hover:border-slate-200 transition-colors">
+            <div className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full ${displayStatus === 'Valid' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : displayStatus === 'Expiring' ? 'bg-amber-500 animate-pulse' : displayStatus === 'Pending' ? 'bg-blue-500' : 'bg-red-500'}`} />
+                <div className="cursor-pointer" onClick={onView}>
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-ams-blue transition-colors hover:underline">{doc.name}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">EXP: {expiryDate.toLocaleDateString()}</p>
+                </div>
+            </div>
+            <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    displayStatus === 'Valid' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' : 
+                    displayStatus === 'Expiring' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' : 
+                    displayStatus === 'Pending' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' :
+                    'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
+                }`}>
+                    {displayStatus.toUpperCase()}
+                </span>
             </div>
         </div>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-            status === 'Valid' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' : 
-            status === 'Expiring' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' : 
-            status === 'Pending' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' :
-            'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
-        }`}>
-            {status.toUpperCase()}
-        </span>
-    </div>
-);
+    );
+};
 
 const CLINICAL_ROLES = [Role.Paramedic, Role.Nurse, Role.Doctor, Role.Manager, Role.Admin];
 
@@ -55,6 +79,18 @@ const SYSTEM_STATUS_OPTS = [
     { level: 'Busy', color: 'bg-amber-500', text: 'High Demand' },
     { level: 'Critical', color: 'bg-red-600', text: 'Critical Incident' },
     { level: 'Outage', color: 'bg-slate-800', text: 'System Outage' },
+];
+
+const DOC_TYPES = [
+    'DBS Certificate',
+    'Driving License',
+    'HCPC / NMC Registration',
+    'Clinical Qualification (FREC/Para/Nurse)',
+    'Blue Light Driving',
+    'Manual Handling',
+    'Safeguarding L2/L3',
+    'Immunisation Record',
+    'Other'
 ];
 
 const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -71,7 +107,7 @@ const deg2rad = (deg: number) => { return deg * (Math.PI/180) }
 const GEO_THRESHOLD_KM = 0.5; 
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
   
@@ -92,6 +128,15 @@ const Dashboard = () => {
 
   const [activeStaff, setActiveStaff] = useState<any[]>([]);
   const [personnelViewMode, setPersonnelViewMode] = useState<'List' | 'Map'>('List');
+
+  // Document Management State
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('');
+  const [docExpiry, setDocExpiry] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [viewingDoc, setViewingDoc] = useState<{url: string, title: string} | null>(null);
 
   useEffect(() => {
       const unsub = onSnapshot(doc(db, 'system', 'status'), (doc) => {
@@ -285,7 +330,6 @@ const Dashboard = () => {
   const isClinical = user ? CLINICAL_ROLES.includes(user.role) : false;
   
   // Calculate if clock-in is allowed (within 1 hour before start OR anytime during shift)
-  // diffMs < 3600000 ensures start is no more than 1 hour away. If start is in past, diffMs is negative, which is < 3600000.
   const canClockIn = !activeShift && nextShift && (nextShift.start.getTime() - new Date().getTime() < 3600000);
 
   const quickActions = [
@@ -294,6 +338,56 @@ const Dashboard = () => {
       ...(isClinical ? [{ icon: Pill, label: "Drug Audit", desc: "CD Register log", color: "bg-purple-500", onClick: () => navigate('/drugs') }] : []),
       { icon: Clock, label: "Rota / Leave", desc: "View schedule", color: "bg-amber-500", onClick: () => navigate('/rota') }
   ];
+
+  const gridColsClass = quickActions.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-4';
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          setSelectedFile(e.target.files[0]);
+      }
+  };
+
+  const handleDocUpload = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!user || (!docName && !docType) || !docExpiry) return;
+      
+      const finalName = docType === 'Other' ? docName : docType;
+      
+      setUploading(true);
+      try {
+          let downloadUrl = null;
+          if (selectedFile) {
+              downloadUrl = await uploadFile(selectedFile, `compliance/${user.uid}`);
+          }
+
+          const newDoc: any = {
+              id: Date.now().toString(),
+              name: finalName || 'Document',
+              expiryDate: docExpiry,
+              status: 'Pending',
+              uploadedAt: new Date().toISOString(),
+              fileUrl: downloadUrl || null
+          };
+
+          await updateDoc(doc(db, 'users', user.uid), {
+              compliance: arrayUnion(newDoc)
+          });
+          
+          await refreshUser();
+
+          setShowDocModal(false);
+          setDocName('');
+          setDocType('');
+          setDocExpiry('');
+          setSelectedFile(null);
+          alert("Document uploaded successfully");
+      } catch (e) {
+          console.error("Upload failed", e);
+          alert("Failed to upload document.");
+      } finally {
+          setUploading(false);
+      }
+  };
 
   return (
     <div className="space-y-8">
@@ -427,72 +521,158 @@ const Dashboard = () => {
                           description: `${s.role} at ${s.location}`
                       }))}
                       center={activeStaff.find(s => s.lat) ? [activeStaff.find(s => s.lat).lat, activeStaff.find(s => s.lat).lng] : [51.505, -0.09]}
+                      zoom={10}
                   />
               )}
           </div>
       )}
 
-      {/* Quick Actions Grid */}
-      <div>
-          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 px-2">Quick Actions</h2>
-          <div className={`grid grid-cols-2 md:grid-cols-${quickActions.length} gap-4`}>
-              {quickActions.map((action, idx) => (
-                  <QuickAction key={idx} icon={action.icon} label={action.label} desc={action.desc} color={action.color} onClick={action.onClick} />
-              ))}
-          </div>
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Compliance Card */}
-        <div className="glass-panel rounded-2xl p-6 flex flex-col h-full shadow-sm">
-             <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl"><ShieldCheck className="w-6 h-6" /></div>
-                <div><h3 className="font-bold text-slate-800 dark:text-white">Compliance</h3><p className="text-xs text-slate-500 dark:text-slate-400">Document Status</p></div>
-             </div>
-             <div className="flex-1 space-y-3">
-                {(user?.compliance && user.compliance.length > 0) ? (
-                    user.compliance.slice(0, 4).map((doc: ComplianceDoc) => ( <ComplianceItem key={doc.id} name={doc.name} date={doc.expiryDate} status={doc.status} /> ))
-                ) : (
-                    <div className="text-center text-slate-400 text-xs py-8">No compliance documents found.</div>
-                )}
-             </div>
-             <button onClick={() => navigate('/profile')} className="mt-6 w-full py-3 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-sm hover:bg-white dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">View All Documents <ArrowRight className="w-4 h-4" /></button>
-        </div>
-
-        {/* Notifications / Feed */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
-          <div className="flex justify-between items-center mb-6">
-             <h3 className="font-bold text-slate-800 dark:text-white text-lg">Operational Feed</h3>
-             <div className="flex gap-2">
-                 {isManager && <button onClick={() => setShowAnnouncementModal(true)} className="flex items-center gap-2 px-3 py-1 bg-ams-blue text-white rounded-lg text-xs font-bold hover:bg-blue-900 transition-colors"><Plus className="w-3 h-3" /> New</button>}
-                 <span className="text-xs font-bold text-slate-400 uppercase bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">Live</span>
-             </div>
-          </div>
-          
-          <div className="space-y-4">
-            {announcements.length === 0 && <div className="text-center py-12 text-slate-400 italic bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">No recent announcements.</div>}
-            {announcements.map(item => (
-                <div key={item.id} className={`p-5 rounded-2xl border flex gap-4 transition-colors cursor-pointer group ${item.priority === 'Urgent' ? 'bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30' : 'bg-white dark:bg-slate-800/50 border-slate-100 dark:border-slate-700 hover:border-slate-200'}`}>
-                  <div className="flex-shrink-0 mt-1">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${item.priority === 'Urgent' ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-900/30 text-ams-blue dark:text-blue-400'}`}>
-                         {item.priority === 'Urgent' ? <AlertTriangle className="w-5 h-5" /> : <Megaphone className="w-5 h-5" />}
-                      </div>
-                  </div>
-                  <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <h4 className={`font-bold text-sm ${item.priority === 'Urgent' ? 'text-red-900 dark:text-red-200' : 'text-slate-800 dark:text-slate-200'}`}>{item.title}</h4>
-                        <span className="text-[10px] text-slate-400 font-medium">{item.author}</span>
-                      </div>
-                      <p className={`text-sm mt-1 leading-relaxed ${item.priority === 'Urgent' ? 'text-red-800 dark:text-red-300' : 'text-slate-600 dark:text-slate-400'}`}>{item.message}</p>
-                  </div>
-                </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      
+      {/* Announcements Modal */}
       {showAnnouncementModal && <AnnouncementModal onClose={() => setShowAnnouncementModal(false)} />}
+      
+      {/* Quick Actions Grid */}
+      <div className={`grid grid-cols-2 ${gridColsClass} gap-4 animate-in slide-in-from-bottom-4 fade-in`}>
+          {quickActions.map((action, idx) => (
+              <QuickAction key={idx} {...action} />
+          ))}
+      </div>
+
+      {/* Compliance / Announcements Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Announcements */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                      <Megaphone className="w-5 h-5 text-ams-blue" /> Announcements
+                  </h3>
+                  {isManager && (
+                      <button onClick={() => setShowAnnouncementModal(true)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-500 transition-colors">
+                          <Plus className="w-5 h-5" />
+                      </button>
+                  )}
+              </div>
+              <div className="space-y-4">
+                  {announcements.length === 0 ? (
+                      <p className="text-center text-slate-400 py-8 italic text-sm">No recent announcements.</p>
+                  ) : (
+                      announcements.map(ann => (
+                          <div key={ann.id} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 relative overflow-hidden group hover:border-ams-blue transition-colors">
+                              {ann.priority === 'Urgent' && <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg uppercase">Urgent</div>}
+                              <h4 className="font-bold text-slate-800 dark:text-white text-sm mb-1">{ann.title}</h4>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{ann.message}</p>
+                              <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+                                  <span>{new Date(ann.date.seconds * 1000).toLocaleDateString()}</span>
+                                  <span>{ann.author}</span>
+                              </div>
+                          </div>
+                      ))
+                  )}
+              </div>
+          </div>
+
+          {/* Compliance Status */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-green-600" /> Compliance
+                  </h3>
+                  <button onClick={() => setShowDocModal(true)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-slate-500 transition-colors">
+                      <Upload className="w-4 h-4" />
+                  </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-64">
+                  {user?.compliance && user.compliance.length > 0 ? (
+                      user.compliance.map((doc, idx) => (
+                          <ComplianceItem 
+                              key={idx} 
+                              doc={doc} 
+                              onView={() => doc.fileUrl && setViewingDoc({ url: doc.fileUrl, title: doc.name })}
+                          />
+                      ))
+                  ) : (
+                      <div className="text-center py-8 text-slate-400 text-sm">
+                          <p>No documents found.</p>
+                          <button onClick={() => setShowDocModal(true)} className="mt-2 text-ams-blue hover:underline">Upload Now</button>
+                      </div>
+                  )}
+              </div>
+          </div>
+      </div>
+
+      {/* Doc Upload Modal */}
+      {showDocModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200 dark:border-slate-700">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg text-slate-800 dark:text-white">Upload Document</h3>
+                      <button onClick={() => setShowDocModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+                  </div>
+                  <form onSubmit={handleDocUpload} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Type</label>
+                          <select
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
+                            value={docType}
+                            onChange={e => setDocType(e.target.value)}
+                            required
+                          >
+                              <option value="">Select Document Type...</option>
+                              {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                      </div>
+                      
+                      {docType === 'Other' && (
+                          <div>
+                              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Document Name</label>
+                              <input 
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
+                                placeholder="e.g. Specific Course Cert"
+                                value={docName}
+                                onChange={e => setDocName(e.target.value)}
+                                required
+                              />
+                          </div>
+                      )}
+
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Expiry Date</label>
+                          <input 
+                            type="date"
+                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm outline-none dark:text-white text-slate-900"
+                            value={docExpiry}
+                            onChange={e => setDocExpiry(e.target.value)}
+                            required
+                          />
+                      </div>
+                      <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 relative">
+                          <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} accept="image/*,application/pdf" required />
+                          {selectedFile ? (
+                              <span className="text-green-600 font-bold text-sm flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> {selectedFile.name}</span>
+                          ) : (
+                              <span className="text-slate-400 text-sm flex items-center justify-center gap-2"><Upload className="w-4 h-4" /> Tap to Upload</span>
+                          )}
+                      </div>
+                      <button 
+                        type="submit" 
+                        disabled={uploading}
+                        className="w-full py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-900 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit for Verification'}
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* Doc Viewer */}
+      {viewingDoc && (
+          <DocumentViewerModal 
+              url={viewingDoc.url} 
+              title={viewingDoc.title} 
+              onClose={() => setViewingDoc(null)} 
+          />
+      )}
     </div>
   );
 };

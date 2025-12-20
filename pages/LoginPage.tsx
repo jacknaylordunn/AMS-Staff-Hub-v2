@@ -6,6 +6,7 @@ import { LogIn, Hash, Mail, Loader2, ArrowRight, UserPlus, Shield, Check, X, Key
 import { Role } from '../types';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebase';
+import { notifyManagers } from '../services/notificationService';
 
 // Use hosted company asset path
 const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
@@ -91,7 +92,18 @@ const LoginPage = () => {
             if (!allRequirementsMet) throw new Error("Password does not meet security requirements.");
             
             const fullName = `${firstName.trim()} ${lastName.trim()}`;
+            
             await register(email, password, fullName, Role.Pending, regNumber);
+            
+            // Notify Managers
+            await notifyManagers(
+                "New Staff Registration",
+                `${fullName} has registered and requires approval.`,
+                'info',
+                '/staff'
+            );
+
+            navigate('/');
         }
     } catch (err: any) {
         setError(err.message || "Authentication failed");

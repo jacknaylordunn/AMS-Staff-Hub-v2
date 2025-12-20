@@ -82,7 +82,18 @@ const HistoryTab = () => {
                         />
                     </div>
                     <div>
-                        <label className="input-label">M - Medications</label>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="input-label mb-0">M - Medications</label>
+                            <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-3 h-3 rounded"
+                                    checked={activeDraft.history.sample?.medsTakenToHospital || false}
+                                    onChange={e => updateSample('medsTakenToHospital', e.target.checked)}
+                                />
+                                Taken to Hospital?
+                            </label>
+                        </div>
                         <textarea 
                             className="input-field py-1.5 px-3 text-sm" rows={2}
                             placeholder="Current meds / Dosette box"

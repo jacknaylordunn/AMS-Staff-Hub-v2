@@ -5,9 +5,8 @@ import SignaturePad from '../SignaturePad';
 import SpeechTextArea from '../SpeechTextArea';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../context/ToastContext';
-import { Lock, CheckCircle, Send, Loader2, AlertTriangle, PenTool, Sparkles, Camera, Trash2, Plus, UserCheck, Clock, AlertCircle, FileCheck, Mail } from 'lucide-react';
-import { auditEPRF, generateSBAR } from '../../services/geminiService';
-import AuditSummaryModal from '../AuditSummaryModal';
+import { Lock, CheckCircle, Send, Loader2, AlertTriangle, PenTool, Camera, Trash2, Plus, UserCheck, Clock, AlertCircle, FileCheck, Sparkles } from 'lucide-react';
+import { generateSBAR } from '../../services/geminiService';
 import { validateEPRF } from '../../utils/validation';
 import { uploadFile, uploadBlob } from '../../services/storage';
 import { MediaAttachment } from '../../types';
@@ -22,8 +21,6 @@ const HandoverTab = () => {
     const [error, setError] = useState('');
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
     const [isSigning, setIsSigning] = useState(false);
-    const [auditing, setAuditing] = useState(false);
-    const [auditResult, setAuditResult] = useState<any>(null);
     const [generating, setGenerating] = useState(false);
     const [uploadingMedia, setUploadingMedia] = useState(false);
     const [handoverFormat, setHandoverFormat] = useState<'SBAR' | 'ATMIST'>('SBAR');
@@ -34,19 +31,13 @@ const HandoverTab = () => {
     const isConveying = activeDraft.clinicalDecision?.finalDisposition?.includes('Conveyed');
     const isDeceased = activeDraft.clinicalDecision?.finalDisposition === 'Deceased';
     const isRefusal = activeDraft.governance.refusal.isRefusal;
+    const isSafeguarding = activeDraft.governance.safeguarding.concerns;
+    const isGPreferral = activeDraft.clinicalDecision?.finalDisposition?.includes('Primary Care');
     
     // Default handover type if not set
     const handoverType = activeDraft.handover.handoverType || (isConveying ? 'Hospital Staff' : 'Other');
 
     const update = (field: string, value: any) => handleNestedUpdate(['handover', field], value);
-
-    // ... (Audit/Gen AI logic remains same, omitted for brevity) ...
-    const handleRunAudit = async () => {
-        setAuditing(true);
-        const result = await auditEPRF(activeDraft);
-        setAuditResult(result);
-        setAuditing(false);
-    };
 
     const handleAutoSbar = async () => {
         setGenerating(true);
@@ -163,6 +154,11 @@ Treatment: ${treatment}`;
             return;
         }
 
+        // Referral Warning Check
+        if ((isSafeguarding || isGPreferral) && !confirm("WARNING: Safeguarding or GP Referral indicated.\n\nHave you manually emailed the relevant forms to the appropriate teams?\n\nThis record will be LOCKED upon submission.")) {
+            return;
+        }
+
         setIsSigning(true);
         
         try {
@@ -204,7 +200,17 @@ Treatment: ${treatment}`;
         }
     };
 
-    const smallInputClass = "w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm";
+    const getIdLabel = () => {
+        switch(handoverType) {
+            case 'Police': return 'Shoulder Number';
+            case 'AMS Crew': return 'Badge Number';
+            case 'Ambulance Crew': return 'Call Sign';
+            case 'Hospital Staff': return 'PIN / Reg No.';
+            default: return 'ID / Reference';
+        }
+    };
+
+    const smallInputClass = "w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm";
 
     return (
         <div className="space-y-6 animate-in fade-in pb-10">
@@ -253,46 +259,39 @@ Treatment: ${treatment}`;
                 )}
             </div>
 
-            {/* Handover Details - Only if Conveying */}
-            {isConveying && (
-                <div className="glass-panel p-4 rounded-xl">
-                    <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                        <UserCheck className="w-5 h-5 text-ams-blue" /> Handover Recipient
-                    </h3>
-                    
-                    <div className="space-y-4">
-                        <div>
-                            <label className="input-label">Handover To</label>
-                            <select 
-                                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm font-bold"
-                                value={handoverType}
-                                onChange={e => update('handoverType', e.target.value)}
-                                disabled={isSubmitted}
-                            >
-                                <option value="Hospital Staff">Hospital Staff (Nurse/Doctor)</option>
-                                <option value="Ambulance Crew">NHS Ambulance Crew</option>
-                                <option value="AMS Crew">Other AMS Crew</option>
-                                <option value="Police">Police</option>
-                                <option value="Other">Other / Relative</option>
-                            </select>
-                        </div>
+            {/* Handover Details */}
+            <div className="glass-panel p-4 rounded-xl">
+                <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                    <UserCheck className="w-5 h-5 text-ams-blue" /> Handover Recipient
+                </h3>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="input-label">Handover To</label>
+                        <select 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-10 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm font-bold"
+                            value={handoverType}
+                            onChange={e => update('handoverType', e.target.value)}
+                            disabled={isSubmitted}
+                        >
+                            <option value="Hospital Staff">Hospital Staff (Nurse/Doctor)</option>
+                            <option value="Ambulance Crew">NHS Ambulance Crew</option>
+                            <option value="AMS Crew">AMS Crew</option>
+                            <option value="Police">Police</option>
+                            <option value="Other">Other / Relative</option>
+                        </select>
+                    </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
-                            {handoverType === 'Hospital Staff' && (
-                                <>
-                                    <div><label className="input-label">Staff Name</label><input className={smallInputClass} placeholder="e.g. Nurse Joy" value={activeDraft.handover.receivingName || ''} onChange={e => update('receivingName', e.target.value)} /></div>
-                                    <div><label className="input-label">PIN / Reg No.</label><input className={smallInputClass} placeholder="NMC/GMC Number" value={activeDraft.handover.receivingPin || ''} onChange={e => update('receivingPin', e.target.value)} /></div>
-                                </>
-                            )}
-                            {/* ... other types ... */}
-                            <div>
-                                <label className="input-label flex items-center gap-1"><Clock className="w-3 h-3" /> Handover Time</label>
-                                <input type="time" className={smallInputClass} value={activeDraft.handover.receivingTime || ''} onChange={e => update('receivingTime', e.target.value)} />
-                            </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+                        <div><label className="input-label">Name / Rank</label><input className={smallInputClass} placeholder="Recipient Name" value={activeDraft.handover.receivingName || ''} onChange={e => update('receivingName', e.target.value)} /></div>
+                        <div><label className="input-label">{getIdLabel()}</label><input className={smallInputClass} placeholder="ID Number" value={activeDraft.handover.receivingPin || ''} onChange={e => update('receivingPin', e.target.value)} /></div>
+                        <div>
+                            <label className="input-label flex items-center gap-1"><Clock className="w-3 h-3" /> Handover Time</label>
+                            <input type="time" className={smallInputClass} value={activeDraft.handover.receivingTime || ''} onChange={e => update('receivingTime', e.target.value)} />
                         </div>
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* Media Evidence */}
             <div className="glass-panel p-4 rounded-xl">
@@ -323,11 +322,6 @@ Treatment: ${treatment}`;
                     <h3 className="font-bold text-xl text-slate-800 dark:text-white flex items-center gap-2">
                         <FileCheck className="w-6 h-6 text-ams-blue" /> Sign & Submit
                     </h3>
-                    {!isSubmitted && (
-                        <button onClick={handleRunAudit} disabled={auditing} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold rounded-xl shadow-md hover:scale-105 transition-transform text-xs">
-                            {auditing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Pre-Submit Audit
-                        </button>
-                    )}
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -347,7 +341,7 @@ Treatment: ${treatment}`;
                     {isConveying && (
                         <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
                             <SignaturePad 
-                                label="2. Receiving Clinician Signature" 
+                                label="2. Receiving Person Signature" 
                                 value={activeDraft.handover.receivingClinicianSignature} 
                                 timestamp={activeDraft.handover.receivingSigTime}
                                 onSave={val => update('receivingClinicianSignature', val)} 
@@ -362,9 +356,8 @@ Treatment: ${treatment}`;
                             <SignaturePad 
                                 label="2. Patient Signature (Discharge)" 
                                 value={activeDraft.handover.patientSignature} 
-                                timestamp={activeDraft.handover.patientSigTime} // Added prop to type for generic patient sig time if needed
+                                timestamp={activeDraft.handover.patientSigTime} 
                                 onSave={val => update('patientSignature', val)} 
-                                // Simplified for non-refusal discharge signature
                             />
                         </div>
                     )}
@@ -432,8 +425,6 @@ Treatment: ${treatment}`;
                     )}
                 </div>
             </div>
-            
-            {auditResult && <AuditSummaryModal score={auditResult.score} feedback={auditResult.feedback} criticalIssues={auditResult.critical_issues} onClose={() => setAuditResult(null)} />}
         </div>
     );
 };

@@ -4,6 +4,7 @@ import { X, Megaphone, Send, AlertTriangle } from 'lucide-react';
 import { db } from '../services/firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
+import { notifyAllStaff } from '../services/notificationService';
 
 interface AnnouncementModalProps {
   onClose: () => void;
@@ -30,6 +31,15 @@ const AnnouncementModal: React.FC<AnnouncementModalProps> = ({ onClose }) => {
         date: Timestamp.now(),
         readBy: []
       });
+
+      // Fan-out Notification
+      await notifyAllStaff(
+          `Announcement: ${title}`,
+          `New ${priority} announcement from ${user?.name}.`,
+          priority === 'Urgent' ? 'alert' : 'info',
+          '/'
+      );
+
       onClose();
     } catch (error) {
       console.error("Error creating announcement", error);

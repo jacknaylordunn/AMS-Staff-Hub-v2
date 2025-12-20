@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { MajorIncidentReport, Role, Shift } from '../types';
+import { notifyAllStaff } from '../services/notificationService';
 
 const MajorIncidentPage = () => {
   const { user } = useAuth();
@@ -27,8 +28,6 @@ const MajorIncidentPage = () => {
 
   // Permissions
   const canDeclare = user?.role === Role.Manager || user?.role === Role.Admin || user?.role === Role.Paramedic; 
-  // In practice, Paramedics might be lead clinician, but system declaration is high stakes. 
-  // Let's restrict DECLARE to Manager/Admin visually, but allow Lead Clinician via confirmation.
 
   useEffect(() => {
     // 1. Listen for global active major incident
@@ -98,6 +97,14 @@ const MajorIncidentPage = () => {
               // 2. Log to Audit Collection
               await addDoc(collection(db, 'major_incident_logs'), report);
 
+              // 3. Notify Everyone
+              await notifyAllStaff(
+                  "MAJOR INCIDENT DECLARED",
+                  `Action Required: Standby for instructions. Location: ${methane.exactLocation || 'Pending'}`,
+                  'alert',
+                  '/major-incident'
+              );
+
               setDeclared(true); 
           } catch (error) { 
               console.error("Error declaring:", error); 
@@ -150,6 +157,14 @@ const MajorIncidentPage = () => {
       if (!canDeclare) return;
       if (confirm("Are you sure you want to STAND DOWN?")) { 
           await setDoc(doc(db, 'system', 'majorIncident'), { active: false, standDownTime: new Date().toISOString() }, { merge: true }); 
+          
+          await notifyAllStaff(
+              "Major Incident Stand Down",
+              `The incident has been stood down by ${user?.name}. Return to normal duties.`,
+              'success',
+              '/'
+          );
+
           setDeclared(false); 
           setMethane({ majorIncidentDeclared: false, exactLocation: '', typeOfIncident: '', hazards: '', access: '', numberOfCasualties: '', emergencyServices: '' }); 
       } 

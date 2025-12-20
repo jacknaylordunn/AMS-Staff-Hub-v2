@@ -7,9 +7,11 @@ import { db } from '../../services/firebase';
 import { EPRF, LinkedRecord } from '../../types';
 import { logAuditAction } from '../../services/auditService';
 import { useAuth } from '../../hooks/useAuth';
+import AddressAutocomplete from '../AddressAutocomplete';
+import DocumentViewerModal from '../DocumentViewerModal';
 
 const PatientTab = () => {
-    const { activeDraft, handleNestedUpdate } = useEPRF();
+    const { activeDraft, updateDraft, handleNestedUpdate } = useEPRF();
     const { user } = useAuth();
     
     // Search State
@@ -17,6 +19,9 @@ const PatientTab = () => {
     const [searchResults, setSearchResults] = useState<EPRF[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [selectedHistoryItem, setSelectedHistoryItem] = useState<EPRF | null>(null);
+    
+    // Viewer State
+    const [pdfViewUrl, setPdfViewUrl] = useState<string | null>(null);
 
     if (!activeDraft) return null;
 
@@ -71,13 +76,21 @@ const PatientTab = () => {
 
     const handleImportDemographics = (record: EPRF) => {
         const p = record.patient;
-        if (p.firstName) handleNestedUpdate(['patient', 'firstName'], p.firstName);
-        if (p.lastName) handleNestedUpdate(['patient', 'lastName'], p.lastName);
-        if (p.dob) handleNestedUpdate(['patient', 'dob'], p.dob);
-        if (p.nhsNumber) handleNestedUpdate(['patient', 'nhsNumber'], p.nhsNumber);
-        if (p.address) handleNestedUpdate(['patient', 'address'], p.address);
-        if (p.postcode) handleNestedUpdate(['patient', 'postcode'], p.postcode);
         
+        // Comprehensive Import
+        const newPatient = {
+            ...activeDraft.patient,
+            firstName: p.firstName || activeDraft.patient.firstName,
+            lastName: p.lastName || activeDraft.patient.lastName,
+            dob: p.dob || activeDraft.patient.dob,
+            nhsNumber: p.nhsNumber || activeDraft.patient.nhsNumber,
+            address: p.address || activeDraft.patient.address,
+            postcode: p.postcode || activeDraft.patient.postcode,
+            gender: p.gender || activeDraft.patient.gender,
+            // Import DNACPR Status if verified
+            dnacpr: p.dnacpr?.verified ? p.dnacpr : activeDraft.patient.dnacpr
+        };
+
         // Link the record
         const link: LinkedRecord = {
             incidentNumber: record.incidentNumber,
@@ -87,9 +100,15 @@ const PatientTab = () => {
         };
         
         const currentLinks = activeDraft.linkedRecords || [];
-        if (!currentLinks.some(l => l.id === link.id)) {
-            handleNestedUpdate(['linkedRecords'], [...currentLinks, link]);
-        }
+        const newLinks = !currentLinks.some(l => l.id === link.id) 
+            ? [...currentLinks, link] 
+            : currentLinks;
+
+        // Atomic update via root
+        updateDraft({
+            patient: newPatient,
+            linkedRecords: newLinks
+        });
 
         alert("Demographics imported and record linked.");
     };
@@ -152,10 +171,15 @@ const PatientTab = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2">
                     <label className="input-label">Street Address</label>
-                    <input 
+                    <AddressAutocomplete
                         className="input-field py-1.5 px-3 text-sm h-8" 
                         value={activeDraft.patient.address} 
-                        onChange={e => handleNestedUpdate(['patient', 'address'], e.target.value)} 
+                        onChange={val => handleNestedUpdate(['patient', 'address'], val)}
+                        onSelect={(addr, lat, lon, details) => {
+                            if (details && details.postcode) {
+                                handleNestedUpdate(['patient', 'postcode'], details.postcode);
+                            }
+                        }}
                         placeholder="House No, Street, Town"
                     />
                 </div>
@@ -167,6 +191,50 @@ const PatientTab = () => {
                         onChange={e => handleNestedUpdate(['patient', 'postcode'], e.target.value)} 
                         placeholder="e.g. AB1 2CD"
                     />
+                </div>
+            </div>
+
+            {/* DNACPR Status */}
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 p-4 rounded-xl mt-2">
+                <h4 className="text-xs font-bold text-red-800 dark:text-red-300 uppercase mb-2">DNACPR Status</h4>
+                <div className="flex flex-wrap gap-4 items-center">
+                    <div className="flex gap-2 bg-white dark:bg-slate-900 p-1 rounded-lg border border-red-100 dark:border-red-900">
+                        <button 
+                            onClick={() => handleNestedUpdate(['patient', 'dnacpr', 'hasDNACPR'], true)}
+                            className={`px-3 py-1 rounded text-xs font-bold ${activeDraft.patient.dnacpr?.hasDNACPR ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            Yes (In Place)
+                        </button>
+                        <button 
+                            onClick={() => handleNestedUpdate(['patient', 'dnacpr', 'hasDNACPR'], false)}
+                            className={`px-3 py-1 rounded text-xs font-bold ${!activeDraft.patient.dnacpr?.hasDNACPR ? 'bg-slate-200 text-slate-700' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            No / Unknown
+                        </button>
+                    </div>
+                    
+                    {activeDraft.patient.dnacpr?.hasDNACPR && (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-red-700 dark:text-red-300 font-bold">Date Issued:</span>
+                                <input 
+                                    type="date" 
+                                    className="input-field py-1 px-2 text-xs w-32 h-8"
+                                    value={activeDraft.patient.dnacpr?.dateIssued || ''}
+                                    onChange={e => handleNestedUpdate(['patient', 'dnacpr', 'dateIssued'], e.target.value)}
+                                />
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-red-800 dark:text-red-200">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4 rounded text-red-600"
+                                    checked={activeDraft.patient.dnacpr?.verified || false}
+                                    onChange={e => handleNestedUpdate(['patient', 'dnacpr', 'verified'], e.target.checked)}
+                                />
+                                Physically Verified
+                            </label>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -191,10 +259,10 @@ const PatientTab = () => {
                 </div>
             )}
 
-            {/* Search Modal - Increased Z Index to 100 */}
+            {/* Search Modal */}
             {showSearchModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700 mt-24">
+                <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm animate-in zoom-in duration-200 pt-10">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
                         {/* Header */}
                         <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center">
                             <div className="flex items-center gap-3">
@@ -234,6 +302,11 @@ const PatientTab = () => {
                                                     <span className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-bold text-slate-600 dark:text-slate-300">{record.incidentNumber}</span>
                                                 </div>
                                                 <h4 className="font-bold text-sm text-slate-800 dark:text-white line-clamp-1">{record.clinicalDecision?.workingImpression || 'No Diagnosis'}</h4>
+                                                
+                                                {/* Show DNACPR Flag in List */}
+                                                {record.patient.dnacpr?.hasDNACPR && (
+                                                    <span className="mt-1 inline-block text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 rounded">DNACPR ON FILE</span>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -263,7 +336,27 @@ const PatientTab = () => {
                                             </button>
                                         </div>
 
+                                        {/* PDF Button */}
+                                        {selectedHistoryItem.pdfUrl && (
+                                            <button 
+                                                onClick={() => setPdfViewUrl(selectedHistoryItem.pdfUrl || '')}
+                                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-white text-xs font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
+                                            >
+                                                <FileText className="w-4 h-4" /> View Full Clinical Record (PDF)
+                                            </button>
+                                        )}
+
                                         {/* Alerts */}
+                                        {selectedHistoryItem.patient.dnacpr?.hasDNACPR && (
+                                            <div className="p-3 bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
+                                                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                                                <div>
+                                                    <p className="text-xs font-bold text-red-900 dark:text-red-100 uppercase">DNACPR ALERT</p>
+                                                    <p className="text-sm text-red-800 dark:text-red-200">Patient has a DNACPR recorded on {new Date(selectedHistoryItem.patient.dnacpr.dateIssued || '').toLocaleDateString()}.</p>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {selectedHistoryItem.history.allergies && selectedHistoryItem.history.allergies !== 'NKDA' && (
                                             <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
                                                 <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
@@ -292,6 +385,15 @@ const PatientTab = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Viewer Modal */}
+            {pdfViewUrl && (
+                <DocumentViewerModal 
+                    url={pdfViewUrl}
+                    title="Historic Clinical Record"
+                    onClose={() => setPdfViewUrl(null)}
+                />
             )}
         </div>
     );

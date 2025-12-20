@@ -8,27 +8,44 @@ import { doc, updateDoc, arrayUnion, Timestamp, collection, query, where, getDoc
 import { db } from '../services/firebase';
 import { uploadFile } from '../services/storage';
 import DocumentViewerModal from '../components/DocumentViewerModal';
+import { notifyManagers } from '../services/notificationService';
 
 const logo = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
-const StatusBadge = ({ status }: { status: ComplianceDoc['status'] }) => {
-    const styles = {
+const StatusBadge = ({ doc }: { doc: ComplianceDoc }) => {
+    // Replicate dashboard logic for real-time status
+    const expiryDate = new Date(doc.expiryDate);
+    const now = new Date();
+    const diffTime = expiryDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    let displayStatus = doc.status;
+    if (doc.status !== 'Pending' && doc.status !== 'Rejected') {
+        if (diffDays < 0) displayStatus = 'Expired';
+        else if (diffDays < 30) displayStatus = 'Expiring';
+    }
+
+    const styles: any = {
         Valid: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800',
-        Expiring: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
+        Expiring: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800 animate-pulse',
         Expired: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
-        Pending: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
+        Pending: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800',
+        Rejected: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
     };
-    const icons = {
+    const icons: any = {
         Valid: CheckCircle,
         Expiring: Clock,
         Expired: AlertCircle,
-        Pending: Clock
+        Pending: Clock,
+        Rejected: X
     };
-    const Icon = icons[status];
+    
+    const Icon = icons[displayStatus] || CheckCircle;
+    
     return (
-        <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${styles[status]}`}>
+        <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${styles[displayStatus]}`}>
             <Icon className="w-3.5 h-3.5" />
-            {status}
+            {displayStatus.toUpperCase()}
         </span>
     );
 };
@@ -54,12 +71,10 @@ const ProfilePage = () => {
       address: user?.address || ''
   });
   
-  // Role Request State
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [requestedRole, setRequestedRole] = useState<Role | ''>('');
   const [requestReason, setRequestReason] = useState('');
   
-  // Document Upload State
   const [showDocModal, setShowDocModal] = useState(false);
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('');
@@ -67,22 +82,18 @@ const ProfilePage = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Document Viewer State
   const [viewingDoc, setViewingDoc] = useState<{url: string, title: string} | null>(null);
 
-  // PIN Change State
   const [showPinModal, setShowPinModal] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [pinError, setPinError] = useState('');
 
-  // Bootstrap State
   const [canBootstrap, setCanBootstrap] = useState(false);
 
   useEffect(() => {
       const checkSystemStatus = async () => {
           try {
-              // Check if there are ANY admins or managers in the system
               const q = query(collection(db, 'users'), where('role', 'in', [Role.Admin, Role.Manager]));
               const snap = await getDocs(q);
               if (snap.empty) {
@@ -131,7 +142,6 @@ const ProfilePage = () => {
       const file = e.target.files[0];
       setUploading(true);
       try {
-          // Use common storage service
           const url = await uploadFile(file, 'avatars');
           await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
           await refreshUser();
@@ -178,6 +188,14 @@ const ProfilePage = () => {
                   requestDate: new Date().toISOString()
               }
           });
+          
+          await notifyManagers(
+              "Role Change Request",
+              `${user.name} has requested a role change to ${requestedRole}.`,
+              'info',
+              '/staff'
+          );
+
           setShowRoleModal(false);
           toast.success("Role change request submitted to management.");
       } catch (e) {
@@ -200,27 +218,24 @@ const ProfilePage = () => {
       
       setUploading(true);
       try {
-          // 1. Upload File first if selected to Storage (Not Base64 in Firestore)
           let downloadUrl = null;
           if (selectedFile) {
               downloadUrl = await uploadFile(selectedFile, `compliance/${user.uid}`);
           }
 
-          // 2. Construct document object safely
           const newDoc: any = {
               id: Date.now().toString(),
-              name: finalName || 'Document', // Ensure string
+              name: finalName || 'Document', 
               expiryDate: docExpiry,
-              status: 'Pending', // Always pending verification initially
+              status: 'Pending', 
               uploadedAt: new Date().toISOString(),
-              fileUrl: downloadUrl || null // Allow null, avoiding undefined
+              fileUrl: downloadUrl || null 
           };
 
           await updateDoc(doc(db, 'users', user.uid), {
               compliance: arrayUnion(newDoc)
           });
           
-          // 3. Silent Refresh - Update local user context to reflect new doc immediately
           await refreshUser();
 
           setShowDocModal(false);
@@ -240,7 +255,6 @@ const ProfilePage = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
       
-      {/* Bootstrap Banner */}
       {canBootstrap && (
           <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
               <div className="flex items-center gap-4">
@@ -261,7 +275,6 @@ const ProfilePage = () => {
           </div>
       )}
 
-      {/* Header */}
       <div className="relative bg-gradient-to-r from-ams-blue to-blue-900 rounded-2xl overflow-hidden shadow-lg">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
           <div className="relative p-8 flex flex-col md:flex-row items-center gap-6">
@@ -303,7 +316,6 @@ const ProfilePage = () => {
                   </p>
               </div>
               
-              {/* Role Change Button */}
               <div>
                   {user?.roleChangeRequest?.status === 'Pending' ? (
                       <div className="bg-amber-500/20 border border-amber-500/50 text-amber-200 px-4 py-2 rounded-lg text-xs font-bold text-center">
@@ -322,9 +334,7 @@ const ProfilePage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Personal Information & Digital ID */}
           <div className="space-y-6">
-              {/* Digital ID Card */}
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
                   <div className="bg-slate-900 dark:bg-slate-950 p-4 text-white flex justify-between items-center">
                       <h3 className="font-bold flex items-center gap-2"><Shield className="w-4 h-4 text-ams-blue" /> Digital ID</h3>
@@ -371,7 +381,6 @@ const ProfilePage = () => {
                   </div>
               </div>
 
-              {/* Personal Details */}
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors">
                   <div className="flex justify-between items-center mb-6">
                       <h3 className="font-bold text-slate-800 dark:text-white">Contact Info</h3>
@@ -420,7 +429,6 @@ const ProfilePage = () => {
               </div>
           </div>
 
-          {/* Compliance & Documents */}
           <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors">
               <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center gap-2">
@@ -451,7 +459,7 @@ const ProfilePage = () => {
                                   <td className="px-4 py-3 font-medium">{doc.name}</td>
                                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{new Date(doc.expiryDate).toLocaleDateString()}</td>
                                   <td className="px-4 py-3">
-                                      <StatusBadge status={doc.status} />
+                                      <StatusBadge doc={doc} />
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                       {doc.fileUrl && (
@@ -478,7 +486,6 @@ const ProfilePage = () => {
           </div>
       </div>
 
-      {/* PIN Change Modal */}
       {showPinModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
@@ -524,7 +531,6 @@ const ProfilePage = () => {
           </div>
       )}
 
-      {/* Role Request Modal */}
       {showRoleModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">
@@ -562,7 +568,6 @@ const ProfilePage = () => {
           </div>
       )}
 
-      {/* Doc Upload Modal */}
       {showDocModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in border border-slate-200 dark:border-slate-700">

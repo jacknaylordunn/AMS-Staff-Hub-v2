@@ -5,6 +5,7 @@ import { Kudos, User as UserType } from '../types';
 import { db } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, getDocs } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
+import { sendNotification, notifyManagers } from '../services/notificationService';
 
 const WellbeingPage = () => {
   const { user } = useAuth();
@@ -62,6 +63,15 @@ const WellbeingPage = () => {
               timestamp: Timestamp.now(),
               tags: ['Peer Support']
           });
+          
+          await sendNotification(
+              recipient.uid,
+              "You received Kudos!",
+              `${user.name} sent you a kudos message: "${newKudos.message}"`,
+              'success',
+              '/wellbeing'
+          );
+
           setNewKudos({ toUid: '', message: '', isPublic: true });
           alert("Kudos sent!");
       } catch (e) {
@@ -79,6 +89,14 @@ const WellbeingPage = () => {
               type: 'Vent',
               anonymous: true
           });
+          
+          await notifyManagers(
+              "New Vent Box Submission",
+              "A new anonymous feedback item has been submitted.",
+              'info',
+              '/analytics' // Assuming managers might view feedback here or add a new tab later
+          );
+
           setVentSent(true);
           setTimeout(() => {
               setVentMessage('');

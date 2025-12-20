@@ -1,7 +1,6 @@
-
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
@@ -25,10 +24,8 @@ export const app = initializeApp(firebaseConfig);
 // Initialize Authentication
 export const auth = getAuth(app);
 
-// Initialize Firestore with single-tab persistence to avoid QuotaExceededError
-export const db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
-});
+// Initialize Firestore
+export const db = getFirestore(app);
 
 // Initialize other services
 export const storage = getStorage(app);

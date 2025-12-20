@@ -67,16 +67,19 @@ const GovernanceTab = () => {
 
     // MCA Logic
     const mca = activeDraft.governance.capacity;
+    // Check if Stage 1 is started (impairment is not undefined)
+    const isStarted = mca.stage1?.impairment !== undefined;
+    
     const isStage1Complete = mca.stage1?.impairment === true && mca.stage1?.nexus === true;
     const hasCapacity = isStage1Complete 
         ? (mca.stage2Functional?.understand && mca.stage2Functional?.retain && mca.stage2Functional?.weigh && mca.stage2Functional?.communicate)
         : true; 
 
     // Don't auto-calculate until Stage 1 is interacted with
-    const showStatus = mca.stage1?.impairment !== undefined;
     const currentComputedStatus = hasCapacity ? 'Capacity Present' : 'Capacity Lacking';
     
-    if (showStatus && mca.status !== currentComputedStatus) {
+    // Only update the actual status field if we are actively showing status
+    if (isStarted && mca.status !== currentComputedStatus) {
         handleNestedUpdate(['governance', 'capacity', 'status'], currentComputedStatus);
     }
 
@@ -91,10 +94,14 @@ const GovernanceTab = () => {
                         <h4 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
                             <Brain className="w-6 h-6 text-purple-600" /> Mental Capacity Act Assessment
                         </h4>
-                        {showStatus && (
+                        {isStarted ? (
                             <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${mca.status === 'Capacity Lacking' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
                                 {mca.status === 'Capacity Lacking' ? <AlertOctagon className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
-                                {mca.status.toUpperCase()}
+                                {mca.status?.toUpperCase()}
+                            </div>
+                        ) : (
+                            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700">
+                                <AlertCircle className="w-3 h-3" /> NOT STARTED
                             </div>
                         )}
                     </div>

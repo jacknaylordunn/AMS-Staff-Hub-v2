@@ -28,7 +28,7 @@ export interface ComplianceDoc {
     id: string;
     name: string;
     expiryDate: string;
-    status: 'Valid' | 'Expiring' | 'Expired' | 'Pending';
+    status: 'Valid' | 'Expiring' | 'Expired' | 'Pending' | 'Rejected';
     fileUrl?: string;
     uploadedAt?: string;
 }
@@ -210,13 +210,23 @@ export interface InjuryMark {
     x: number;
     y: number;
     view: 'Anterior' | 'Posterior';
-    type: 'Injury' | 'Pain' | 'IV' | 'Other';
+    type: 'Injury' | 'Pain' | 'IV' | 'IO' | 'IM' | 'SC' | 'Other';
     subtype?: string;
-    location?: string;
+    location?: string; // Auto-generated description
+    
+    // Access Specific
+    device?: string;
+    gauge?: string;
+    time?: string;
     success?: boolean;
+    attempts?: number;
+    
+    // Injury Specific
+    notes?: string;
 }
 
 export interface VitalsEntry {
+    id?: string; // Added ID for editing
     time: string;
     hr?: number;
     rr?: number;
@@ -392,6 +402,7 @@ export interface EPRF {
         badgeNumber: string;
     }[];
     times: {
+        incidentDate: string; // Added Incident Date
         callReceived: string;
         mobile: string;
         onScene: string;
@@ -409,6 +420,11 @@ export interface EPRF {
         address: string;
         postcode: string;
         chronicHypoxia: boolean;
+        dnacpr: {
+            hasDNACPR: boolean;
+            dateIssued?: string;
+            verified: boolean;
+        };
     };
     history: {
         presentingComplaint: string;
@@ -420,6 +436,7 @@ export interface EPRF {
             pastMedicalHistory: string;
             lastOralIntake: string;
             eventsPrior: string;
+            medsTakenToHospital?: boolean;
         };
         allergies: string;
         medications: string;
@@ -431,7 +448,14 @@ export interface EPRF {
         neuro: NeuroAssessment;
         cardiac?: {
             chestPainPresent: boolean;
-            ecg?: { rhythm: string; rate: string; time: string; stElevation: boolean; twelveLeadNotes?: string };
+            ecg?: { 
+                rhythm: string; 
+                rate: string; 
+                time: string; 
+                stChanges: boolean; 
+                stDetails?: { type: 'Elevation' | 'Depression' | 'None'; leads: string; };
+                twelveLeadNotes?: string 
+            };
             socrates?: any;
             wellsCriteria?: string[];
             wellsScore?: number;
@@ -444,6 +468,8 @@ export interface EPRF {
             airEntry: string;
             addedSounds: string;
             accessoryMuscleUse: boolean;
+            accessoryMuscleDetails?: string; 
+            trachealTug?: boolean; 
             nebulisersGiven?: boolean;
             history?: string;
         };
@@ -459,7 +485,12 @@ export interface EPRF {
             painLocation: string;
             lastMeal?: string;
             lastBowelMovement?: string;
-            nauseaVomiting?: boolean;
+            lastVomit?: string; 
+            nausea: boolean; 
+            vomiting: boolean; 
+            diarrhoea: boolean; 
+            fluidIntake?: string; 
+            quadrants?: { ruq: string; luq: string; rlq: string; llq: string }; 
         };
         obsGynae?: {
             pregnant: boolean;
@@ -486,6 +517,12 @@ export interface EPRF {
         burns?: { estimatedPercentage: string; depth: string; site?: string };
         cfsScore?: number;
         mobility?: { preMorbidMobility: string; currentMobility: string; transferAbility: string; aidsUsed: string };
+        social?: { 
+            livingStatus: string; 
+            carers: boolean;
+            supportDetails: string;
+            accessKeys?: boolean;
+        };
         falls?: { 
             historyOfFalls: boolean; 
             anticoagulants?: string; 
@@ -505,9 +542,11 @@ export interface EPRF {
             verifiedBy: string;
             arrestWitnessed: boolean;
             bystanderCPR: boolean;
+            dnacprAvailable: boolean; 
             downTimeMinutes: number;
             totalShocks: number;
             criteriaMet: string[];
+            resusSummary: string; 
         };
         resusLog?: ResusEvent[];
     };
@@ -576,7 +615,7 @@ export interface EPRF {
         digitalToken?: string;
     };
     vitals: VitalsEntry[];
-    injuries: InjuryMark[];
+    injuries: InjuryMark[]; 
     logs: any[];
     linkedRecords?: LinkedRecord[];
     bodyMapImage?: string;
