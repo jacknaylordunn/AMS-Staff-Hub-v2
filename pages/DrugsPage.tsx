@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Pill, Plus, AlertTriangle, Lock, RefreshCcw, History, Loader2, ArrowRightLeft, Trash2, CheckCircle, FileText, Syringe, Search, Filter, ClipboardCheck, BellRing } from 'lucide-react';
 import { db } from '../services/firebase';
@@ -33,7 +34,7 @@ const DrugsPage = () => {
   
   // Witness State
   const [showWitness, setShowWitness] = useState(false);
-  const [witnessData, setWitnessData] = useState<{name: string, uid: string} | null>(null);
+  const [witnessData, setWitnessData] = useState<{name: string, uid: string, token: string} | null>(null);
 
   // Shift Count Mode State
   const [isShiftCheckMode, setIsShiftCheckMode] = useState(false);
@@ -49,24 +50,25 @@ const DrugsPage = () => {
 
   const initiateTransaction = (type: typeof transactionType, drug?: StockItem) => { setTransactionType(type); if (drug) setSelectedDrug(drug); setTxAmount(''); setTxNotes(''); setTxBatch(''); setTxExpiry(''); setWitnessData(null); setShowTransactionModal(true); };
   
-  const handleWitnessConfirmed = (name: string, uid: string) => { 
-      setWitnessData({ name, uid }); 
+  const handleWitnessConfirmed = (name: string, uid: string, token: string) => { 
+      setWitnessData({ name, uid, token }); 
       setShowWitness(false);
       
       if (isShiftCheckMode) {
-          submitShiftCheck(name);
+          submitShiftCheck(name, token);
       } else {
-          handleSubmitTransaction(name); 
+          handleSubmitTransaction(name, token); 
       }
   };
 
   const validateAndSubmit = () => { if (!selectedDrug || !txAmount) return; const needsWitness = (transactionType === 'Waste' || transactionType === 'Check') && CONTROLLED_DRUGS.includes(selectedDrug.name); if (needsWitness && !witnessData) { setShowWitness(true); } else { handleSubmitTransaction(); } };
   
-  const handleSubmitTransaction = async (witnessName?: string) => {
+  const handleSubmitTransaction = async (witnessName?: string, witnessToken?: string) => {
       if (!selectedDrug || !user) return;
       let newBalance = selectedDrug.currentStock; const amount = Number(txAmount);
       switch(transactionType) { case 'Receive': newBalance += amount; break; case 'Administer': newBalance -= amount; break; case 'Waste': newBalance -= amount; break; case 'Move': newBalance -= amount; break; case 'Check': newBalance = amount; break; }
       const finalWitness = witnessName || witnessData?.name;
+      const finalToken = witnessToken || witnessData?.token;
       
       const transactionDetails = { 
           timestamp: Timestamp.now(), 
@@ -77,6 +79,7 @@ const DrugsPage = () => {
           user: user.name, 
           userId: user.uid, 
           witness: finalWitness || null, 
+          witnessToken: finalToken || null,
           notes: txNotes || (transactionType === 'Check' && amount !== selectedDrug.currentStock ? `Discrepancy corrected. Old: ${selectedDrug.currentStock}` : null) 
       };
 
@@ -156,7 +159,7 @@ const DrugsPage = () => {
       setShowWitness(true);
   };
 
-  const submitShiftCheck = async (witnessName: string) => {
+  const submitShiftCheck = async (witnessName: string, witnessToken: string) => {
       if (!user) return;
       const cds = stock.filter(s => CONTROLLED_DRUGS.includes(s.name));
       const batch = writeBatch(db);
@@ -185,6 +188,7 @@ const DrugsPage = () => {
                   user: user.name,
                   userId: user.uid,
                   witness: witnessName,
+                  witnessToken: witnessToken,
                   notes: `End of Shift Check Discrepancy. System: ${system}. Note: ${note}`
               }));
           } else {
@@ -198,6 +202,7 @@ const DrugsPage = () => {
                   user: user.name,
                   userId: user.uid,
                   witness: witnessName,
+                  witnessToken: witnessToken,
                   notes: 'End of Shift Check - Correct'
               }));
           }

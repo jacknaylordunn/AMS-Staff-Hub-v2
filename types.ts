@@ -1,4 +1,5 @@
 
+
 export enum Role {
     Admin = 'Admin',
     Manager = 'Manager',
@@ -266,6 +267,7 @@ export interface DrugAdministration {
     administeredBy: string;
     witnessedBy?: string;
     witnessUid?: string;
+    witnessToken?: string;
 }
 
 export interface Procedure {

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import { DRUG_DATABASE, CONTROLLED_DRUGS } from '../../data/drugDatabase';
@@ -22,7 +23,7 @@ const TreatmentTab = () => {
     const [batch, setBatch] = useState('');
     const [time, setTime] = useState('');
     const [isWastage, setIsWastage] = useState(false);
-    const [witnessData, setWitnessData] = useState<{name: string, uid: string} | null>(null);
+    const [witnessData, setWitnessData] = useState<{name: string, uid: string, token?: string} | null>(null);
     const [showWitnessModal, setShowWitnessModal] = useState(false);
 
     // Procedure State
@@ -89,7 +90,8 @@ const TreatmentTab = () => {
             authorisation: 'JRCALC',
             administeredBy: user?.name || 'Clinician',
             witnessedBy: witnessData?.name,
-            witnessUid: witnessData?.uid
+            witnessUid: witnessData?.uid,
+            witnessToken: witnessData?.token
         };
         addDrug(drugEntry);
         setDose(''); setBatch(''); setTime(''); setSelectedDrug(''); setWitnessData(null); setIsWastage(false);
@@ -452,7 +454,7 @@ const TreatmentTab = () => {
             {showWitnessModal && (
                 <WitnessModal 
                     drugName={selectedDrug} 
-                    onWitnessConfirmed={(name, uid) => { setWitnessData({name, uid}); setShowWitnessModal(false); }} 
+                    onWitnessConfirmed={(name, uid, token) => { setWitnessData({name, uid, token}); setShowWitnessModal(false); }} 
                     onCancel={() => setShowWitnessModal(false)} 
                 />
             )}

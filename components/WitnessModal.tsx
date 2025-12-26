@@ -1,13 +1,15 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Lock, UserCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { User } from '../types';
+import { hashPin } from '../utils/crypto';
 
 interface WitnessModalProps {
     drugName: string;
-    onWitnessConfirmed: (name: string, uid: string) => void;
+    onWitnessConfirmed: (name: string, uid: string, token: string) => void;
     onCancel: () => void;
 }
 
@@ -57,9 +59,13 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
 
             if (witnessSnap.exists()) {
                 const witnessData = witnessSnap.data();
-                // Check against the PIN in the database
-                if (witnessData.pin === pin) {
-                    onWitnessConfirmed(witnessData.name, selectedWitnessId);
+                
+                const hashedInput = await hashPin(pin);
+
+                // Check against the PIN in the database (Hash preferred, fallback to plain if migration issue)
+                if (witnessData.pinHash === hashedInput || witnessData.pin === pin) {
+                    const token = `WITNESS_TOKEN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    onWitnessConfirmed(witnessData.name, selectedWitnessId, token);
                 } else {
                     setError("Incorrect PIN. Verification failed.");
                     setPin('');
