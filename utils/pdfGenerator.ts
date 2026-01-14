@@ -1,24 +1,24 @@
+
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { EPRF, VitalsEntry, DrugAdministration, Procedure, InjuryMark, MediaAttachment } from '../types';
+import { EPRF } from '../types';
 
 // --- CONFIGURATION ---
 const LOGO_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Logo%20FINAL%20(2).png';
 
 const COLORS = {
-    primary: '#003366',    // Dark Navy (Professional / Legal)
+    primary: '#003366',    // Dark Navy
     secondary: '#0052CC',  // AMS Blue
     accent: '#00B8D9',     // Cyan
     headerBg: '#F4F5F7',   // Light Grey
     text: '#172B4D',       // Dark Slate
     lightText: '#6B778C',  // Muted Text
-    red: '#DE350B',        // Critical/Alert
-    green: '#00875A',      // Success/Normal
+    red: '#DE350B',        // Critical
+    green: '#00875A',      // Success
     white: '#FFFFFF',
     border: '#DFE1E6'
 };
 
-// --- TYPES ---
 type PDFMode = 'FULL' | 'REFERRAL' | 'SAFEGUARDING' | 'TRAUMA_HANDOVER';
 
 // --- HELPERS ---
@@ -48,7 +48,7 @@ const resolveImage = async (src: string | undefined): Promise<string> => {
     });
 };
 
-const formatValue = (val: any, fallback = 'Not Recorded'): string => {
+const formatValue = (val: any, fallback = '-'): string => {
     if (val === true) return 'YES';
     if (val === false) return 'No';
     if (val === undefined || val === null || val === '') return fallback;
@@ -111,10 +111,9 @@ class PDFBuilder {
 
         this.doc.setTextColor(COLORS.white);
         this.doc.setFontSize(8);
-        this.doc.text(`Incident Ref: ${data.incidentNumber}`, this.pageWidth - 15, 20, { align: 'right' });
+        this.doc.text(`Ref: ${data.incidentNumber}`, this.pageWidth - 15, 20, { align: 'right' });
         this.doc.text(`Date: ${new Date(data.times.incidentDate || Date.now()).toLocaleDateString()}`, this.pageWidth - 15, 25, { align: 'right' });
-        this.doc.text(`Call Sign: ${data.callSign || 'N/A'}`, this.pageWidth - 15, 30, { align: 'right' });
-
+        
         this.yPos = headerHeight + 10;
     }
 
@@ -124,10 +123,12 @@ class PDFBuilder {
             this.doc.setPage(i);
             this.doc.setFontSize(8);
             this.doc.setTextColor(100);
-            const patientId = data.patient.lastName ? `${data.patient.lastName.toUpperCase()}, ${data.patient.firstName}` : 'Unknown Patient';
-            this.doc.text(`Patient: ${patientId} (${data.patient.nhsNumber || 'No NHS No'})`, this.margin, this.pageHeight - 10);
+            const name = data.patient.lastName ? `${data.patient.lastName.toUpperCase()}, ${data.patient.firstName}` : 'Unknown Patient';
+            const nhs = data.patient.nhsNumber ? ` | NHS: ${data.patient.nhsNumber}` : '';
+            
+            this.doc.text(`Patient: ${name}${nhs}`, this.margin, this.pageHeight - 10);
             this.doc.text(`Page ${i} of ${pageCount}`, this.pageWidth / 2, this.pageHeight - 10, { align: 'center' });
-            this.doc.text("CONFIDENTIAL - GDPR PROTECTED", this.pageWidth - this.margin, this.pageHeight - 10, { align: 'right' });
+            this.doc.text("CONFIDENTIAL MEDICAL RECORD", this.pageWidth - this.margin, this.pageHeight - 10, { align: 'right' });
         }
     }
 
@@ -182,7 +183,7 @@ class PDFBuilder {
             this.doc.setTextColor(COLORS.text);
             this.doc.setFont('helvetica', 'normal');
             if (displayVal === 'YES') this.doc.setTextColor(COLORS.green);
-            if (['CRITICAL', 'HIGH RISK', 'POSITIVE', 'YES - TRIGGERED'].includes(displayVal.toUpperCase())) this.doc.setTextColor(COLORS.red);
+            if (['CRITICAL', 'HIGH RISK', 'POSITIVE', 'YES - TRIGGERED', 'Capacity Lacking'].includes(displayVal) || displayVal.includes('Allergy')) this.doc.setTextColor(COLORS.red);
 
             const splitVal = this.doc.splitTextToSize(displayVal, colWidth - 5);
             this.doc.text(splitVal, currentX, rowY + 4);
@@ -199,6 +200,7 @@ class PDFBuilder {
         });
 
         if (colIndex !== 0) this.yPos = rowY + maxRowH;
+        this.yPos += 2; // small spacer
     }
 
     addFullWidthField(label: string, value: string, highlight = false) {
@@ -224,7 +226,7 @@ class PDFBuilder {
             body: body,
             theme: theme,
             headStyles: { fillColor: COLORS.secondary, textColor: 255, fontStyle: 'bold', fontSize: 8 },
-            styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
+            styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', font: 'helvetica' },
             margin: { left: this.margin, right: this.margin },
             didDrawPage: (data) => { this.yPos = data.cursor.y + 10; }
         });
@@ -235,7 +237,12 @@ class PDFBuilder {
         if (!base64 || base64.length < 100) return;
         this.checkPageBreak(height + 15);
         try {
-            this.doc.addImage(base64, 'PNG', this.margin, this.yPos, 100, height);
+            // Center the image if possible or fit to width
+            const imgProps = this.doc.getImageProperties(base64);
+            const ratio = imgProps.width / imgProps.height;
+            const printWidth = Math.min(100, height * ratio);
+            
+            this.doc.addImage(base64, 'PNG', this.margin, this.yPos, printWidth, height);
             this.doc.setFontSize(8);
             this.doc.setTextColor(COLORS.lightText);
             this.doc.text(`Exhibit: ${label}`, this.margin, this.yPos + height + 5);
@@ -268,417 +275,184 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
     let logoData = '';
     try { logoData = await resolveImage(LOGO_URL); } catch (e) {}
 
-    // 1. HEADER & TITLE
+    // 1. HEADER
     let docTitle = "Patient Report";
-    if (mode === 'SAFEGUARDING') docTitle = "Safeguarding Referral";
-    if (mode === 'REFERRAL') docTitle = "GP / Clinical Referral";
+    if (mode === 'SAFEGUARDING') docTitle = "Safeguarding Referral Form";
+    if (mode === 'REFERRAL') docTitle = "GP / Medical Referral Letter";
     if (mode === 'TRAUMA_HANDOVER') docTitle = "Trauma Handover (ATMIST)";
     if (mode === 'FULL') {
-        if (data.mode === 'Clinical') docTitle = "Clinical Patient Record";
-        if (data.mode === 'Welfare') docTitle = "Welfare / Social Record";
-        if (data.mode === 'Minor') docTitle = "Minor Injury Record";
+        docTitle = `${data.mode || 'Clinical'} Patient Record`;
     }
 
     builder.addHeader(docTitle, data, logoData, mode === 'SAFEGUARDING' ? 'CONFIDENTIAL' : undefined);
 
-    // 2. PATIENT DETAILS
-    builder.addSectionTitle("Patient & Incident Details");
+    // 2. REFERRAL HEADER (Letter Format)
+    if (mode === 'REFERRAL') {
+        builder.addFullWidthField("To", "The Receiving GP / Medical Team");
+        builder.addFullWidthField("Date", new Date().toLocaleDateString());
+        builder.addFullWidthField("Re", `Patient: ${data.patient.firstName} ${data.patient.lastName} (DOB: ${data.patient.dob})`);
+        builder.yPos += 10;
+        builder.doc.text("Dear Doctor / Colleague,", builder.margin, builder.yPos);
+        builder.yPos += 10;
+        builder.doc.text("Please see below the clinical assessment for the above patient attended by our team today.", builder.margin, builder.yPos);
+        builder.yPos += 15;
+    }
+
+    // 3. DEMOGRAPHICS
+    builder.addSectionTitle("Patient & Incident Context");
     const pt = data.patient;
-    const isSafeguarding = mode === 'SAFEGUARDING';
+    const addr = [pt.address, pt.postcode].filter(Boolean).join(', ');
 
     builder.addGrid({
-        "Incident Date": data.times.incidentDate,
-        "Location": data.location,
         "Patient Name": `${pt.firstName} ${pt.lastName}`,
-        "DOB / Age": `${pt.dob} (${getAge(pt.dob)})`,
-        "NHS Number": pt.nhsNumber,
+        "DOB": `${pt.dob} (Age: ${getAge(pt.dob)})`,
         "Gender": pt.gender,
-        "Address": pt.address,
-        "Postcode": pt.postcode,
-        "GP Practice": data.clinicalDecision.gpPractice
-    }, 3);
+        "NHS Number": pt.nhsNumber,
+        "Patient Address": addr,
+        "GP Surgery": data.clinicalDecision.gpPractice
+    }, 2);
 
     if (pt.dnacpr?.hasDNACPR) {
-        builder.addAlertBox("DNACPR / ADVANCE DIRECTIVE", 
+        builder.addAlertBox("DNACPR STATUS", 
             `DNACPR IN PLACE. Verified: ${pt.dnacpr.verified ? "YES" : "NO"}. Date Issued: ${pt.dnacpr.dateIssued || 'Unknown'}`
         );
     }
 
-    // 3. TIMELINE (Clinical)
-    if (mode === 'FULL' && data.mode === 'Clinical') {
-        const times = data.times;
-        builder.addSubsectionTitle("Timeline Log");
+    // 4. INCIDENT LOGISTICS
+    if (mode === 'FULL') {
+        builder.addSubsectionTitle("Logistics");
         builder.addGrid({
-            "Call Received": times.callReceived,
-            "Mobile": times.mobile,
-            "On Scene": times.onScene,
-            "Patient Contact": times.patientContact,
-            "Depart Scene": times.departScene,
-            "At Hospital": times.atHospital,
-            "Clear": times.clear
-        }, 4);
-    }
-
-    // 4. HISTORY (All except Safeguarding)
-    if (!isSafeguarding) {
-        builder.addSectionTitle("Clinical History");
-        builder.addFullWidthField("Presenting Complaint (PC)", data.history.presentingComplaint);
-        builder.addFullWidthField("History of PC (HPC)", data.history.historyOfPresentingComplaint);
+            "Incident Location": data.location,
+            "Call Sign": data.callSign,
+            "Receiving Hospital": data.clinicalDecision.destinationHospital
+        }, 3);
         
-        if (data.history.sample) {
-            builder.addSubsectionTitle("SAMPLE History");
-            builder.addGrid({
-                "Symptoms": data.history.sample.symptoms,
-                "Allergies": data.history.sample.allergies,
-                "Medications": data.history.sample.medications,
-                "Past History": data.history.sample.pastMedicalHistory,
-                "Last Intake": data.history.sample.lastOralIntake,
-                "Events": data.history.sample.eventsPrior
-            }, 2);
-        } else {
-            builder.addGrid({
-                "Past Medical History": data.history.pastMedicalHistory || 'Nil Reported',
-                "Medications": data.history.medications || 'Nil Reported',
-                "Allergies": data.history.allergies || 'NKDA'
-            }, 1);
-        }
+        builder.addSubsectionTitle("Timings");
+        builder.addGrid({
+            "Call Received": data.times.callReceived,
+            "Mobile": data.times.mobile,
+            "On Scene": data.times.onScene,
+            "Pt Contact": data.times.patientContact,
+            "Depart Scene": data.times.departScene,
+            "At Hospital": data.times.atHospital,
+            "Clear": data.times.clear
+        }, 7); // Spread across row
     }
 
-    // 5. PRIMARY SURVEY (Clinical Only)
-    if (mode === 'FULL' && data.mode === 'Clinical') {
-        builder.addSectionTitle("Primary Survey (ABCDE)");
-        const p = data.assessment.primary;
-        builder.addTable(
-            ['Param', 'Assessment', 'Finding', 'Intervention / Notes'],
-            [
-                ['<C>', 'Catastrophic Haemorrhage', p.catastrophicHaemorrhage ? 'POSITIVE' : 'Negative', '-'],
-                ['A', 'Airway Status', p.airway.status, p.airway.intervention || p.airway.notes],
-                ['B', 'Breathing', `RR: ${p.breathing.rate} | Sats: ${p.breathing.oxygenSats}%`, `Effort: ${p.breathing.effort} | AE: ${p.breathing.airEntryL}/${p.breathing.airEntryR}`],
-                ['C', 'Circulation', `Pulse: ${p.circulation.radialPulse} | BP: ${p.circulation.systolicBP}/${p.circulation.diastolicBP}`, `Skin: ${p.circulation.skin} | CRT: ${p.circulation.capRefill}`],
-                ['D', 'Disability', `AVPU: ${p.disability.avpu} | GCS: ${p.disability.gcs}`, `Pupils: ${p.disability.pupils} | BM: ${p.disability.bloodGlucose}`],
-                ['E', 'Exposure', `Temp: ${p.exposure.temp}`, p.exposure.injuriesFound ? 'Injuries Found' : 'No obvious injuries']
-            ]
-        );
+    // 5. HISTORY & PRESENTATION
+    builder.addSectionTitle("Clinical History");
+    builder.addFullWidthField("Presenting Complaint (PC)", data.history.presentingComplaint);
+    builder.addFullWidthField("History of PC (HPC)", data.history.historyOfPresentingComplaint);
+    
+    if (data.history.sample) {
+        builder.addSubsectionTitle("SAMPLE History");
+        builder.addGrid({
+            "Symptoms": data.history.sample.symptoms,
+            "Allergies": data.history.sample.allergies,
+            "Medications": data.history.sample.medications,
+            "Past History": data.history.sample.pastMedicalHistory,
+            "Last Intake": data.history.sample.lastOralIntake,
+            "Events": data.history.sample.eventsPrior
+        }, 2);
+    } else {
+        builder.addGrid({
+            "Past Medical History": data.history.pastMedicalHistory || 'Nil Reported',
+            "Medications": data.history.medications || 'Nil Reported',
+            "Allergies": data.history.allergies || 'NKDA'
+        }, 1);
     }
 
-    // 6. VITALS (All except Safeguarding)
-    if (!isSafeguarding && data.vitals.length > 0) {
-        builder.addSectionTitle("Vital Signs Log");
+    // 6. CLINICAL NARRATIVE (Important)
+    builder.addSectionTitle("Clinical Assessment Narrative");
+    builder.addFullWidthField("", data.assessment.clinicalNarrative || "No narrative recorded.");
+
+    // 7. VITAL SIGNS
+    if (data.vitals.length > 0) {
+        builder.addSectionTitle("Vital Signs");
         builder.addTable(
-            ['Time', 'RR', 'SpO2', 'O2', 'BP', 'HR', 'Temp', 'GCS', 'BM', 'NEWS2', 'Pain'],
+            ['Time', 'RR', 'SpO2', 'O2', 'BP', 'HR', 'Temp', 'GCS', 'BM', 'NEWS2'],
             data.vitals.map(v => [
                 v.time,
                 v.rrRefused ? 'Ref' : String(v.rr || '-'),
                 v.spo2Refused ? 'Ref' : `${v.spo2 || '-'}%`,
-                v.oxygen ? `${v.oxygenDevice || 'Supp'} (${v.oxygenFlow || ''})` : 'Air',
+                v.oxygen ? `${v.oxygenDevice || 'Supp'} ${v.oxygenFlow || ''}` : 'Air',
                 v.bpRefused ? 'Ref' : `${v.bpSystolic || '-'}/${v.bpDiastolic || '-'}`,
                 v.hrRefused ? 'Ref' : String(v.hr || '-'),
                 v.tempRefused ? 'Ref' : String(v.temp || '-'),
                 v.gcsRefused ? 'Ref' : String(v.gcs || v.avpu || '-'),
                 v.bloodGlucoseRefused ? 'Ref' : String(v.bloodGlucose || '-'),
-                String(v.news2Score),
-                v.painScoreRefused ? 'Ref' : String(v.painScore || '-')
+                String(v.news2Score)
             ]),
             'grid'
         );
     }
 
-    // 7. DETAILED ASSESSMENTS (Adaptive)
-    if (mode === 'FULL' || mode === 'REFERRAL') {
-        builder.addSectionTitle("Detailed Assessment");
-
-        // Narrative
-        builder.addFullWidthField("Examination Narrative", data.assessment.clinicalNarrative);
-        if (data.mode === 'Minor') builder.addFullWidthField("Minor Injury Assessment", data.assessment.minorInjuryAssessment || "See Narrative");
-
-        // -- NEURO --
-        if (data.assessment.neuro?.gcs?.total || data.assessment.neuro?.fast?.testPositive) {
-            builder.addSubsectionTitle("Neurological Assessment");
-            const n = data.assessment.neuro;
-            builder.addGrid({
-                "GCS Total": `${n.gcs.total}/15 (E${n.gcs.eyes} V${n.gcs.verbal} M${n.gcs.motor})`,
-                "Pupils (L)": `Size: ${n.pupils.leftSize}mm | React: ${n.pupils.leftReaction}`,
-                "Pupils (R)": `Size: ${n.pupils.rightSize}mm | React: ${n.pupils.rightReaction}`,
-                "FAST Test": n.fast.testPositive ? "POSITIVE" : "Negative"
-            });
-            if (n.limbs) {
-                builder.addGrid({
-                    "L.Arm Power": n.limbs.leftArm.power, "L.Arm Sens": n.limbs.leftArm.sensation,
-                    "R.Arm Power": n.limbs.rightArm.power, "R.Arm Sens": n.limbs.rightArm.sensation,
-                    "L.Leg Power": n.limbs.leftLeg.power, "L.Leg Sens": n.limbs.leftLeg.sensation,
-                    "R.Leg Power": n.limbs.rightLeg.power, "R.Leg Sens": n.limbs.rightLeg.sensation,
-                }, 4);
-            }
-        }
-
-        // -- RESPIRATORY --
-        if (data.assessment.respiratory) {
-            builder.addSubsectionTitle("Respiratory Assessment");
-            const r = data.assessment.respiratory;
-            builder.addGrid({
-                "Air Entry": r.airEntry,
-                "Added Sounds": r.addedSounds,
-                "Cough": r.cough,
-                "Sputum": r.sputumColor,
-                "Accessory Muscle": r.accessoryMuscleUse ? "YES" : "No",
-                "Tracheal Tug": r.trachealTug ? "YES" : "No",
-                "Peak Flow": `Pre: ${r.peakFlowPre || '-'} | Post: ${r.peakFlowPost || '-'}`,
-                "Nebulisers Given": r.nebulisersGiven ? "YES" : "No"
-            });
-        }
-
-        // -- CARDIAC --
-        if (data.assessment.cardiac) {
-            builder.addSubsectionTitle("Cardiac Assessment");
-            const c = data.assessment.cardiac;
-            builder.addGrid({
-                "Chest Pain": c.chestPainPresent ? "YES" : "No",
-                "ECG Rhythm": c.ecg?.rhythm,
-                "ECG Rate": c.ecg?.rate,
-                "STEMI Criteria": c.ecg?.stChanges ? "MET - POSITIVE" : "Not Met",
-                "ST Changes": c.ecg?.stDetails?.type || "None"
-            });
-            if (c.socrates) {
-                builder.addGrid({
-                    "Site": c.socrates.site, "Onset": c.socrates.onset, "Character": c.socrates.character,
-                    "Radiation": c.socrates.radiation, "Assoc. Symptoms": c.socrates.associations,
-                    "Time Course": c.socrates.timeCourse, "Exacerbating": c.socrates.exacerbatingRelieving, "Severity": `${c.socrates.severity}/10`
-                }, 2);
-            }
-        }
-
-        // -- GASTROINTESTINAL --
-        if (data.assessment.gastrointestinal) {
-            builder.addSubsectionTitle("Gastrointestinal / Abdomen");
-            const g = data.assessment.gastrointestinal;
-            builder.addGrid({
-                "Abdo Pain": g.abdominalPain ? "YES" : "No",
-                "Location": g.painLocation,
-                "Palpation": g.palpation,
-                "Distension": g.distension,
-                "Bowel Sounds": g.bowelSounds,
-                "Last Meal": g.lastMeal,
-                "Last Bowel Mov": g.lastBowelMovement,
-                "FAST Scan": g.fastScan || "Not Performed"
-            });
-            if (g.quadrants) {
-                builder.addGrid({
-                    "RUQ": g.quadrants.ruq, "LUQ": g.quadrants.luq,
-                    "RLQ": g.quadrants.rlq, "LLQ": g.quadrants.llq
-                }, 4);
-            }
-        }
-
-        // -- OBS / GYNAE --
-        if (data.assessment.obsGynae) {
-            builder.addSubsectionTitle("Obstetrics & Gynaecology");
-            const ob = data.assessment.obsGynae;
-            builder.addGrid({
-                "Pregnant": ob.pregnant ? "YES" : "No",
-                "Gestation": ob.gestationWeeks || "N/A",
-                "Gravida/Para": `${ob.gravida || '-'}/${ob.para || '-'}`,
-                "Contractions": ob.contractions || "None",
-                "Membranes": ob.membranesRuptured ? "Ruptured" : "Intact",
-                "Bleeding": ob.bleeding ? `YES - ${ob.bleedAmount}` : "None"
-            });
-        }
-
-        // -- MENTAL HEALTH --
-        if (data.assessment.mentalHealth) {
-            builder.addSubsectionTitle("Mental Health");
-            const mh = data.assessment.mentalHealth;
-            builder.addGrid({
-                "Appearance": mh.appearance,
-                "Behaviour": mh.behaviour,
-                "Speech": mh.speech,
-                "Mood": mh.mood,
-                "Risk to Self": mh.riskToSelf ? "YES" : "No",
-                "Risk to Others": mh.riskToOthers ? "YES" : "No"
-            });
-        }
-
-        // -- WOUNDS --
-        if (data.assessment.wounds && data.assessment.wounds.length > 0) {
-            builder.addSubsectionTitle("Wound Assessment");
-            builder.addTable(
-                ['Site', 'Class', 'Dimensions', 'Contamination', 'Tetanus Status'],
-                data.assessment.wounds.map(w => [w.site, w.classification, w.dimensions, w.contamination, w.tetanusStatus])
-            );
-        }
-
-        // -- BURNS --
-        if (data.assessment.burns?.estimatedPercentage) {
-            builder.addSubsectionTitle("Burns Assessment");
-            builder.addGrid({
-                "Site": data.assessment.burns.site,
-                "TBSA %": data.assessment.burns.estimatedPercentage,
-                "Depth": data.assessment.burns.depth
-            });
-        }
-
-        // -- SEPSIS --
-        if (data.assessment.sepsis?.screeningTrigger) {
-             builder.addSubsectionTitle("Sepsis Screening Tool");
-             const s = data.assessment.sepsis;
-             builder.addGrid({
-                 "Screening Triggered": "YES",
-                 "Red Flags": s.redFlags.length > 0 ? s.redFlags.join(', ') : "None",
-                 "Risk Factors": s.riskFactors.length > 0 ? s.riskFactors.join(', ') : "None",
-                 "Sepsis Outcome": s.outcome
-             });
-        }
-
-        // -- TRAUMA TRIAGE --
-        if (data.assessment.traumaTriage) {
-            builder.addSubsectionTitle("Major Trauma Triage");
-            const t = data.assessment.traumaTriage;
-            builder.addGrid({
-                "Major Trauma": t.isMajorTrauma ? "YES - TRIGGERED" : "No",
-                "Physiology": t.physiology ? "Triggered" : "-",
-                "Anatomy": t.anatomy ? "Triggered" : "-",
-                "Mechanism": t.mechanism ? "Triggered" : "-"
-            });
-        }
-        
-        // -- SOCIAL & FALLS --
-        if (data.assessment.cfsScore || data.assessment.falls || data.assessment.social) {
-             builder.addSubsectionTitle("Social, Falls & Frailty");
-             builder.addGrid({
-                 "CFS Score": data.assessment.cfsScore ? `${data.assessment.cfsScore}` : "Not Assessed",
-                 "History of Falls": data.assessment.falls?.historyOfFalls ? "YES" : "No",
-                 "Anticoagulants": data.assessment.falls?.anticoagulants || "Not Recorded",
-                 "Living Status": data.assessment.social?.livingStatus || "Not Recorded",
-                 "Carers": data.assessment.social?.carers ? "YES" : "No",
-                 "Access Keys": data.assessment.social?.accessKeys ? "Yes" : "No"
-             });
-        }
-    }
-
     // 8. TREATMENTS
-    if (!isSafeguarding) {
-        const hasDrugs = data.treatments.drugs.length > 0;
-        const hasProcs = data.treatments.procedures.length > 0;
-        const hasResus = data.treatments.resusLog && data.treatments.resusLog.length > 0;
-        const role = data.treatments.role;
-
-        if (hasDrugs || hasProcs || hasResus || role) {
-            builder.addSectionTitle("Treatments & Interventions");
-            
-            if (hasDrugs) {
-                builder.addSubsectionTitle("Medications Administered");
-                builder.addTable(
-                    ['Time', 'Drug', 'Dose', 'Route', 'Batch', 'Admin By', 'Witness'],
-                    data.treatments.drugs.map(d => [d.time, d.drugName, d.dose, d.route, d.batchNumber || '-', d.administeredBy, d.witnessedBy || '-'])
-                );
-            }
-
-            if (hasProcs) {
-                builder.addSubsectionTitle("Procedures");
-                builder.addTable(
-                    ['Time', 'Procedure', 'Site', 'Details', 'Success', 'By'],
-                    data.treatments.procedures.map(p => [p.time, p.type, p.site || '-', p.details || '-', p.success ? 'Yes' : 'No', p.performedBy])
-                );
-            }
-
-            if (role) {
-                builder.addSubsectionTitle("Resuscitation & ROLE Verification");
-                builder.addGrid({
-                    "Verification Time": role.timeVerified,
-                    "Verified By": role.verifiedBy,
-                    "Arrest Witnessed": role.arrestWitnessed ? "Yes" : "No",
-                    "Bystander CPR": role.bystanderCPR ? "Yes" : "No",
-                    "No of Shocks": role.totalShocks,
-                    "Down Time": `${role.downTimeMinutes} mins`
-                });
-                builder.addFullWidthField("ROLE Criteria Met", role.criteriaMet.join(', '));
-            }
-
-            if (hasResus) {
-                builder.addSubsectionTitle("Resuscitation Log");
-                builder.addTable(
-                    ['Time', 'Action', 'Type', 'Clinician'],
-                    data.treatments.resusLog!.map(r => [new Date(r.timestamp).toLocaleTimeString(), r.action, r.type, r.user])
-                );
-            }
-        }
-    }
-
-    // 9. MEDIA & BODY MAPS
-    if (mode === 'FULL') {
-        let hasImages = false;
-        if (data.bodyMapImage) hasImages = true;
-        if (data.accessMapImage) hasImages = true;
-        if (data.handover.media && data.handover.media.length > 0) hasImages = true;
-
-        if (hasImages) {
-            builder.addSectionTitle("Diagrams & Media Evidence");
-            if (data.bodyMapImage) await builder.addImage(await resolveImage(data.bodyMapImage), "Injury / Body Map", 100);
-            if (data.accessMapImage) await builder.addImage(await resolveImage(data.accessMapImage), "Vascular Access Map", 80);
-            
-            if (data.handover.media) {
-                for (const item of data.handover.media) {
-                    await builder.addImage(await resolveImage(item.url), `Uploaded: ${item.notes || 'Evidence'} (${new Date(item.timestamp).toLocaleTimeString()})`, 90);
-                }
-            }
-        }
+    if (data.treatments.drugs.length > 0 || data.treatments.procedures.length > 0) {
+        builder.addSectionTitle("Treatments & Interventions");
         
-        if (data.injuries.length > 0) {
-             builder.addSubsectionTitle("Injury & Mark Log");
-             builder.addTable(
-                 ['Location', 'Type', 'Notes', 'Success'],
-                 data.injuries.map(i => [i.location || 'Map', i.type, i.notes || i.subtype || '-', i.success === undefined ? '-' : (i.success ? 'Yes' : 'No')])
-             );
-        }
-    }
-
-    // 10. DECISION & GOVERNANCE
-    if (!isSafeguarding) {
-        builder.addSectionTitle("Clinical Decision & Governance");
-        
-        builder.addFullWidthField("Working Impression", data.clinicalDecision.workingImpression);
-        builder.addFullWidthField("Management Plan", data.clinicalDecision.managementPlan);
-        
-        builder.addGrid({
-            "Final Disposition": data.clinicalDecision.finalDisposition,
-            "Destination": data.clinicalDecision.destinationHospital || 'N/A',
-            "Worsening Advice": data.governance.worseningAdviceDetails ? "Given & Documented" : "Not Recorded"
-        });
-
-        builder.addSubsectionTitle("Mental Capacity Act (MCA)");
-        builder.addGrid({
-            "Capacity Status": data.governance.capacity.status.toUpperCase(),
-            "Stage 1 (Impairment)": data.governance.capacity.stage1?.impairment ? "Yes" : "No",
-            "Stage 2 (Understanding)": data.governance.capacity.stage2Functional?.understand ? "Yes" : "NO",
-            "Best Interests": data.governance.capacity.bestInterestsRationale || "N/A"
-        });
-
-        if (data.governance.safeguarding.concerns) {
-            builder.addAlertBox("SAFEGUARDING CONCERN", 
-                `Category: ${data.governance.safeguarding.category}\nDetails: ${data.governance.safeguarding.details}\nReferral Made: ${data.governance.safeguarding.referralMade ? 'YES' : 'NO'}`
+        if (data.treatments.drugs.length > 0) {
+            builder.addSubsectionTitle("Medications");
+            builder.addTable(
+                ['Time', 'Drug', 'Dose', 'Route', 'Batch', 'Clinician'],
+                data.treatments.drugs.map(d => [d.time, d.drugName, d.dose, d.route, d.batchNumber || '-', d.administeredBy])
             );
         }
 
-        if (data.governance.refusal.isRefusal) {
-             builder.addAlertBox("REFUSAL OF CARE / ADVICE",
-                `Patient refused: ${data.governance.refusal.type}\nCapacity Confirmed: ${data.governance.refusal.capacityConfirmed ? 'YES' : 'NO'}\nRisks Explained: ${data.governance.refusal.risksExplained ? 'YES' : 'NO'}`
-             );
-             builder.addGrid({
-                 "Patient Signature": data.governance.refusal.patientSignature ? "SIGNED" : "Refused",
-                 "Witness": data.governance.refusal.witnessName || "N/A",
-                 "Witness Signature": data.governance.refusal.witnessSignature ? "SIGNED" : "N/A"
-             });
+        if (data.treatments.procedures.length > 0) {
+            builder.addSubsectionTitle("Procedures");
+            builder.addTable(
+                ['Time', 'Procedure', 'Site', 'Details', 'Success', 'Clinician'],
+                data.treatments.procedures.map(p => [p.time, p.type, p.site || '-', p.details || '-', p.success ? 'Yes' : 'No', p.performedBy])
+            );
         }
     }
 
-    // 11. SIGNATURES
-    builder.addSectionTitle("Signatures & Handover");
-    if (data.handover.receivingName) {
-        builder.addGrid({ "Handover To": data.handover.receivingName, "Grade/Pin": data.handover.receivingPin, "Time": data.handover.receivingTime });
+    // 9. BODY MAPS & IMAGES
+    // Automatically include active Body Map if present
+    if (data.bodyMapImage || data.accessMapImage || (data.handover.media && data.handover.media.length > 0)) {
+        builder.addSectionTitle("Body Maps & Media Evidence");
+        if (data.bodyMapImage) await builder.addImage(await resolveImage(data.bodyMapImage), "Injury Body Map", 100);
+        if (data.accessMapImage) await builder.addImage(await resolveImage(data.accessMapImage), "Vascular Access Map", 80);
+        
+        if (data.handover.media) {
+            for (const item of data.handover.media) {
+                await builder.addImage(await resolveImage(item.url), `Photo: ${item.notes || 'Evidence'}`, 90);
+            }
+        }
     }
 
+    // 10. DECISION & OUTCOME
+    builder.addSectionTitle("Clinical Decision");
+    builder.addFullWidthField("Working Impression", data.clinicalDecision.workingImpression);
+    builder.addFullWidthField("Management Plan", data.clinicalDecision.managementPlan);
+    builder.addGrid({
+        "Final Disposition": data.clinicalDecision.finalDisposition,
+        "Destination": data.clinicalDecision.destinationHospital || 'N/A'
+    }, 2);
+
+    // 11. GOVERNANCE (Capacity / Safeguarding)
+    builder.addSectionTitle("Governance");
+    builder.addGrid({
+        "Capacity Status": data.governance.capacity.status,
+        "Safeguarding Concerns": data.governance.safeguarding.concerns ? "YES - RAISED" : "No",
+        "Refusal of Care": data.governance.refusal.isRefusal ? "YES" : "No"
+    }, 3);
+
+    if (data.governance.safeguarding.concerns) {
+        builder.addAlertBox("SAFEGUARDING DETAILS", data.governance.safeguarding.details);
+    }
+
+    if (data.governance.worseningAdviceDetails) {
+        builder.addFullWidthField("Worsening Advice / Safety Netting", data.governance.worseningAdviceDetails);
+    }
+
+    // 12. SIGNATURES
+    builder.addSectionTitle("Signatures");
     builder.checkPageBreak(40);
     const sigY = builder.yPos;
     
+    // Clinician Sig
     if (data.handover.clinicianSignature) {
         try {
             const sigImg = await resolveImage(data.handover.clinicianSignature);
@@ -688,15 +462,28 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
     builder.doc.setFontSize(8);
     builder.doc.text("Lead Clinician", builder.margin, sigY + 25);
     builder.doc.text(data.assistingClinicians?.[0]?.name || "Clinician", builder.margin, sigY + 30);
-    builder.doc.text(data.assistingClinicians?.[0]?.role || "", builder.margin, sigY + 34);
+    if (data.handover.clinicianSigTime) {
+        builder.doc.text(`Signed: ${data.handover.clinicianSigTime}`, builder.margin, sigY + 35);
+    }
+    
+    // Patient / Witness / Receiver Sig
+    const sig2 = data.handover.patientSignature || data.handover.receivingClinicianSignature || data.governance.refusal.patientSignature;
+    const sig2Time = data.handover.patientSigTime || data.handover.receivingSigTime || data.governance.refusal.patientSigTime;
+    const sig2Label = data.handover.patientSignature 
+        ? "Patient Signature" 
+        : data.handover.receivingClinicianSignature 
+            ? `Receiving: ${data.handover.receivingName}` 
+            : "Patient/Witness Signature";
 
-    if (data.handover.patientSignature || data.handover.receivingClinicianSignature) {
-        const sigData = data.handover.patientSignature || data.handover.receivingClinicianSignature;
+    if (sig2) {
         try {
-            const sigImg = await resolveImage(sigData);
+            const sigImg = await resolveImage(sig2);
             builder.doc.addImage(sigImg, 'PNG', builder.margin + 60, sigY, 40, 20);
         } catch(e) {}
-        builder.doc.text(data.handover.patientSignature ? "Patient Signature" : "Receiving Clinician Signature", builder.margin + 60, sigY + 25);
+        builder.doc.text(sig2Label, builder.margin + 60, sigY + 25);
+        if (sig2Time) {
+            builder.doc.text(`Signed: ${sig2Time}`, builder.margin + 60, sigY + 30);
+        }
     }
 
     builder.addFooter(data);
@@ -711,21 +498,12 @@ function getAge(dob: string) {
 }
 
 export const generateEPRF_PDF = async (data: EPRF) => {
+    // This is mostly legacy if called directly, usually we use getEPRFBlob now
     const doc = await createEPRFDoc(data, 'FULL');
     doc.save(`ePRF_${data.incidentNumber}.pdf`);
 };
 
-export const generateGPReferral = async (data: EPRF) => {
-    const doc = await createEPRFDoc(data, 'REFERRAL');
-    doc.save(`GP_Referral_${data.incidentNumber}.pdf`);
-};
-
-export const generateSafeguardingPDF = async (data: EPRF) => {
-    const doc = await createEPRFDoc(data, 'SAFEGUARDING');
-    doc.save(`Safeguarding_${data.incidentNumber}.pdf`);
-};
-
-export const getEPRFBlob = async (data: EPRF) => {
-    const doc = await createEPRFDoc(data, 'FULL');
+export const getEPRFBlob = async (data: EPRF, mode: PDFMode = 'FULL') => {
+    const doc = await createEPRFDoc(data, mode);
     return doc.output('blob');
 };

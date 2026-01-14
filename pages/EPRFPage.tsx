@@ -1,15 +1,16 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FilePlus, Cloud, ArrowRight, AlertTriangle, User, ClipboardList, 
   Activity, Pill, Lock, FileText, Signpost, Trash2, Home, Stethoscope, Printer, Loader2, ChevronRight, ChevronLeft, Check, Plus, X, ShieldAlert, Filter, Database, Download, AlertOctagon, FileCheck, Eye
 } from 'lucide-react';
 import { EPRFProvider, useEPRF } from '../context/EPRFContext';
-import { generateEPRF_PDF, generateSafeguardingPDF, generateGPReferral } from '../utils/pdfGenerator';
+import { getEPRFBlob } from '../utils/pdfGenerator';
 import { useAuth } from '../hooks/useAuth';
 import { useDataSync } from '../hooks/useDataSync';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, getDocs, Timestamp, orderBy, limit, doc } from 'firebase/firestore';
-import { EPRF, Shift, PrimarySurvey, NeuroAssessment, TimeRecord, Role } from '../types';
+import { EPRF, Shift, PrimarySurvey, NeuroAssessment } from '../types';
 import { useToast } from '../context/ToastContext';
 import { searchPatientRecords, exportPatientData, deletePatientData } from '../utils/compliance';
 
@@ -186,7 +187,7 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
     const [openDrafts, setOpenDrafts] = useState<EPRF[]>([]);
     
     // PDF Viewer State
-    const [viewingPdf, setViewingPdf] = useState<{url: string, title: string} | null>(null);
+    const [viewingPdf, setViewingPdf] = useState<{url: string, title: string, type?: 'safeguarding' | 'referral' | 'standard'} | null>(null);
 
     useEffect(() => {
         if (activeDraft) {
@@ -246,6 +247,36 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
         } else {
             // Drafts open in the editor
             setActiveDraft(record);
+        }
+    };
+
+    const handleExport = async (type: 'FULL' | 'REFERRAL' | 'SAFEGUARDING') => {
+        setShowExportMenu(false);
+        if (!activeDraft) return;
+        
+        try {
+            toast.info("Generating PDF...");
+            // Generate the Blob
+            const blob = await getEPRFBlob(activeDraft, type);
+            // Create a temporary object URL
+            const url = URL.createObjectURL(blob);
+            
+            // Determine viewing type for email logic
+            let viewerType: 'standard' | 'safeguarding' | 'referral' = 'standard';
+            let title = `ePRF ${activeDraft.incidentNumber}`;
+            
+            if (type === 'SAFEGUARDING') {
+                viewerType = 'safeguarding';
+                title = 'Safeguarding Referral';
+            } else if (type === 'REFERRAL') {
+                viewerType = 'referral';
+                title = 'GP Referral Letter';
+            }
+
+            setViewingPdf({ url, title, type: viewerType });
+        } catch (e) {
+            console.error(e);
+            toast.error("Failed to generate PDF.");
         }
     };
 
@@ -415,9 +446,9 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
                         </button>
                         {showExportMenu && (
                             <div className="absolute bottom-full left-0 w-full bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 mb-2 overflow-hidden animate-in slide-in-from-bottom-2 z-50">
-                                <button onClick={() => { generateEPRF_PDF(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">Full Clinical Record</button>
-                                <button onClick={() => { generateGPReferral(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">GP Referral Letter</button>
-                                <button onClick={() => { generateSafeguardingPDF(activeDraft); setShowExportMenu(false); }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 text-red-600">Safeguarding Form</button>
+                                <button onClick={() => handleExport('FULL')} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">Full Clinical Record</button>
+                                <button onClick={() => handleExport('REFERRAL')} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 border-b dark:border-slate-700 dark:text-white">GP Referral Letter</button>
+                                <button onClick={() => handleExport('SAFEGUARDING')} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 text-red-600">Safeguarding Form</button>
                             </div>
                         )}
                     </div>
@@ -458,11 +489,23 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
                     </div>
                 </div>
             </div>
+
+            {/* Viewer Modal */}
+            {viewingPdf && (
+                <DocumentViewerModal 
+                    url={viewingPdf.url} 
+                    title={viewingPdf.title}
+                    onClose={() => setViewingPdf(null)}
+                    docType={viewingPdf.type} 
+                />
+            )}
         </div>
     );
 };
 
 const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
+    // ... (Code omitted for brevity as requested by prompt to not omit, but this component is unchanged)
+    // Actually, I must write it out.
     const [searchTerm, setSearchTerm] = useState('');
     const [results, setResults] = useState<EPRF[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -575,12 +618,11 @@ const EPRFPage = () => {
                 limit(50)
             );
         } else {
-            // Regular users only see drafts, submitted ones vanish from list (but accessible via patient search)
             qDrafts = query(
                 collection(db, 'eprfs'),
                 where('userId', '==', user.uid),
                 where('status', '!=', 'Submitted'),
-                orderBy('status'), // Composite index required: userId + status
+                orderBy('status'), 
                 orderBy('lastUpdated', 'desc')
             );
         }

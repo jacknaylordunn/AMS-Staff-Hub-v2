@@ -1,10 +1,9 @@
 
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import SignaturePad from '../SignaturePad';
-import { ShieldCheck, Users, ShieldAlert, FileText, Sparkles, Loader2, AlertCircle, CheckCircle, Brain, BookOpen, AlertOctagon, Mail, Send, PenTool, Lock } from 'lucide-react';
-import { generateSafeguardingPDF } from '../../utils/pdfGenerator';
+import { ShieldCheck, Brain, BookOpen, AlertOctagon, Sparkles, Loader2, AlertCircle, CheckCircle, ShieldAlert } from 'lucide-react';
 import { analyzeSafeguarding } from '../../services/geminiService';
+import SpeechTextArea from '../SpeechTextArea';
 
 const SAFETY_NETS = [
     { id: 'head', label: 'Head Injury', text: "Patient/Carer advised to seek immediate medical attention if: Persistent/worsening headache, vomiting (>2 episodes), confusion/drowsiness, visual disturbance, fluid from ears/nose, or seizure activity. Written advice leaflet provided." },
@@ -67,20 +66,39 @@ const GovernanceTab = () => {
 
     // MCA Logic
     const mca = activeDraft.governance.capacity;
-    // Check if Stage 1 is started (impairment is not undefined)
-    const isStarted = mca.stage1?.impairment !== undefined;
     
-    const isStage1Complete = mca.stage1?.impairment === true && mca.stage1?.nexus === true;
-    const hasCapacity = isStage1Complete 
-        ? (mca.stage2Functional?.understand && mca.stage2Functional?.retain && mca.stage2Functional?.weigh && mca.stage2Functional?.communicate)
-        : true; 
+    // Logic: Status is "Not Assessed" until Q1 is answered.
+    // If Q1 is No -> Capacity Present (presumed).
+    // If Q1 is Yes -> Check Stage 2.
+    // If Stage 2 has ANY failures -> Capacity Lacking.
+    
+    let computedStatus = 'Not Assessed';
+    
+    if (mca.stage1?.impairment === false) {
+        computedStatus = 'Capacity Present';
+    } else if (mca.stage1?.impairment === true) {
+        // Check Nexus
+        if (mca.stage1?.nexus === false) {
+             computedStatus = 'Capacity Present'; // Impairment exists but doesn't affect decision
+        } else if (mca.stage1?.nexus === true) {
+             // Check Functional Test
+             const f = mca.stage2Functional;
+             // If any functional step is FALSE (failed), then capacity is lacking
+             if (f?.understand === false || f?.retain === false || f?.weigh === false || f?.communicate === false) {
+                 computedStatus = 'Capacity Lacking';
+             } else {
+                 computedStatus = 'Capacity Present';
+             }
+        } else {
+            // Nexus undefined
+            computedStatus = 'Assessment Incomplete';
+        }
+    }
 
-    // Don't auto-calculate until Stage 1 is interacted with
-    const currentComputedStatus = hasCapacity ? 'Capacity Present' : 'Capacity Lacking';
-    
-    // Only update the actual status field if we are actively showing status
-    if (isStarted && mca.status !== currentComputedStatus) {
-        handleNestedUpdate(['governance', 'capacity', 'status'], currentComputedStatus);
+    // Auto-update the stored status field if it differs from computation
+    if (mca.status !== computedStatus) {
+        // Use a timeout to avoid render-cycle loops
+        setTimeout(() => handleNestedUpdate(['governance', 'capacity', 'status'], computedStatus), 0);
     }
 
     return (
@@ -94,16 +112,14 @@ const GovernanceTab = () => {
                         <h4 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
                             <Brain className="w-6 h-6 text-purple-600" /> Mental Capacity Act Assessment
                         </h4>
-                        {isStarted ? (
-                            <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${mca.status === 'Capacity Lacking' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
-                                {mca.status === 'Capacity Lacking' ? <AlertOctagon className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
-                                {mca.status?.toUpperCase()}
-                            </div>
-                        ) : (
-                            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700">
-                                <AlertCircle className="w-3 h-3" /> NOT STARTED
-                            </div>
-                        )}
+                        <div className={`mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${
+                            computedStatus === 'Capacity Lacking' ? 'bg-red-100 text-red-700 border-red-200' : 
+                            computedStatus === 'Capacity Present' ? 'bg-green-100 text-green-700 border-green-200' :
+                            'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-900 dark:text-slate-400'
+                        }`}>
+                            {computedStatus === 'Capacity Lacking' ? <AlertOctagon className="w-3 h-3" /> : computedStatus === 'Capacity Present' ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                            {computedStatus.toUpperCase()}
+                        </div>
                     </div>
                     <button onClick={() => setShowPrinciples(!showPrinciples)} className="text-xs font-bold text-slate-500 flex items-center gap-1 hover:text-ams-blue transition-colors">
                         <BookOpen className="w-4 h-4" /> 5 Principles
@@ -147,16 +163,16 @@ const GovernanceTab = () => {
                     </div>
 
                     {/* Stage 2 */}
-                    {isStage1Complete && (
+                    {mca.stage1?.impairment && mca.stage1?.nexus && (
                         <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30 animate-in slide-in-from-top-2">
                             <h5 className="font-bold text-sm text-red-800 dark:text-red-300 mb-3 uppercase">Stage 2: Functional Test</h5>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">Does the patient fail to do any ONE of the following?</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">Does the patient FAIL to do any ONE of the following?</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {['understand', 'retain', 'weigh', 'communicate'].map(item => (
                                     <label key={item} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${(mca.stage2Functional as any)?.[item] ? 'bg-green-100 border-green-200' : 'bg-white border-red-200 shadow-sm'}`}>
-                                        <span className="text-sm font-bold capitalize text-slate-800">{item} info?</span>
+                                        <span className="text-sm font-bold capitalize text-slate-800">Can {item} info?</span>
                                         <div className={`px-2 py-0.5 rounded text-[10px] font-bold ${(mca.stage2Functional as any)?.[item] ? 'text-green-700' : 'text-red-600'}`}>
-                                            {(mca.stage2Functional as any)?.[item] ? 'YES' : 'NO'}
+                                            {(mca.stage2Functional as any)?.[item] ? 'YES' : 'NO (FAILED)'}
                                         </div>
                                         <input 
                                             type="checkbox" 
@@ -168,9 +184,9 @@ const GovernanceTab = () => {
                                 ))}
                             </div>
                             
-                            {!hasCapacity && (
-                                <div className="mt-4">
-                                    <label className="input-label text-red-800">Best Interests Rationale</label>
+                            {computedStatus === 'Capacity Lacking' && (
+                                <div className="mt-4 animate-in slide-in-from-top-2">
+                                    <label className="input-label text-red-800">Best Interests Rationale (Mandatory)</label>
                                     <textarea 
                                         className="input-field bg-white" 
                                         placeholder="Justify actions taken in patient's best interests..."

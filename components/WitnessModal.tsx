@@ -1,10 +1,8 @@
 
-
-import React, { useState, useEffect } from 'react';
-import { Lock, UserCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Lock, UserCheck, AlertTriangle, Loader2, Hash } from 'lucide-react';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { User } from '../types';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { hashPin } from '../utils/crypto';
 
 interface WitnessModalProps {
@@ -14,38 +12,14 @@ interface WitnessModalProps {
 }
 
 const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirmed, onCancel }) => {
-    const [selectedWitnessId, setSelectedWitnessId] = useState('');
+    const [badgeNumber, setBadgeNumber] = useState('');
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
-    const [activeStaff, setActiveStaff] = useState<User[]>([]);
-    const [loading, setLoading] = useState(true);
     const [verifying, setVerifying] = useState(false);
 
-    // 1. Fetch Staff List (Names ONLY)
-    useEffect(() => {
-        const fetchStaff = async () => {
-            try {
-                const q = query(collection(db, 'users'), where('status', '==', 'Active'));
-                const snapshot = await getDocs(q);
-                // Map only public info, do NOT map 'pin'
-                const users = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { uid: doc.id, name: data.name, role: data.role } as User;
-                });
-                setActiveStaff(users);
-            } catch (e) {
-                console.error("Error loading staff", e);
-                setError("Failed to load staff list.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchStaff();
-    }, []);
-
     const handleVerify = async () => {
-        if (!selectedWitnessId || pin.length !== 4) {
-            setError("Please select a witness and enter a 4-digit PIN.");
+        if (!badgeNumber || pin.length !== 4) {
+            setError("Please enter Badge Number and 4-digit PIN.");
             return;
         }
 
@@ -53,25 +27,29 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
         setError('');
 
         try {
-            // 2. On-Demand Fetch: Get the specific witness doc to check PIN
-            const witnessRef = doc(db, 'users', selectedWitnessId);
-            const witnessSnap = await getDoc(witnessRef);
+            // Find user by Employee ID (Badge Number)
+            // Note: In a real app, this query might be restricted. Assuming "users" is readable by authenticated staff.
+            const q = query(collection(db, 'users'), where('employeeId', '==', badgeNumber), limit(1));
+            const querySnapshot = await getDocs(q);
 
-            if (witnessSnap.exists()) {
-                const witnessData = witnessSnap.data();
-                
-                const hashedInput = await hashPin(pin);
+            if (querySnapshot.empty) {
+                setError("Badge Number not found.");
+                setVerifying(false);
+                return;
+            }
 
-                // Check against the PIN in the database (Hash preferred, fallback to plain if migration issue)
-                if (witnessData.pinHash === hashedInput || witnessData.pin === pin) {
-                    const token = `WITNESS_TOKEN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    onWitnessConfirmed(witnessData.name, selectedWitnessId, token);
-                } else {
-                    setError("Incorrect PIN. Verification failed.");
-                    setPin('');
-                }
+            const witnessDoc = querySnapshot.docs[0];
+            const witnessData = witnessDoc.data();
+            
+            // Verify PIN
+            const hashedInput = await hashPin(pin);
+
+            if (witnessData.pinHash === hashedInput || witnessData.pin === pin) {
+                const token = `WITNESS_TOKEN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                onWitnessConfirmed(witnessData.name, witnessDoc.id, token);
             } else {
-                setError("Witness profile not found.");
+                setError("Incorrect PIN. Verification failed.");
+                setPin('');
             }
         } catch (e) {
             console.error("Verification error", e);
@@ -99,45 +77,41 @@ const WitnessModal: React.FC<WitnessModalProps> = ({ drugName, onWitnessConfirme
                         </div>
                     )}
 
-                    {loading ? (
-                        <div className="flex justify-center p-4"><Loader2 className="animate-spin text-purple-600" /></div>
-                    ) : (
-                        <div className="space-y-3">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Select Witness</label>
-                                <select 
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-3 font-medium outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
-                                    value={selectedWitnessId}
-                                    onChange={e => setSelectedWitnessId(e.target.value)}
-                                >
-                                    <option value="">-- Choose Clinician --</option>
-                                    {activeStaff.map(s => (
-                                        <option key={s.uid} value={s.uid}>{s.name} ({s.role})</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Secure PIN</label>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Witness Badge / ID</label>
+                            <div className="relative">
+                                <Hash className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                                 <input 
-                                    type="password"
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-3 font-bold tracking-widest outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
-                                    placeholder="••••"
-                                    maxLength={4}
-                                    value={pin}
-                                    onChange={e => setPin(e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2.5 font-medium outline-none focus:ring-2 focus:ring-purple-500 dark:text-white h-10 text-sm"
+                                    placeholder="e.g. AMS1234"
+                                    value={badgeNumber}
+                                    onChange={e => setBadgeNumber(e.target.value.toUpperCase())}
+                                    autoFocus
                                 />
                             </div>
                         </div>
-                    )}
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Secure PIN</label>
+                            <input 
+                                type="password"
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 font-bold tracking-widest outline-none focus:ring-2 focus:ring-purple-500 dark:text-white h-10 text-sm"
+                                placeholder="••••"
+                                maxLength={4}
+                                value={pin}
+                                onChange={e => setPin(e.target.value)}
+                            />
+                        </div>
+                    </div>
 
                     <div className="flex gap-2">
-                        <button onClick={onCancel} className="flex-1 py-3 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors">Cancel</button>
+                        <button onClick={onCancel} className="flex-1 py-2.5 text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors text-sm">Cancel</button>
                         <button 
                             onClick={handleVerify}
                             disabled={verifying}
-                            className="flex-[2] py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            className="flex-[2] py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
                         >
-                            {verifying ? <Loader2 className="animate-spin w-5 h-5" /> : <UserCheck className="w-5 h-5" />} Verify
+                            {verifying ? <Loader2 className="animate-spin w-4 h-4" /> : <UserCheck className="w-4 h-4" />} Verify
                         </button>
                     </div>
                 </div>

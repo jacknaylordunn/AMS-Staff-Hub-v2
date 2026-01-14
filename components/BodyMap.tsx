@@ -1,19 +1,18 @@
 
 import React, { useRef, useEffect, useState } from 'react';
-import { RefreshCcw, Camera, Loader2, Check, Info } from 'lucide-react';
+import { RefreshCcw, Camera, Loader2 } from 'lucide-react';
 import { InjuryMark } from '../types';
 import { uploadDataUrl } from '../services/storage';
 
-// Using hosted public assets
 const ANTERIOR_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Front.jpeg';
 const POSTERIOR_URL = 'https://145955222.fs1.hubspotusercontent-eu1.net/hubfs/145955222/AMS/Staff%20Hub/Body%20Map%20-%20Back.jpeg';
 
 interface BodyMapProps {
     value: InjuryMark[];
     onChange: (marks: InjuryMark[]) => void;
-    mode?: 'injury' | 'intervention'; // Default to 'injury'
-    onMarkerClick?: (mark: InjuryMark) => void; // Triggered when an existing marker is clicked
-    onCanvasClick?: (x: number, y: number, view: 'Anterior' | 'Posterior', location: string) => void; // Triggered for new marker
+    mode?: 'injury' | 'intervention';
+    onMarkerClick?: (mark: InjuryMark) => void;
+    onCanvasClick?: (x: number, y: number, view: 'Anterior' | 'Posterior', location: string) => void;
     onImageChange?: (url: string) => void; 
 }
 
@@ -23,22 +22,7 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
   const [imageLoaded, setImageLoaded] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Cache images
   const imageCache = useRef<Record<string, HTMLImageElement>>({});
-
-  // Auto-save logic
-  useEffect(() => {
-      const autoSaveTimer = setTimeout(() => {
-          if (onImageChange && canvasRef.current && imageLoaded && value.length > 0) {
-              const dataUrl = canvasRef.current.toDataURL('image/png');
-              // We won't upload every render, but we pass dataURL to parent if needed. 
-              // For PDF gen, we usually upload only on 'Snapshot' or final submit.
-              // To avoid spamming storage, we will just keep the component functionality pure.
-              // The explicit 'Save Snapshot' button is better for finalized views.
-          }
-      }, 2000);
-      return () => clearTimeout(autoSaveTimer);
-  }, [value, imageLoaded]);
 
   useEffect(() => {
       const url = view === 'Anterior' ? ANTERIOR_URL : POSTERIOR_URL;
@@ -92,27 +76,42 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
           const drawY = mark.y * height;
 
           ctx.beginPath();
-          // Color coding
+          // Color Coding
           if (mode === 'injury') {
               ctx.fillStyle = mark.type === 'Injury' ? '#ef4444' : '#f59e0b';
           } else {
-              // Access mode: Green for success, Red for fail
               ctx.fillStyle = mark.success ? '#10b981' : '#ef4444';
           }
           
           const size = 10;
-          ctx.arc(drawX, drawY, size, 0, 2 * Math.PI);
-          ctx.fill();
+
+          if (mark.type === 'IO') {
+              // Draw Triangle for IO
+              ctx.moveTo(drawX, drawY - size);
+              ctx.lineTo(drawX + size, drawY + size);
+              ctx.lineTo(drawX - size, drawY + size);
+              ctx.closePath();
+          } else {
+              // Draw Circle for IV/Injury
+              ctx.arc(drawX, drawY, size, 0, 2 * Math.PI);
+          }
           
+          ctx.fill();
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
           ctx.stroke();
 
+          // Label
           if (mark.subtype) {
               ctx.font = "bold 10px Arial";
               ctx.fillStyle = "#000";
               ctx.textAlign = "center";
               ctx.fillText(mark.subtype.substring(0, 2).toUpperCase(), drawX, drawY + 4);
+          } else if (mode === 'intervention') {
+              ctx.font = "bold 9px Arial";
+              ctx.fillStyle = "#fff";
+              ctx.textAlign = "center";
+              ctx.fillText(mark.type, drawX, drawY + 3);
           }
       });
     }
@@ -159,8 +158,7 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
     const xPct = (e.clientX - rect.left) / rect.width;
     const yPct = (e.clientY - rect.top) / rect.height;
 
-    // Check if clicking existing marker (hit test)
-    const threshold = 0.05; // 5% radius
+    const threshold = 0.05; 
     const clickedMark = value.find(m => 
         m.view === view && 
         Math.abs(m.x - xPct) < threshold && 
@@ -207,7 +205,7 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
       
       <div className="flex items-center justify-between w-full max-w-[300px]">
           <div className="text-[10px] text-slate-400 font-medium">
-              Click body to add. Click marker to edit.
+              Tap to add. Tap marker to edit.
           </div>
           {onImageChange && (
               <button 
@@ -216,7 +214,7 @@ const BodyMap: React.FC<BodyMapProps> = ({ value = [], onChange, mode = 'injury'
                 className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-slate-900 disabled:opacity-50"
               >
                   {isUploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
-                  Save to PDF
+                  Save PDF
               </button>
           )}
       </div>

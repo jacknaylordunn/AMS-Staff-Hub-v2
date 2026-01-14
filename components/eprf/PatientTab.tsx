@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { Search, History, Download, X, User, AlertTriangle, FileText, ChevronRight, Loader2 } from 'lucide-react';
+import { Search, History, Download, X, User, AlertTriangle, FileText, ChevronRight, Loader2, UserPlus } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { EPRF, LinkedRecord } from '../../types';
@@ -113,16 +113,43 @@ const PatientTab = () => {
         alert("Demographics imported and record linked.");
     };
 
+    const generateUnknownPatient = () => {
+        const id = Math.floor(Math.random() * 10000);
+        // Estimate age ~30-50 for placeholder
+        const year = new Date().getFullYear() - 40;
+        
+        updateDraft({
+            patient: {
+                ...activeDraft.patient,
+                firstName: 'Unknown',
+                lastName: `Male/Female ${id}`,
+                dob: `${year}-01-01`,
+                address: 'Unknown / No Fixed Abode',
+                postcode: 'UNKNOWN',
+                nhsNumber: ''
+            }
+        });
+    };
+
     return (
         <div className="glass-panel p-4 rounded-xl space-y-4 animate-in fade-in slide-in-from-bottom-4 relative">
             <div className="flex justify-between items-center">
                 <h3 className="font-bold text-base text-slate-800 dark:text-white">Patient Demographics</h3>
-                <button 
-                    onClick={performSpineSearch} 
-                    className="flex items-center gap-2 px-3 py-1.5 bg-ams-blue text-white rounded-lg text-xs font-bold shadow-md hover:bg-blue-700 transition-all"
-                >
-                    <Search className="w-3 h-3" /> AMS Spine Search
-                </button>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={generateUnknownPatient} 
+                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+                        title="Generate placeholder details"
+                    >
+                        <UserPlus className="w-3 h-3" /> Unknown
+                    </button>
+                    <button 
+                        onClick={performSpineSearch} 
+                        className="flex items-center gap-2 px-3 py-1.5 bg-ams-blue text-white rounded-lg text-xs font-bold shadow-md hover:bg-blue-700 transition-all"
+                    >
+                        <Search className="w-3 h-3" /> AMS Spine Search
+                    </button>
+                </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

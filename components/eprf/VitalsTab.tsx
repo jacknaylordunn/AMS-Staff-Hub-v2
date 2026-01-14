@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import { VitalsEntry } from '../../types';
 import { Plus, ArrowUp, ArrowDown, Minus, Ban, Trash2, Edit3, Save } from 'lucide-react';
@@ -7,17 +7,34 @@ import VitalsChart from '../VitalsChart';
 
 // Internal Stepper Component
 const NumberStepper = ({ label, value, onChange, min = 0, max = 250, step = 1, suffix = '', defaultValue = 0, onRefusalToggle, isRefused }: any) => {
-    const handleIncrement = () => {
+    const [intervalId, setIntervalId] = useState<ReturnType<typeof setInterval> | null>(null);
+    const valueRef = useRef(value);
+
+    // Sync ref
+    useEffect(() => { valueRef.current = value; }, [value]);
+
+    const modify = (direction: 'up' | 'down') => {
         if (isRefused) return;
-        const current = typeof value === 'number' ? value : (defaultValue || min);
-        const nextVal = parseFloat((current + step).toFixed(1));
-        if (nextVal <= max) onChange(nextVal);
+        const current = typeof valueRef.current === 'number' ? valueRef.current : (defaultValue || min);
+        let nextVal = direction === 'up' ? current + step : current - step;
+        nextVal = parseFloat(nextVal.toFixed(1));
+        
+        if (nextVal >= min && nextVal <= max) {
+            onChange(nextVal);
+        }
     };
-    const handleDecrement = () => {
-        if (isRefused) return;
-        const current = typeof value === 'number' ? value : (defaultValue || min);
-        const nextVal = parseFloat((current - step).toFixed(1));
-        if (nextVal >= min) onChange(nextVal);
+
+    const startChange = (direction: 'up' | 'down') => {
+        modify(direction); // Immediate click
+        const id = setInterval(() => modify(direction), 100); // 100ms repeat
+        setIntervalId(id);
+    };
+
+    const stopChange = () => {
+        if (intervalId) {
+            clearInterval(intervalId);
+            setIntervalId(null);
+        }
     };
 
     return (
@@ -38,11 +55,29 @@ const NumberStepper = ({ label, value, onChange, min = 0, max = 250, step = 1, s
                 <div className="flex items-center justify-center h-8 w-full text-xs font-bold text-red-500">REFUSED / UNABLE</div>
             ) : (
                 <div className="flex items-center gap-2 w-full">
-                    <button onClick={handleDecrement} className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:bg-slate-100 active:scale-95 text-slate-600 dark:text-white font-bold text-lg">-</button>
-                    <div className="flex-1 text-center font-mono text-lg font-bold dark:text-white">
+                    <button 
+                        onMouseDown={() => startChange('down')}
+                        onMouseUp={stopChange}
+                        onMouseLeave={stopChange}
+                        onTouchStart={() => startChange('down')}
+                        onTouchEnd={stopChange}
+                        className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:bg-slate-100 active:scale-95 text-slate-600 dark:text-white font-bold text-lg select-none"
+                    >
+                        -
+                    </button>
+                    <div className="flex-1 text-center font-mono text-lg font-bold dark:text-white select-none">
                         {value !== undefined ? value : '-'}<span className="text-[10px] ml-1 text-slate-400 font-sans">{suffix}</span>
                     </div>
-                    <button onClick={handleIncrement} className="w-8 h-8 rounded-lg bg-ams-blue text-white shadow-sm flex items-center justify-center hover:bg-blue-700 active:scale-95 font-bold text-lg">+</button>
+                    <button 
+                        onMouseDown={() => startChange('up')}
+                        onMouseUp={stopChange}
+                        onMouseLeave={stopChange}
+                        onTouchStart={() => startChange('up')}
+                        onTouchEnd={stopChange}
+                        className="w-8 h-8 rounded-lg bg-ams-blue text-white shadow-sm flex items-center justify-center hover:bg-blue-700 active:scale-95 font-bold text-lg select-none"
+                    >
+                        +
+                    </button>
                 </div>
             )}
         </div>
@@ -221,12 +256,12 @@ const VitalsTab = () => {
                 </div>
             </div>
 
-            {/* Editor (Same as previous, just adding the Save button logic from handleAdd) */}
+            {/* Editor */}
             <div className="glass-panel p-4 rounded-xl animate-in fade-in">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-slate-800 dark:text-white text-base">Add Observations</h3>
                     <div className="flex items-center gap-2">
-                        <input type="time" className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-mono font-bold dark:text-white" value={customTime} onChange={e => setCustomTime(e.target.value)} />
+                        <input type="time" className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-mono font-bold dark:text-white h-8" value={customTime} onChange={e => setCustomTime(e.target.value)} />
                     </div>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
@@ -244,13 +279,13 @@ const VitalsTab = () => {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <div className="col-span-2 p-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900/50">
                         <div className="flex justify-between items-center mb-2"><label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Blood Pressure</label><button onClick={() => setEntry({...entry, bpRefused: !entry.bpRefused})} className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${entry.bpRefused ? 'bg-red-100 text-red-600' : 'text-slate-400'}`}><Ban className="w-3 h-3" /> {entry.bpRefused ? 'Refused' : 'Mark Refused'}</button></div>
-                        {entry.bpRefused ? <div className="h-10 flex items-center justify-center text-sm font-bold text-red-500">Patient Refused / Unable</div> : <div className="flex gap-2"><div className="flex-1"><input type="number" className="input-field py-1.5 px-3 text-sm h-8" value={entry.bpSystolic ?? ''} onChange={e => setEntry({...entry, bpSystolic: Number(e.target.value)})} placeholder="Sys" /></div><span className="self-center text-slate-400">/</span><div className="flex-1"><input type="number" className="input-field py-1.5 px-3 text-sm h-8" value={entry.bpDiastolic ?? ''} onChange={e => setEntry({...entry, bpDiastolic: Number(e.target.value)})} placeholder="Dia" /></div></div>}
+                        {entry.bpRefused ? <div className="h-10 flex items-center justify-center text-sm font-bold text-red-500">Patient Refused / Unable</div> : <div className="flex gap-2"><div className="flex-1"><input type="number" className="input-field py-1.5 px-3 text-sm h-9" value={entry.bpSystolic ?? ''} onChange={e => setEntry({...entry, bpSystolic: Number(e.target.value)})} placeholder="Sys" /></div><span className="self-center text-slate-400">/</span><div className="flex-1"><input type="number" className="input-field py-1.5 px-3 text-sm h-9" value={entry.bpDiastolic ?? ''} onChange={e => setEntry({...entry, bpDiastolic: Number(e.target.value)})} placeholder="Dia" /></div></div>}
                     </div>
-                    <div className="col-span-2 flex gap-2 items-end"><div className="flex-1"><label className="input-label">O2 Therapy</label><div className="flex items-center gap-2 h-8 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl"><input type="checkbox" checked={entry.oxygen} onChange={e => setEntry({...entry, oxygen: e.target.checked})} className="w-4 h-4 text-ams-blue" /><span className="text-xs font-bold dark:text-white">Active</span></div></div>{entry.oxygen && <div className="flex-1"><select className="input-field py-1.5 px-3 text-sm h-8" value={entry.oxygenDevice || ''} onChange={e => setEntry({...entry, oxygenDevice: e.target.value})}><option>Nasal</option><option>Hudson</option><option>Non-Reb</option><option>Venturi</option></select></div>}</div>
-                    <div className="relative"><div className="flex justify-between"><label className="input-label">GCS</label><button onClick={() => setEntry({...entry, gcsRefused: !entry.gcsRefused})} className={`text-[10px] font-bold ${entry.gcsRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.gcsRefused ? <div className="input-field h-8 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-8" value={entry.gcs ?? ''} onChange={e => setEntry({...entry, gcs: Number(e.target.value)})} max={15} placeholder="--" />}</div>
-                    <div><label className="input-label">AVPU</label><select className="input-field py-1.5 px-3 text-sm h-8" value={entry.avpu || ''} onChange={e => setEntry({...entry, avpu: e.target.value as any})}><option value="">Select...</option><option value="A">A</option><option value="V">V</option><option value="P">P</option><option value="U">U</option></select></div>
-                    <div className="relative"><div className="flex justify-between"><label className="input-label">BM</label><button onClick={() => setEntry({...entry, bloodGlucoseRefused: !entry.bloodGlucoseRefused})} className={`text-[10px] font-bold ${entry.bloodGlucoseRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.bloodGlucoseRefused ? <div className="input-field h-8 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-8" value={entry.bloodGlucose ?? ''} onChange={e => setEntry({...entry, bloodGlucose: Number(e.target.value)})} placeholder="mmol/L" />}</div>
-                    <div className="relative"><div className="flex justify-between"><label className="input-label">Pain</label><button onClick={() => setEntry({...entry, painScoreRefused: !entry.painScoreRefused})} className={`text-[10px] font-bold ${entry.painScoreRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.painScoreRefused ? <div className="input-field h-8 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-8" value={entry.painScore ?? ''} onChange={e => setEntry({...entry, painScore: Number(e.target.value)})} max={10} placeholder="0-10" />}</div>
+                    <div className="col-span-2 flex gap-2 items-end"><div className="flex-1"><label className="input-label">O2 Therapy</label><div className="flex items-center gap-2 h-9 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl"><input type="checkbox" checked={entry.oxygen} onChange={e => setEntry({...entry, oxygen: e.target.checked})} className="w-4 h-4 text-ams-blue" /><span className="text-xs font-bold dark:text-white">Active</span></div></div>{entry.oxygen && <div className="flex-1"><select className="input-field py-1.5 px-3 text-sm h-9" value={entry.oxygenDevice || ''} onChange={e => setEntry({...entry, oxygenDevice: e.target.value})}><option>Nasal</option><option>Hudson</option><option>Non-Reb</option><option>Venturi</option></select></div>}</div>
+                    <div className="relative"><div className="flex justify-between"><label className="input-label">GCS</label><button onClick={() => setEntry({...entry, gcsRefused: !entry.gcsRefused})} className={`text-[10px] font-bold ${entry.gcsRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.gcsRefused ? <div className="input-field h-9 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-9" value={entry.gcs ?? ''} onChange={e => setEntry({...entry, gcs: Number(e.target.value)})} max={15} placeholder="--" />}</div>
+                    <div><label className="input-label">AVPU</label><select className="input-field py-1.5 px-3 text-sm h-9" value={entry.avpu || ''} onChange={e => setEntry({...entry, avpu: e.target.value as any})}><option value="">Select...</option><option value="A">A</option><option value="V">V</option><option value="P">P</option><option value="U">U</option></select></div>
+                    <div className="relative"><div className="flex justify-between"><label className="input-label">BM</label><button onClick={() => setEntry({...entry, bloodGlucoseRefused: !entry.bloodGlucoseRefused})} className={`text-[10px] font-bold ${entry.bloodGlucoseRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.bloodGlucoseRefused ? <div className="input-field h-9 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-9" value={entry.bloodGlucose ?? ''} onChange={e => setEntry({...entry, bloodGlucose: Number(e.target.value)})} placeholder="mmol/L" />}</div>
+                    <div className="relative"><div className="flex justify-between"><label className="input-label">Pain</label><button onClick={() => setEntry({...entry, painScoreRefused: !entry.painScoreRefused})} className={`text-[10px] font-bold ${entry.painScoreRefused ? 'text-red-500' : 'text-slate-300'}`}><Ban className="w-3 h-3" /></button></div>{entry.painScoreRefused ? <div className="input-field h-9 flex items-center justify-center text-xs text-red-500 font-bold bg-slate-100">REF</div> : <input type="number" className="input-field py-1.5 px-3 text-sm h-9" value={entry.painScore ?? ''} onChange={e => setEntry({...entry, painScore: Number(e.target.value)})} max={10} placeholder="0-10" />}</div>
                 </div>
                 <div className="mt-4 flex justify-end">
                     <button onClick={handleAdd} className="bg-ams-blue text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-sm text-sm"><Save className="w-4 h-4" /> Save Vitals</button>

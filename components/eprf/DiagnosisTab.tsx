@@ -62,35 +62,59 @@ const DiagnosisTab = () => {
         });
     };
 
+    // Atomic Updates to prevent race conditions on reset
     const handleTrustChange = (trustName: string) => {
-        update('destinationTrust', trustName);
         const trust = HOSPITAL_DATA.find(t => t.name === trustName);
         setSelectedTrust(trust || null);
         setRegions(trust?.regions || []);
-        // Reset children
-        update('destinationRegion', '');
-        update('destinationHospital', '');
-        update('destinationDepartment', '');
+        
+        // Reset children in state
         setSelectedRegion(null); setSelectedHospital(null); setHospitals([]); setDepartments([]);
+
+        // Atomic DB Update
+        updateDraft({
+            clinicalDecision: {
+                ...activeDraft.clinicalDecision,
+                destinationTrust: trustName,
+                destinationRegion: '',
+                destinationHospital: '',
+                destinationDepartment: ''
+            }
+        });
     };
 
     const handleRegionChange = (regionName: string) => {
-        update('destinationRegion', regionName);
         const region = regions.find(r => r.name === regionName);
         setSelectedRegion(region || null);
         setHospitals(region?.hospitals || []);
-        // Reset children
-        update('destinationHospital', '');
-        update('destinationDepartment', '');
+        
+        // Reset children in state
         setSelectedHospital(null); setDepartments([]);
+
+        // Atomic DB Update
+        updateDraft({
+            clinicalDecision: {
+                ...activeDraft.clinicalDecision,
+                destinationRegion: regionName,
+                destinationHospital: '',
+                destinationDepartment: ''
+            }
+        });
     };
 
     const handleHospitalChange = (hospName: string) => {
-        update('destinationHospital', hospName);
         const hospital = hospitals.find(h => h.name === hospName);
         setSelectedHospital(hospital || null);
         setDepartments(hospital?.departments || []);
-        update('destinationDepartment', '');
+
+        // Atomic DB Update
+        updateDraft({
+            clinicalDecision: {
+                ...activeDraft.clinicalDecision,
+                destinationHospital: hospName,
+                destinationDepartment: ''
+            }
+        });
     };
 
     const isConveying = data.finalDisposition?.includes('Conveyed');

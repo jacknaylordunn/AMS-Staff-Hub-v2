@@ -5,7 +5,7 @@ import SignaturePad from '../SignaturePad';
 import SpeechTextArea from '../SpeechTextArea';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../context/ToastContext';
-import { Lock, CheckCircle, Send, Loader2, AlertTriangle, PenTool, Camera, Trash2, Plus, UserCheck, Clock, AlertCircle, FileCheck, Sparkles } from 'lucide-react';
+import { Lock, CheckCircle, Send, Loader2, AlertTriangle, Camera, Trash2, UserCheck, Clock, AlertCircle, FileCheck, Sparkles } from 'lucide-react';
 import { generateSBAR } from '../../services/geminiService';
 import { validateEPRF } from '../../utils/validation';
 import { uploadFile, uploadBlob } from '../../services/storage';
@@ -53,7 +53,6 @@ const HandoverTab = () => {
     };
 
     const generateATMIST = () => {
-        // ... (ATMIST logic same as previous) ...
         const d = activeDraft;
         const dob = d.patient.dob ? new Date(d.patient.dob) : null;
         const age = dob ? new Date().getFullYear() - dob.getFullYear() : 'Unknown';
@@ -62,7 +61,6 @@ const HandoverTab = () => {
         const mechanism = d.assessment.traumaTriage?.mechanism ? 'Significant Mechanism (See Triage)' : d.history.historyOfPresentingComplaint;
         const injuries = d.injuries.map(i => `${i.location} (${i.type})`).join(', ') || 'None visible';
         
-        // Last set of vitals
         const v = d.vitals[d.vitals.length - 1];
         const signs = v ? `HR: ${v.hr}, BP: ${v.bpSystolic}, GCS: ${v.gcs}, SpO2: ${v.spo2}%` : 'No Vitals Recorded';
         
@@ -128,30 +126,26 @@ Treatment: ${treatment}`;
             return;
         }
 
-        // Validate Signatures based on Disposition
-        if (isConveying) {
-            if (!activeDraft.handover.receivingClinicianSignature) {
-                setError('Receiving Clinician Signature required for conveyance.');
-                return;
-            }
-        }
-        if (isRefusal) {
-            // Check refusal tab signatures via governance object
-            const r = activeDraft.governance.refusal;
-            if (!r.patientRefusedToSign && !r.patientSignature) {
-                setError('Refusal requires Patient Signature or "Refused to Sign" check.');
-                return;
-            }
-            if (!r.staffSignature) {
-                setError('Refusal requires your signature in the Refusal tab.');
-                return;
-            }
-        }
-
+        // Validate Signatures
         const sig = activeDraft.handover.clinicianSignature;
         if (!sig || sig.length < 100) {
             setError('Please provide your physical signature first.');
             return;
+        }
+        if (!activeDraft.handover.clinicianSigTime) {
+            setError('Lead Clinician signature time is required.');
+            return;
+        }
+
+        if (isConveying) {
+            if (!activeDraft.handover.receivingClinicianSignature || activeDraft.handover.receivingClinicianSignature.length < 100) {
+                setError('Receiving person signature is required for conveyance.');
+                return;
+            }
+            if (!activeDraft.handover.receivingSigTime) {
+                setError('Receiving person signature time is required.');
+                return;
+            }
         }
 
         // Referral Warning Check
@@ -166,7 +160,12 @@ Treatment: ${treatment}`;
             if (!isValid) throw new Error("Invalid PIN");
 
             if (user) {
-                const pdfBlob = await getEPRFBlob(activeDraft);
+                // Generate PDF Blobs (Final)
+                // Note: The PDF Generator automatically pulls the bodyMapImage URL from the draft.
+                // The BodyMap component updates the draft state whenever the canvas changes.
+                // So no extra save step needed here if state is synced.
+                
+                const pdfBlob = await getEPRFBlob(activeDraft, 'FULL');
                 const pdfPath = `eprfs/${activeDraft.incidentNumber}_final.pdf`;
                 const pdfUrl = await uploadBlob(pdfBlob, pdfPath);
 
@@ -186,7 +185,6 @@ Treatment: ${treatment}`;
                 toast.success("ePRF Locked & Submitted Successfully");
                 setPin('');
                 
-                // Prompt to close
                 if (confirm("Record Submitted Successfully.\n\nClose record and return to dashboard?")) {
                     setActiveDraft(null);
                 }
@@ -202,11 +200,11 @@ Treatment: ${treatment}`;
 
     const getIdLabel = () => {
         switch(handoverType) {
-            case 'Police': return 'Shoulder Number';
-            case 'AMS Crew': return 'Badge Number';
-            case 'Ambulance Crew': return 'Call Sign';
-            case 'Hospital Staff': return 'PIN / Reg No.';
-            default: return 'ID / Reference';
+            case 'Police': return 'Shoulder Number (Optional)';
+            case 'AMS Crew': return 'Badge Number (Optional)';
+            case 'Ambulance Crew': return 'Call Sign (Optional)';
+            case 'Hospital Staff': return 'PIN / Reg No. (Optional)';
+            default: return 'ID / Reference (Optional)';
         }
     };
 
@@ -284,7 +282,7 @@ Treatment: ${treatment}`;
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
                         <div><label className="input-label">Name / Rank</label><input className={smallInputClass} placeholder="Recipient Name" value={activeDraft.handover.receivingName || ''} onChange={e => update('receivingName', e.target.value)} /></div>
-                        <div><label className="input-label">{getIdLabel()}</label><input className={smallInputClass} placeholder="ID Number" value={activeDraft.handover.receivingPin || ''} onChange={e => update('receivingPin', e.target.value)} /></div>
+                        <div><label className="input-label">{getIdLabel()}</label><input className={smallInputClass} placeholder="ID Number (Optional)" value={activeDraft.handover.receivingPin || ''} onChange={e => update('receivingPin', e.target.value)} /></div>
                         <div>
                             <label className="input-label flex items-center gap-1"><Clock className="w-3 h-3" /> Handover Time</label>
                             <input type="time" className={smallInputClass} value={activeDraft.handover.receivingTime || ''} onChange={e => update('receivingTime', e.target.value)} />
@@ -334,6 +332,7 @@ Treatment: ${treatment}`;
                             onSave={val => update('clinicianSignature', val)} 
                             onTimestampChange={t => update('clinicianSigTime', t)}
                             required
+                            timeRequired
                         />
                     </div>
 
@@ -347,6 +346,7 @@ Treatment: ${treatment}`;
                                 onSave={val => update('receivingClinicianSignature', val)} 
                                 onTimestampChange={t => update('receivingSigTime', t)}
                                 required
+                                timeRequired
                             />
                         </div>
                     )}
@@ -358,6 +358,7 @@ Treatment: ${treatment}`;
                                 value={activeDraft.handover.patientSignature} 
                                 timestamp={activeDraft.handover.patientSigTime} 
                                 onSave={val => update('patientSignature', val)} 
+                                onTimestampChange={t => update('patientSigTime', t)}
                             />
                         </div>
                     )}

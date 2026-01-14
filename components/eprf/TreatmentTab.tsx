@@ -1,19 +1,18 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import { DRUG_DATABASE, CONTROLLED_DRUGS } from '../../data/drugDatabase';
-import { DrugAdministration, Procedure, InjuryMark, Role } from '../../types';
-import { Pill, Syringe, Plus, Search, CheckCircle, HeartPulse, Zap, Clock, Activity, MapPin, Trash2, Lock, FileText, HeartHandshake, Coffee, Car, Phone, Users, Wind, AlertOctagon, ClipboardList, Skull, Flame, Smile, X } from 'lucide-react';
+import { DrugAdministration, Procedure, InjuryMark, ResusEvent } from '../../types';
+import { Pill, Syringe, Plus, Search, CheckCircle, HeartPulse, Zap, Clock, Activity, MapPin, Trash2, Lock, FileText, HeartHandshake, Coffee, Car, Phone, Users, Wind, AlertOctagon, ClipboardList, Flame, Smile, X, AlertCircle, HeartCrack } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import BodyMap from '../BodyMap';
 import WitnessModal from '../WitnessModal';
-import { ROLE_HIERARCHY } from '../../utils/roleHelper';
+import ResusManager from '../ResusManager';
 
 const TreatmentTab = () => {
-    const { activeDraft, addDrug, addProcedure, handleNestedUpdate, updateDraft } = useEPRF();
+    const { activeDraft, addDrug, addProcedure, handleNestedUpdate } = useEPRF();
     const { user } = useAuth();
-    const [subTab, setSubTab] = useState<'Drugs' | 'Access' | 'Procedures' | 'Resus' | 'Welfare'>('Drugs');
+    const [subTab, setSubTab] = useState<'Drugs' | 'Access' | 'Procedures' | 'Resus'>('Drugs');
     
     // Drug State
     const [searchTerm, setSearchTerm] = useState('');
@@ -22,440 +21,533 @@ const TreatmentTab = () => {
     const [route, setRoute] = useState('');
     const [batch, setBatch] = useState('');
     const [time, setTime] = useState('');
-    const [isWastage, setIsWastage] = useState(false);
-    const [witnessData, setWitnessData] = useState<{name: string, uid: string, token?: string} | null>(null);
-    const [showWitnessModal, setShowWitnessModal] = useState(false);
-
+    const [wastage, setWastage] = useState('');
+    
+    // Witness State
+    const [showWitness, setShowWitness] = useState(false);
+    
     // Procedure State
-    const [procType, setProcType] = useState('Splinting');
-    const [procSite, setProcSite] = useState('');
-    const [procSize, setProcSize] = useState('');
-    const [procSuccess, setProcSuccess] = useState(true);
-    const [procAttempts, setProcAttempts] = useState(1);
+    const [procType, setProcType] = useState('');
     const [procTime, setProcTime] = useState('');
-    const [airwayDetails, setAirwayDetails] = useState({ etco2: '', depth: '', secureMethod: 'Thomas Holder' });
+    const [procSuccess, setProcSuccess] = useState(true);
+    const [procDetails, setProcDetails] = useState('');
 
-    // Access Modal State
+    // Access (Vascular) State
     const [showAccessModal, setShowAccessModal] = useState(false);
-    const [pendingAccessMark, setPendingAccessMark] = useState<Partial<InjuryMark> | null>(null);
-    const [accessForm, setAccessForm] = useState({
-        device: 'IV Cannula',
-        gauge: '20G (Pink)',
-        time: '',
+    const [accessForm, setAccessForm] = useState<{
+        id?: string;
+        type: 'IV' | 'IO' | 'IM' | 'SC';
+        location: string;
+        size: string;
+        success: boolean;
+        attempts: number;
+        time: string;
+        x: number;
+        y: number;
+        view: 'Anterior' | 'Posterior';
+    }>({
+        type: 'IV',
+        location: '',
+        size: '',
         success: true,
         attempts: 1,
-        locationName: ''
+        time: '',
+        x: 0, 
+        y: 0,
+        view: 'Anterior'
     });
 
-    // VOD / Resus State
-    const [vodCriteria, setVodCriteria] = useState({
-        conditionsUnequivocal: false,
-        asystole20: false,
-        noResp2: false,
-        noPulse2: false,
-        noHeartSounds2: false,
-        pupilsFixed: false,
-        pacemakerDisabled: false
-    });
-    const [resusNotes, setResusNotes] = useState('');
+    if (!activeDraft) return null;
 
-    useEffect(() => {
-        if (activeDraft?.mode === 'Welfare' && subTab !== 'Welfare') {
-            setSubTab('Welfare');
-        }
-    }, [activeDraft?.mode]);
-
-    const handleAddDrug = () => {
+    // --- Drugs ---
+    const handleAddDrug = (witnessName?: string, witnessToken?: string) => {
         if (!selectedDrug || !dose || !route) return;
-        const isCD = CONTROLLED_DRUGS.includes(selectedDrug);
-        const userLevel = ROLE_HIERARCHY[user?.role || Role.Pending];
-        const paraLevel = ROLE_HIERARCHY[Role.Paramedic];
-        const requiresWitness = isCD || userLevel < paraLevel;
-
-        if (requiresWitness && !witnessData) {
-            alert(`Witness required for ${selectedDrug} (Grade/CD Policy). Please verify witness.`);
+        
+        // Controlled Drug Check
+        if (!witnessName && CONTROLLED_DRUGS.includes(selectedDrug)) {
+            setShowWitness(true);
             return;
         }
 
-        const now = new Date();
-        const drugTime = time || now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        
-        const drugEntry: DrugAdministration = {
+        const newDrug: DrugAdministration = {
             id: Date.now().toString(),
-            time: drugTime,
-            drugName: selectedDrug + (isWastage ? ' (WASTAGE)' : ''),
+            time: time || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+            drugName: selectedDrug,
             dose,
             route,
             batchNumber: batch,
-            authorisation: 'JRCALC',
-            administeredBy: user?.name || 'Clinician',
-            witnessedBy: witnessData?.name,
-            witnessUid: witnessData?.uid,
-            witnessToken: witnessData?.token
+            authorisation: 'JRCALC', // Default
+            administeredBy: user?.name || 'Unknown',
+            witnessedBy: witnessName,
+            witnessToken: witnessToken
         };
-        addDrug(drugEntry);
-        setDose(''); setBatch(''); setTime(''); setSelectedDrug(''); setWitnessData(null); setIsWastage(false);
+
+        if (wastage) {
+            newDrug.dose = `${dose} (Wasted: ${wastage})`;
+        }
+
+        addDrug(newDrug);
+        
+        // Reset
+        setSelectedDrug('');
+        setDose('');
+        setRoute('');
+        setBatch('');
+        setTime('');
+        setWastage('');
+        setShowWitness(false);
     };
 
-    const handleDeleteDrug = (id: string) => {
-        if(!confirm("Delete this drug administration entry?")) return;
-        const current = activeDraft?.treatments.drugs || [];
+    const removeDrug = (id: string) => {
+        const current = activeDraft.treatments.drugs || [];
         handleNestedUpdate(['treatments', 'drugs'], current.filter(d => d.id !== id));
     };
 
-    const handleAddProc = () => {
-        const now = new Date();
-        const finalTime = procTime || now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        const isAirway = procType.includes('Airway') || procType.includes('iGel') || procType.includes('Tube');
+    // --- Procedures ---
+    const handleAddProcedure = () => {
+        if (!procType) return;
         
-        const procEntry: Procedure = {
+        const newProc: Procedure = {
             id: Date.now().toString(),
-            time: finalTime,
+            time: procTime || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
             type: procType,
-            site: procSite,
-            size: procSize,
             success: procSuccess,
-            attempts: procAttempts,
-            performedBy: user?.name || 'Clinician',
-            ...(isAirway ? airwayDetails : {})
+            performedBy: user?.name || 'Unknown',
+            details: procDetails
         };
-        addProcedure(procEntry);
-        setProcSite(''); setProcSize(''); setProcTime('');
-        setAirwayDetails({ etco2: '', depth: '', secureMethod: 'Thomas Holder' });
+
+        addProcedure(newProc);
+        
+        setProcType('');
+        setProcTime('');
+        setProcDetails('');
+        setProcSuccess(true);
     };
 
-    const logWelfareAction = (action: string) => {
-        const now = new Date();
-        const procEntry: Procedure = {
-            id: Date.now().toString(),
-            time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-            type: 'Welfare Check',
-            site: 'N/A',
-            details: action,
-            success: true,
-            performedBy: user?.name || 'Clinician'
-        };
-        addProcedure(procEntry);
-    };
-
-    const handleRemoveProc = (id: string) => {
-        const current = activeDraft?.treatments.procedures || [];
+    const removeProcedure = (id: string) => {
+        const current = activeDraft.treatments.procedures || [];
         handleNestedUpdate(['treatments', 'procedures'], current.filter(p => p.id !== id));
     };
 
-    // --- Access (Body Map) Logic ---
-    const handleAccessMapClick = (x: number, y: number, view: 'Anterior' | 'Posterior', location: string) => {
-        setPendingAccessMark({ x, y, view });
-        setAccessForm({ ...accessForm, locationName: location, time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) });
-        setShowAccessModal(true);
+    // --- Access (BodyMap) ---
+    const handleAccessMapChange = (vals: InjuryMark[]) => {
+        handleNestedUpdate(['injuries'], vals);
     };
 
-    const handleAccessMarkerClick = (mark: InjuryMark) => {
-        // Load for edit/delete
-        setPendingAccessMark(mark);
+    const handleAccessMapImage = (dataUrl: string) => {
+        handleNestedUpdate(['accessMapImage'], dataUrl);
+    };
+
+    const handleAccessMapClick = (x: number, y: number, view: 'Anterior' | 'Posterior', location: string) => {
         setAccessForm({
-            device: mark.device || 'IV Cannula',
-            gauge: mark.gauge || '',
-            time: mark.time || '',
-            success: mark.success ?? true,
-            attempts: mark.attempts || 1,
-            locationName: mark.location || ''
+            type: 'IV',
+            location: location,
+            size: '20G (Pink)',
+            success: true,
+            attempts: 1,
+            time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+            x, y, view
         });
         setShowAccessModal(true);
     };
 
+    const handleMarkerClick = (mark: InjuryMark) => {
+        if (['IV', 'IO', 'IM', 'SC'].includes(mark.type)) {
+            setAccessForm({
+                id: mark.id,
+                type: mark.type as any,
+                location: mark.location || '',
+                size: mark.gauge || '',
+                success: mark.success !== false,
+                attempts: mark.attempts || 1,
+                time: mark.time || '',
+                x: mark.x,
+                y: mark.y,
+                view: mark.view
+            });
+            setShowAccessModal(true);
+        }
+    };
+
     const saveAccess = () => {
-        if (!pendingAccessMark) return;
-        
-        // 1. Create/Update Marker
         const newMark: InjuryMark = {
-            id: pendingAccessMark.id || Date.now().toString(),
-            x: pendingAccessMark.x!,
-            y: pendingAccessMark.y!,
-            view: pendingAccessMark.view!,
-            type: accessForm.device === 'IO' ? 'IO' : 'IV',
-            subtype: accessForm.gauge,
-            location: accessForm.locationName,
-            success: accessForm.success,
-            device: accessForm.device,
-            gauge: accessForm.gauge,
-            time: accessForm.time,
-            attempts: accessForm.attempts
-        };
-
-        const currentInjuries = activeDraft?.injuries || [];
-        const filteredInjuries = currentInjuries.filter(i => i.id !== newMark.id); // Remove if existing to replace
-        handleNestedUpdate(['injuries'], [...filteredInjuries, newMark]);
-
-        // 2. Add to Procedures List automatically
-        const procEntry: Procedure = {
-            id: newMark.id, // Link ID
-            time: accessForm.time,
-            type: accessForm.device,
-            site: accessForm.locationName,
-            size: accessForm.gauge,
+            id: accessForm.id || Date.now().toString(),
+            x: accessForm.x,
+            y: accessForm.y,
+            view: accessForm.view,
+            type: accessForm.type,
+            location: accessForm.location,
+            gauge: accessForm.size,
             success: accessForm.success,
             attempts: accessForm.attempts,
-            performedBy: user?.name || 'Clinician'
+            time: accessForm.time
         };
-        const currentProcs = activeDraft?.treatments.procedures || [];
-        const filteredProcs = currentProcs.filter(p => p.id !== newMark.id);
-        handleNestedUpdate(['treatments', 'procedures'], [...filteredProcs, procEntry]);
 
+        const currentInjuries = activeDraft.injuries || [];
+        const filtered = currentInjuries.filter(i => i.id !== newMark.id);
+        handleNestedUpdate(['injuries'], [...filtered, newMark]);
         setShowAccessModal(false);
-        setPendingAccessMark(null);
     };
 
     const deleteAccess = () => {
-        if (!pendingAccessMark?.id) return;
-        if (!confirm("Remove this access intervention?")) return;
-        
-        const currentInjuries = activeDraft?.injuries || [];
-        handleNestedUpdate(['injuries'], currentInjuries.filter(i => i.id !== pendingAccessMark.id));
-        
-        const currentProcs = activeDraft?.treatments.procedures || [];
-        handleNestedUpdate(['treatments', 'procedures'], currentProcs.filter(p => p.id !== pendingAccessMark.id));
-        
+        if (!accessForm.id) return;
+        const currentInjuries = activeDraft.injuries || [];
+        handleNestedUpdate(['injuries'], currentInjuries.filter(i => i.id !== accessForm.id));
         setShowAccessModal(false);
-        setPendingAccessMark(null);
     };
 
-    const updateVOD = (key: keyof typeof vodCriteria, val: boolean) => {
-        const newData = { ...vodCriteria, [key]: val };
-        setVodCriteria(newData);
-        handleNestedUpdate(['assessment', 'role', 'criteriaMet'], Object.keys(newData).filter(k => (newData as any)[k]));
+    // --- Resus ---
+    const handleResusEvent = (event: ResusEvent) => {
+        const current = activeDraft.treatments.resusLog || [];
+        handleNestedUpdate(['treatments', 'resusLog'], [...current, event]);
+    };
+
+    const updateResusField = (field: string, value: any) => {
+        handleNestedUpdate(['treatments', 'role', field], value);
+    };
+
+    const toggleCriteria = (criteria: string) => {
+        const current = activeDraft.treatments.role?.criteriaMet || [];
+        const updated = current.includes(criteria) 
+            ? current.filter(c => c !== criteria) 
+            : [...current, criteria];
+        updateResusField('criteriaMet', updated);
     };
 
     const filteredDrugs = DRUG_DATABASE.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    const existingProcs = activeDraft?.treatments.procedures.filter(p => !['IV Cannula', 'IO', 'Butterfly', 'Sub-Cut'].includes(p.type) && p.type !== 'Resus Event') || [];
-    const isWelfare = activeDraft?.mode === 'Welfare';
-    const isAirwaySelected = procType.includes('Airway') || procType.includes('iGel') || procType.includes('Tube');
-
-    // Time Editing for Welfare Log
-    const updateLogTime = (id: string, newTime: string) => {
-        const current = activeDraft?.treatments.procedures || [];
-        const updated = current.map(p => p.id === id ? { ...p, time: newTime } : p);
-        handleNestedUpdate(['treatments', 'procedures'], updated);
-    };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-wrap gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit">
-                {isWelfare ? (
-                    <button onClick={() => setSubTab('Welfare')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${subTab === 'Welfare' ? 'bg-white dark:bg-slate-700 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Welfare Checks</button>
-                ) : (
-                    <>
-                        <button onClick={() => setSubTab('Drugs')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${subTab === 'Drugs' ? 'bg-white dark:bg-slate-700 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Medication</button>
-                        <button onClick={() => setSubTab('Access')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${subTab === 'Access' ? 'bg-white dark:bg-slate-700 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Vascular Access</button>
-                        <button onClick={() => setSubTab('Procedures')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all ${subTab === 'Procedures' ? 'bg-white dark:bg-slate-700 shadow text-ams-blue dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Procedures</button>
-                        <button onClick={() => setSubTab('Resus')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${subTab === 'Resus' ? 'bg-red-600 text-white shadow' : 'text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'}`}><Activity className="w-4 h-4" /> Arrest / VOD</button>
-                    </>
+        <div className="flex flex-col md:flex-row gap-6 h-full">
+            <div className="w-full md:w-48 flex-shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
+                {[
+                    { id: 'Drugs', icon: Pill, label: 'Drugs' },
+                    { id: 'Access', icon: Syringe, label: 'Access (IV/IO)' },
+                    { id: 'Procedures', icon: ClipboardList, label: 'Procedures' },
+                    { id: 'Resus', icon: HeartPulse, label: 'Resuscitation' }
+                ].map(tab => (
+                    <button 
+                        key={tab.id} 
+                        onClick={() => setSubTab(tab.id as any)}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${subTab === tab.id ? 'bg-white dark:bg-slate-800 text-ams-blue shadow-md' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-900'}`}
+                    >
+                        <tab.icon className="w-4 h-4" /> {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex-1 min-w-0 space-y-6 animate-in fade-in">
+                
+                {subTab === 'Drugs' && (
+                    <div className="space-y-6">
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <Pill className="w-5 h-5 text-ams-blue" /> Administer Medication
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div className="relative">
+                                    <label className="input-label">Search Drug</label>
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                                        <input 
+                                            className="input-field pl-9 h-9 text-sm" 
+                                            placeholder="Start typing..." 
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
+                                    {searchTerm && (
+                                        <div className="absolute z-10 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-lg">
+                                            {filteredDrugs.map(d => (
+                                                <button 
+                                                    key={d.name}
+                                                    className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm dark:text-white flex justify-between items-center"
+                                                    onClick={() => { setSelectedDrug(d.name); setSearchTerm(''); }}
+                                                >
+                                                    {d.name}
+                                                    {d.class === 'Controlled' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">CD</span>}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div>
+                                    <label className="input-label">Selected Drug</label>
+                                    <input className="input-field h-9 text-sm font-bold text-slate-700 dark:text-white bg-slate-100 dark:bg-slate-900" value={selectedDrug} readOnly placeholder="No drug selected" />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                <div><label className="input-label">Dose</label><input className="input-field h-9 text-sm" value={dose} onChange={e => setDose(e.target.value)} placeholder="e.g. 1g" /></div>
+                                <div>
+                                    <label className="input-label">Route</label>
+                                    <select className="input-field h-9 text-sm" value={route} onChange={e => setRoute(e.target.value)}>
+                                        <option value="">Select</option>
+                                        {['PO', 'IV', 'IM', 'SC', 'IO', 'PR', 'Nebulised', 'Inhaled', 'Sublingual', 'Buccal', 'Topical'].map(r => <option key={r}>{r}</option>)}
+                                    </select>
+                                </div>
+                                <div><label className="input-label">Batch (Optional)</label><input className="input-field h-9 text-sm" value={batch} onChange={e => setBatch(e.target.value)} /></div>
+                                <div><label className="input-label">Time</label><input type="time" className="input-field h-9 text-sm" value={time} onChange={e => setTime(e.target.value)} /></div>
+                            </div>
+
+                            {/* Wastage Section */}
+                            <div className="bg-red-50 dark:bg-red-900/10 p-3 rounded-lg border border-red-100 dark:border-red-900/30 mb-4">
+                                <label className="input-label text-red-800 dark:text-red-300">Wastage / Discard (Optional)</label>
+                                <div className="flex gap-2 items-center">
+                                    <input 
+                                        className="input-field h-9 text-sm border-red-200 focus:ring-red-500" 
+                                        placeholder="Amount discarded e.g. 5mg" 
+                                        value={wastage} 
+                                        onChange={e => setWastage(e.target.value)} 
+                                    />
+                                    <span className="text-xs text-red-600 dark:text-red-400 font-medium whitespace-nowrap">Recorded in notes</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                                <button 
+                                    onClick={() => handleAddDrug()}
+                                    disabled={!selectedDrug || !dose || !route}
+                                    className="px-6 py-2 bg-ams-blue text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2 text-sm"
+                                >
+                                    <Plus className="w-4 h-4" /> Add Record
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Drug Log */}
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h4 className="font-bold text-slate-800 dark:text-white mb-4">Administration Log</h4>
+                            <div className="space-y-2">
+                                {activeDraft.treatments.drugs.length === 0 ? (
+                                    <p className="text-sm text-slate-400 italic">No drugs administered.</p>
+                                ) : (
+                                    activeDraft.treatments.drugs.map(item => (
+                                        <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-slate-800 dark:text-white text-sm">{item.drugName}</span>
+                                                    <span className="text-xs bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-300">{item.dose} {item.route}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-1 flex gap-3">
+                                                    <span>Time: {item.time}</span>
+                                                    <span>By: {item.administeredBy}</span>
+                                                    {item.witnessedBy && <span className="text-purple-600 font-bold flex items-center gap-1"><Lock className="w-3 h-3" /> Witnessed by {item.witnessedBy}</span>}
+                                                </div>
+                                            </div>
+                                            <button onClick={() => removeDrug(item.id)} className="p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"><Trash2 className="w-4 h-4" /></button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {subTab === 'Access' && (
+                    <div className="glass-panel p-6 rounded-xl flex flex-col items-center">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-4 w-full flex items-center gap-2">
+                            <Syringe className="w-5 h-5 text-green-600" /> Vascular Access Map
+                        </h3>
+                        <BodyMap 
+                            value={activeDraft.injuries} 
+                            onChange={handleAccessMapChange}
+                            mode="intervention"
+                            onImageChange={handleAccessMapImage}
+                            onCanvasClick={handleAccessMapClick}
+                            onMarkerClick={handleMarkerClick}
+                        />
+                        <div className="mt-4 flex gap-4 text-xs">
+                            <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-green-500"></div> Success</span>
+                            <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-red-500"></div> Failed</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">Click body map to add access points (IV/IO). Click existing point to edit.</p>
+                    </div>
+                )}
+
+                {subTab === 'Procedures' && (
+                    <div className="glass-panel p-6 rounded-xl">
+                        <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                            <ClipboardList className="w-5 h-5 text-purple-600" /> Clinical Procedures
+                        </h3>
+                        <div className="space-y-4 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="input-label">Procedure Type</label>
+                                    <select className="input-field h-9 text-sm" value={procType} onChange={e => setProcType(e.target.value)}>
+                                        <option value="">Select...</option>
+                                        <option>Wound Care / Dressing</option>
+                                        <option>Splinting</option>
+                                        <option>Airway - OPA/NPA</option>
+                                        <option>Airway - iGel/LMA</option>
+                                        <option>Suction</option>
+                                        <option>Manual Handling</option>
+                                        <option>ECG 12-Lead</option>
+                                        <option>Blood Glucose Check</option>
+                                        <option>Spinal Immobilisation</option>
+                                    </select>
+                                </div>
+                                <div><label className="input-label">Time</label><input type="time" className="input-field h-9 text-sm" value={procTime} onChange={e => setProcTime(e.target.value)} /></div>
+                            </div>
+                            <div>
+                                <label className="input-label">Details / Notes</label>
+                                <input className="input-field h-9 text-sm" placeholder="e.g. Size 4 iGel, successful first pass" value={procDetails} onChange={e => setProcDetails(e.target.value)} />
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-700 dark:text-white">
+                                    <input type="checkbox" checked={procSuccess} onChange={e => setProcSuccess(e.target.checked)} className="w-4 h-4 rounded text-green-600" />
+                                    Successful?
+                                </label>
+                                <button onClick={handleAddProcedure} disabled={!procType} className="px-6 py-2 bg-ams-blue text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm">
+                                    Add Procedure
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            {activeDraft.treatments.procedures.map(item => (
+                                <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg">
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-800 dark:text-white">{item.type} {item.success ? <span className="text-green-600 ml-2 text-xs">✓ Success</span> : <span className="text-red-500 ml-2 text-xs">✗ Failed</span>}</p>
+                                        <p className="text-xs text-slate-500">{item.time} - {item.details || 'No details'}</p>
+                                    </div>
+                                    <button onClick={() => removeProcedure(item.id)} className="p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {subTab === 'Resus' && (
+                    <div className="space-y-6">
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <HeartCrack className="w-5 h-5 text-red-600" /> Resuscitation Management
+                            </h3>
+                            <ResusManager 
+                                onLogEvent={handleResusEvent} 
+                                initialLog={activeDraft.treatments.resusLog} 
+                            />
+                        </div>
+                        
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h4 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-ams-blue" /> Recognition of Life Extinct (ROLE) / VOD
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="input-label">Time Verified</label><input type="time" className="input-field h-9 text-sm" value={activeDraft.treatments.role?.timeVerified || ''} onChange={e => updateResusField('timeVerified', e.target.value)} /></div>
+                                <div><label className="input-label">Verified By</label><input className="input-field h-9 text-sm" value={activeDraft.treatments.role?.verifiedBy || ''} onChange={e => updateResusField('verifiedBy', e.target.value)} /></div>
+                                
+                                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                                    <h5 className="col-span-1 sm:col-span-2 text-xs font-bold text-slate-500 uppercase mb-2">Confirmation Criteria (Min 1 Minute)</h5>
+                                    {['No Carotid Pulse', 'No Heart Sounds', 'No Breath Sounds', 'Fixed Dilated Pupils', 'No Pain Response'].map(crit => (
+                                        <label key={crit} className="flex items-center gap-2 cursor-pointer text-sm dark:text-slate-300">
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 rounded text-red-600"
+                                                checked={activeDraft.treatments.role?.criteriaMet?.includes(crit) || false}
+                                                onChange={() => toggleCriteria(crit)}
+                                            />
+                                            {crit}
+                                        </label>
+                                    ))}
+                                </div>
+
+                                <div className="md:col-span-2 space-y-2 mt-2">
+                                    <label className="flex items-center gap-2 font-bold text-sm dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.dnacprAvailable || false} onChange={e => updateResusField('dnacprAvailable', e.target.checked)} /> Valid DNACPR Available</label>
+                                    <label className="flex items-center gap-2 font-bold text-sm dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.arrestWitnessed || false} onChange={e => updateResusField('arrestWitnessed', e.target.checked)} /> Arrest Witnessed</label>
+                                    <label className="flex items-center gap-2 font-bold text-sm dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.bystanderCPR || false} onChange={e => updateResusField('bystanderCPR', e.target.checked)} /> Bystander CPR Performed</label>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="input-label">Resus Summary / Rationale for Ceasing</label>
+                                    <textarea 
+                                        className="input-field h-24 text-sm" 
+                                        placeholder="e.g. Injuries incompatible with life, rigor mortis, 20 mins asystole with no reversible causes..."
+                                        value={activeDraft.treatments.role?.resusSummary || ''} 
+                                        onChange={e => updateResusField('resusSummary', e.target.value)} 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
 
-            {subTab === 'Welfare' && (
-                <div className="glass-panel p-6 rounded-2xl animate-in fade-in">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                        <button onClick={() => logWelfareAction('Friends Found')} className="p-4 bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 rounded-xl text-emerald-700 dark:text-emerald-300 font-bold text-sm flex flex-col items-center gap-2 border border-emerald-100 dark:border-emerald-800"><Smile className="w-6 h-6" /> Friends Found</button>
-                        <button onClick={() => logWelfareAction('Given Water')} className="p-4 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-xl text-blue-700 dark:text-blue-300 font-bold text-sm flex flex-col items-center gap-2 border border-blue-100 dark:border-blue-800"><Coffee className="w-6 h-6" /> Water Given</button>
-                        <button onClick={() => logWelfareAction('Given Food')} className="p-4 bg-orange-50 dark:bg-orange-900/30 hover:bg-orange-100 rounded-xl text-orange-700 dark:text-orange-300 font-bold text-sm flex flex-col items-center gap-2 border border-orange-100"><ClipboardList className="w-6 h-6" /> Food Given</button>
-                        <button onClick={() => logWelfareAction('Provided Warmth/Blanket')} className="p-4 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 rounded-xl text-red-700 dark:text-red-300 font-bold text-sm flex flex-col items-center gap-2 border border-red-100"><Flame className="w-6 h-6" /> Warmth / Blanket</button>
-                        <button onClick={() => logWelfareAction('Reassurance Given')} className="p-4 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 rounded-xl text-purple-700 dark:text-purple-300 font-bold text-sm flex flex-col items-center gap-2 border border-purple-100"><HeartHandshake className="w-6 h-6" /> Reassurance</button>
-                        <button onClick={() => logWelfareAction('Transport Arranged')} className="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm flex flex-col items-center gap-2 border border-slate-200"><Car className="w-6 h-6" /> Transport</button>
-                        <button onClick={() => logWelfareAction('Contacted Relative')} className="p-4 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-sm flex flex-col items-center gap-2 border border-slate-200"><Phone className="w-6 h-6" /> Call Relative</button>
-                        <button onClick={() => logWelfareAction('Safeguarding Referral')} className="p-4 bg-red-100 dark:bg-red-900/50 hover:bg-red-200 rounded-xl text-red-800 dark:text-red-200 font-bold text-sm flex flex-col items-center gap-2 border border-red-200"><AlertOctagon className="w-6 h-6" /> Safeguarding</button>
-                    </div>
-                    
-                    <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
-                        <h4 className="font-bold text-sm text-slate-500 uppercase mb-3">Welfare Log</h4>
-                        <div className="space-y-2">
-                            {activeDraft.treatments.procedures.filter(p => p.type === 'Welfare Check').map((log, i) => (
-                                <div key={log.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <div>
-                                        <div className="font-bold text-slate-800 dark:text-white">{log.details}</div>
-                                        <div className="text-xs text-slate-500">By {log.performedBy}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <input 
-                                            type="time" 
-                                            className="bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs font-mono dark:text-white"
-                                            value={log.time}
-                                            onChange={(e) => updateLogTime(log.id, e.target.value)}
-                                        />
-                                        <button onClick={() => handleRemoveProc(log.id)} className="p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"><Trash2 className="w-4 h-4" /></button>
-                                    </div>
-                                </div>
-                            ))}
-                            {activeDraft.treatments.procedures.filter(p => p.type === 'Welfare Check').length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No actions recorded yet.</p>}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Drugs Tab */}
-            {subTab === 'Drugs' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in">
-                    <div className="glass-panel p-6 rounded-2xl lg:col-span-1 h-fit lg:sticky lg:top-4 z-10">
-                        {/* Drug form... (omitted for brevity, same as previous) */}
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                            <Pill className="w-5 h-5 text-purple-500" /> Administer Drug
-                        </h3>
-                        <div className="space-y-4">
-                            <div><label className="input-label">Search Drug</label><div className="relative"><Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" /><input className="input-field py-1.5 px-3 text-sm h-8 pl-10" placeholder="e.g. Paracetamol" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>{searchTerm && (<div className="mt-2 max-h-32 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm">{filteredDrugs.map(d => (<div key={d.name} onClick={() => { setSelectedDrug(d.name); setSearchTerm(''); }} className="p-2 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer text-sm dark:text-white border-b border-slate-100 dark:border-slate-800 last:border-0">{d.name}</div>))}</div>)}</div>
-                            {selectedDrug && (<div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-100 dark:border-purple-800 text-purple-800 dark:text-purple-200 font-bold text-sm text-center">Selected: {selectedDrug}</div>)}
-                            <div><label className="input-label">Dose</label><input className="input-field py-1.5 px-3 text-sm h-8" placeholder="e.g. 1g" value={dose} onChange={e => setDose(e.target.value)} /></div>
-                            <div><label className="input-label">Route</label><select className="input-field py-1.5 px-3 text-sm h-8" value={route} onChange={e => setRoute(e.target.value)}><option value="">Select...</option><option>Oral (PO)</option><option>IV</option><option>IM</option><option>IO</option><option>Nebulised</option><option>Rectal (PR)</option><option>Topical</option></select></div>
-                            <div><label className="input-label">Time</label><input type="time" className="input-field py-1.5 px-3 text-sm h-8" value={time} onChange={e => setTime(e.target.value)} /></div>
-                            <div><label className="input-label">Batch No.</label><input className="input-field py-1.5 px-3 text-sm h-8" placeholder="Optional" value={batch} onChange={e => setBatch(e.target.value)} /></div>
-                            <label className="flex items-center gap-2 p-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-900/20 cursor-pointer"><input type="checkbox" className="w-4 h-4 text-red-600 rounded" checked={isWastage} onChange={e => setIsWastage(e.target.checked)} /><span className="text-sm font-bold text-red-700 dark:text-red-300">Record as Wastage?</span></label>
-                            <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700"><label className="input-label mb-1">Witness Check</label>{witnessData ? (<div className="flex items-center justify-between text-xs font-bold text-green-600 dark:text-green-400"><span>Confirmed: {witnessData.name}</span><button onClick={() => setWitnessData(null)} className="text-red-500 hover:underline">Clear</button></div>) : (<button onClick={() => setShowWitnessModal(true)} className="w-full py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center justify-center gap-1 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"><Lock className="w-3 h-3" /> Verify Witness</button>)}</div>
-                            <button onClick={handleAddDrug} disabled={!selectedDrug || !dose || !route} className="w-full py-3 bg-ams-blue text-white rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50 transition-colors shadow-md">Record Administration</button>
-                        </div>
-                    </div>
-                    {/* List... */}
-                    <div className="lg:col-span-2 space-y-4">
-                        {activeDraft?.treatments.drugs.length === 0 && <div className="p-12 text-center text-slate-400 italic bg-white dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">No drugs administered yet.</div>}
-                        {activeDraft?.treatments.drugs.map((drug, i) => (
-                            <div key={i} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex justify-between items-center group relative">
-                                <div>
-                                    <div className="font-bold text-slate-800 dark:text-white text-lg">{drug.drugName} <span className="text-slate-500 dark:text-slate-400 text-sm font-normal">({drug.dose})</span></div>
-                                    <div className="text-xs text-slate-500 dark:text-slate-400 flex gap-3 mt-1 flex-wrap">
-                                        <span className="bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded font-bold">{drug.route}</span>
-                                        <span>Time: {drug.time}</span>
-                                        <span>By: {drug.administeredBy}</span>
-                                        {drug.witnessedBy && <span className="text-purple-600 dark:text-purple-400 font-bold flex items-center gap-1"><Lock className="w-3 h-3" /> Witness: {drug.witnessedBy}</span>}
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="p-2 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-full"><CheckCircle className="w-5 h-5" /></div>
-                                    <button onClick={() => handleDeleteDrug(drug.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors opacity-0 group-hover:opacity-100" title="Delete Entry"><Trash2 className="w-5 h-5" /></button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Access Tab Redesign */}
-            {subTab === 'Access' && (
-                <div className="grid grid-cols-1 gap-8 animate-in fade-in">
-                    <div className="glass-panel p-6 rounded-2xl flex flex-col items-center relative">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-4 w-full">Access Location</h3>
-                        <BodyMap 
-                            value={activeDraft.injuries || []} 
-                            onChange={(inj) => handleNestedUpdate(['injuries'], inj)} 
-                            mode="intervention" 
-                            onCanvasClick={handleAccessMapClick}
-                            onMarkerClick={handleAccessMarkerClick}
-                            onImageChange={(dataUrl) => handleNestedUpdate(['accessMapImage'], dataUrl)} 
-                        />
-                        <p className="text-xs text-slate-400 mt-2 text-center">Click body map to add intervention. Click markers to edit.</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Resus Tab (VOD/ROLE) */}
-            {subTab === 'Resus' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in">
-                    {/* ROLE Checklist */}
-                    <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-slate-800">
-                        <div className="flex items-center gap-3 mb-4">
-                            <Activity className="w-6 h-6 text-slate-800 dark:text-slate-200" />
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white">Recognition of Life Extinct (ROLE)</h3>
-                        </div>
-                        <p className="text-xs text-slate-500 mb-4">Verify death in accordance with JRCALC / Resus Council guidelines.</p>
-                        
-                        <div className="space-y-3">
-                            {/* ROLE Fields same as before */}
-                            <label className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-lg cursor-pointer">
-                                <input type="checkbox" className="mt-1 w-5 h-5 text-red-600 rounded" checked={vodCriteria.conditionsUnequivocal} onChange={e => updateVOD('conditionsUnequivocal', e.target.checked)} />
-                                <div><span className="block font-bold text-sm text-red-900 dark:text-red-200">Conditions Unequivocal with Life</span><span className="text-xs text-red-700 dark:text-red-300">Decapitation, massive cranial destruction, hemicorporectomy, decomposition, incineration, rigor mortis, hypostasis.</span></div>
-                            </label>
-                            <div className="border-t border-slate-200 dark:border-slate-700 my-4 pt-2">
-                                <p className="text-xs font-bold text-slate-400 uppercase mb-2">Or Confirm Cessation of Circulation (All Required)</p>
-                                <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer"><input type="checkbox" checked={vodCriteria.noPulse2} onChange={e => updateVOD('noPulse2', e.target.checked)} className="rounded" /><span className="text-sm dark:text-slate-300">No palpable central pulse (1 min)</span></label>
-                                <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer"><input type="checkbox" checked={vodCriteria.noHeartSounds2} onChange={e => updateVOD('noHeartSounds2', e.target.checked)} className="rounded" /><span className="text-sm dark:text-slate-300">No heart sounds on auscultation (1 min)</span></label>
-                                <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer"><input type="checkbox" checked={vodCriteria.noResp2} onChange={e => updateVOD('noResp2', e.target.checked)} className="rounded" /><span className="text-sm dark:text-slate-300">No respiratory effort (1 min)</span></label>
-                                <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer"><input type="checkbox" checked={vodCriteria.pupilsFixed} onChange={e => updateVOD('pupilsFixed', e.target.checked)} className="rounded" /><span className="text-sm dark:text-slate-300">Pupils fixed and dilated</span></label>
-                                <label className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer"><input type="checkbox" checked={vodCriteria.asystole20} onChange={e => updateVOD('asystole20', e.target.checked)} className="rounded" /><span className="text-sm dark:text-slate-300">Asystole on ECG Monitor (&gt;30s)</span></label>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Resus Summary */}
-                    <div className="glass-panel p-6 rounded-2xl">
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                            <Activity className="w-5 h-5 text-red-600" /> Resuscitation Summary
-                        </h3>
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.arrestWitnessed} onChange={e => handleNestedUpdate(['assessment', 'role', 'arrestWitnessed'], e.target.checked)} /> Witnessed Arrest?</label>
-                                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.bystanderCPR} onChange={e => handleNestedUpdate(['assessment', 'role', 'bystanderCPR'], e.target.checked)} /> Bystander CPR?</label>
-                                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white"><input type="checkbox" checked={activeDraft.treatments.role?.dnacprAvailable} onChange={e => handleNestedUpdate(['assessment', 'role', 'dnacprAvailable'], e.target.checked)} /> DNACPR in Place?</label>
-                            </div>
-                            <textarea className="input-field h-40 resize-none font-mono text-sm" placeholder="Summary of resuscitation attempt..." value={resusNotes} onChange={e => setResusNotes(e.target.value)} onBlur={() => handleNestedUpdate(['assessment', 'role', 'resusSummary'], resusNotes)} />
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="input-label">Total Shocks</label><input type="number" className="input-field" placeholder="0" onChange={e => handleNestedUpdate(['assessment', 'role', 'totalShocks'], Number(e.target.value))} /></div>
-                                <div><label className="input-label">Downtime (Mins)</label><input type="number" className="input-field" placeholder="mins" onChange={e => handleNestedUpdate(['assessment', 'role', 'downTimeMinutes'], Number(e.target.value))} /></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* General Procedure Panel */}
-            {subTab === 'Procedures' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in">
-                    <div className="glass-panel p-6 rounded-2xl">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-4">Add Procedure</h3>
-                        <div className="space-y-4">
-                            <div><label className="input-label">Type</label><select className="input-field py-1.5 px-3 text-sm h-8" value={procType} onChange={e => setProcType(e.target.value)}><option>Splinting</option><option>Wound Dressing</option><option>Suture / Glue</option><option>Airway (OPA/NPA/iGel)</option><option>ET Intubation</option><option>Spinal Immobilisation</option><option>Pelvic Binder</option><option>Nebuliser</option><option>Manual Handling</option></select></div>
-                            {isAirwaySelected && (<div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 space-y-3 animate-in fade-in"><h4 className="text-xs font-bold text-blue-800 dark:text-blue-300 uppercase">Airway Governance</h4><div className="grid grid-cols-2 gap-3"><div><label className="input-label">Size</label><input className="input-field py-1.5 px-3 text-sm h-8" placeholder="e.g. Size 4" value={procSize} onChange={e => setProcSize(e.target.value)} /></div><div><label className="input-label">Depth (cm)</label><input className="input-field py-1.5 px-3 text-sm h-8" placeholder="e.g. 22cm at teeth" value={airwayDetails.depth} onChange={e => setAirwayDetails({...airwayDetails, depth: e.target.value})} /></div></div><div className="grid grid-cols-2 gap-3"><div><label className="input-label">EtCO2 (kPa)</label><input className="input-field font-mono py-1.5 px-3 text-sm h-8" placeholder="4.5-5.5" value={airwayDetails.etco2} onChange={e => setAirwayDetails({...airwayDetails, etco2: e.target.value})} /></div><div><label className="input-label">Secured By</label><select className="input-field py-1.5 px-3 text-sm h-8" value={airwayDetails.secureMethod} onChange={e => setAirwayDetails({...airwayDetails, secureMethod: e.target.value})}><option>Thomas Holder</option><option>Tape</option><option>Hand Held</option></select></div></div></div>)}
-                            <div><label className="input-label">Site / Details</label><input className="input-field py-1.5 px-3 text-sm h-8" placeholder="e.g. Left Leg" value={procSite} onChange={e => setProcSite(e.target.value)} /></div>
-                            <div><label className="input-label">Time Performed</label><input type="time" className="input-field py-1.5 px-3 text-sm h-8" value={procTime} onChange={e => setProcTime(e.target.value)} /></div>
-                            <div className="flex gap-4"><label className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-white cursor-pointer"><input type="checkbox" checked={procSuccess} onChange={e => setProcSuccess(e.target.checked)} className="w-4 h-4 rounded text-green-600" />Successful</label></div>
-                            <button onClick={handleAddProc} disabled={!procSite} className="w-full py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md">Record Procedure</button>
-                        </div>
-                    </div>
-                    <div className="glass-panel p-6 rounded-2xl">
-                        <h3 className="font-bold text-slate-800 dark:text-white mb-4">Procedure Log</h3>
-                        <div className="space-y-2">{existingProcs.filter(p => p.type !== 'Welfare Check').map((proc, i) => (<div key={i} className="flex flex-col p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl"><div className="flex justify-between items-center mb-1"><div className="font-bold text-slate-800 dark:text-white text-sm">{proc.type}</div><div className="flex items-center gap-2">{!proc.success && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded font-bold">Failed</span>}<button onClick={() => handleRemoveProc(proc.id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full"><Trash2 className="w-4 h-4" /></button></div></div><div className="text-xs text-slate-500">{proc.site} {proc.size && `(${proc.size})`} • {proc.time}</div>{proc.etco2 && (<div className="mt-2 text-xs bg-blue-50 dark:bg-blue-900/20 p-2 rounded text-blue-700 dark:text-blue-300 font-mono">EtCO2: {proc.etco2} | Depth: {proc.depth || '-'} | {proc.secureMethod}</div>)}</div>))}{existingProcs.filter(p => p.type !== 'Welfare Check').length === 0 && <p className="text-sm text-slate-400 italic text-center">No procedures recorded.</p>}</div>
-                    </div>
-                </div>
-            )}
-
-            {/* Access Modal */}
-            {showAccessModal && pendingAccessMark && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-sm border border-slate-200 dark:border-slate-800">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white">{pendingAccessMark.id ? 'Edit Access' : 'Add Access'}</h3>
+            {/* Vascular Access Modal */}
+            {showAccessModal && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white">{accessForm.id ? 'Edit Access' : 'Add Vascular Access'}</h3>
                             <button onClick={() => setShowAccessModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
                         </div>
-                        <div className="space-y-4">
-                            <div><label className="input-label">Device</label><select className="input-field py-2" value={accessForm.device} onChange={e => setAccessForm({...accessForm, device: e.target.value})}><option>IV Cannula</option><option>IO</option><option>Butterfly</option><option>Sub-Cut</option></select></div>
-                            <div><label className="input-label">Gauge / Size</label><select className="input-field py-2" value={accessForm.gauge} onChange={e => setAccessForm({...accessForm, gauge: e.target.value})}><option>22G (Blue)</option><option>20G (Pink)</option><option>18G (Green)</option><option>16G (Grey)</option><option>14G (Orange)</option><option>IO Needle</option></select></div>
-                            <div><label className="input-label">Location</label><input className="input-field py-2" value={accessForm.locationName} onChange={e => setAccessForm({...accessForm, locationName: e.target.value})} /></div>
-                            <div><label className="input-label">Time</label><input type="time" className="input-field py-2" value={accessForm.time} onChange={e => setAccessForm({...accessForm, time: e.target.value})} /></div>
-                            <div className="flex gap-4 items-center pt-2">
-                                <label className="flex items-center gap-2 font-bold text-sm text-slate-700 dark:text-white cursor-pointer"><input type="checkbox" checked={accessForm.success} onChange={e => setAccessForm({...accessForm, success: e.target.checked})} className="w-4 h-4 text-green-600 rounded" /> Successful</label>
-                                <div className="flex items-center gap-2"><span className="text-xs font-bold text-slate-500">Attempts:</span><input type="number" className="w-12 text-center border rounded p-1 text-xs" value={accessForm.attempts} onChange={e => setAccessForm({...accessForm, attempts: Number(e.target.value)})} /></div>
+                        <div className="p-4 space-y-4">
+                            <div>
+                                <label className="input-label">Type</label>
+                                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg">
+                                    {['IV', 'IO', 'IM', 'SC'].map(t => (
+                                        <button key={t} onClick={() => setAccessForm({...accessForm, type: t as any})} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${accessForm.type === t ? 'bg-white dark:bg-slate-700 shadow text-ams-blue dark:text-white' : 'text-slate-500'}`}>
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
+                            <div>
+                                <label className="input-label">Site / Location</label>
+                                <input className="input-field py-2 text-sm h-9" value={accessForm.location} onChange={e => setAccessForm({...accessForm, location: e.target.value})} placeholder="e.g. Left ACF" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="input-label">Cannula Size</label>
+                                    <select className="input-field py-2 text-sm h-9" value={accessForm.size} onChange={e => setAccessForm({...accessForm, size: e.target.value})}>
+                                        <option value="">Select...</option>
+                                        <option value="24G (Yellow)">24G (Yellow)</option>
+                                        <option value="22G (Blue)">22G (Blue)</option>
+                                        <option value="20G (Pink)">20G (Pink)</option>
+                                        <option value="18G (Green)">18G (Green)</option>
+                                        <option value="16G (Grey)">16G (Grey)</option>
+                                        <option value="14G (Orange)">14G (Orange)</option>
+                                        <option value="IO Needle">IO Needle</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="input-label">Time</label>
+                                    <input type="time" className="input-field py-2 text-sm h-9" value={accessForm.time} onChange={e => setAccessForm({...accessForm, time: e.target.value})} />
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                                <label className="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-700 dark:text-white">
+                                    <input type="checkbox" checked={accessForm.success} onChange={e => setAccessForm({...accessForm, success: e.target.checked})} className="w-4 h-4 rounded text-green-600" />
+                                    Successful?
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-500">Attempts:</span>
+                                    <input type="number" className="w-12 text-center border rounded py-1 text-sm bg-white dark:bg-slate-800 dark:text-white h-8" value={accessForm.attempts} onChange={e => setAccessForm({...accessForm, attempts: Number(e.target.value)})} min={1} />
+                                </div>
+                            </div>
+
                             <div className="flex gap-2 pt-2">
-                                {pendingAccessMark.id && (<button onClick={deleteAccess} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100"><Trash2 className="w-5 h-5" /></button>)}
-                                <button onClick={saveAccess} className="flex-1 py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-700">Save</button>
+                                {accessForm.id && (
+                                    <button onClick={deleteAccess} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400">
+                                        <Trash2 className="w-5 h-5" />
+                                    </button>
+                                )}
+                                <button onClick={saveAccess} className="flex-1 py-3 bg-ams-blue text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md text-sm">
+                                    {accessForm.id ? 'Update Access' : 'Save Access'}
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Witness Modal */}
-            {showWitnessModal && (
+            {showWitness && (
                 <WitnessModal 
                     drugName={selectedDrug} 
-                    onWitnessConfirmed={(name, uid, token) => { setWitnessData({name, uid, token}); setShowWitnessModal(false); }} 
-                    onCancel={() => setShowWitnessModal(false)} 
+                    onWitnessConfirmed={handleAddDrug} 
+                    onCancel={() => setShowWitness(false)} 
                 />
             )}
         </div>
