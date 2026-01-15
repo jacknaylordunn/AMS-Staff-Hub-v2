@@ -393,18 +393,20 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
         </div>
       </aside>
 
-      {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-50 px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-              <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 dark:text-slate-300">
-                  <Menu className="w-6 h-6" />
-              </button>
-              <span className="font-bold text-lg text-slate-800 dark:text-white">Aegis</span>
-          </div>
-          <div className="flex items-center gap-2">
-              <ThemeToggle />
-              <div className="w-8 h-8 bg-ams-blue rounded-full flex items-center justify-center text-white font-bold text-sm">
-                  {user?.name.charAt(0)}
+      {/* Mobile Header with Safe Area Padding */}
+      <div className="md:hidden fixed top-0 w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 z-50 px-4 pt-[env(safe-area-inset-top)] transition-all duration-300">
+          <div className="h-16 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                  <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 dark:text-slate-300">
+                      <Menu className="w-6 h-6" />
+                  </button>
+                  <span className="font-bold text-lg text-slate-800 dark:text-white">Aegis</span>
+              </div>
+              <div className="flex items-center gap-2">
+                  <ThemeToggle />
+                  <Link to="/profile" className="w-8 h-8 bg-ams-blue rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      {user?.name.charAt(0)}
+                  </Link>
               </div>
           </div>
       </div>
@@ -412,12 +414,12 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
           <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm md:hidden" onClick={() => setMobileMenuOpen(false)}>
-              <div className="absolute left-0 top-0 bottom-0 w-64 bg-white dark:bg-slate-900 shadow-2xl p-4 flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="absolute left-0 top-0 bottom-0 w-64 bg-white dark:bg-slate-900 shadow-2xl p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col" onClick={e => e.stopPropagation()}>
                   <div className="flex justify-between items-center mb-6">
                       <span className="font-bold text-xl text-slate-800 dark:text-white">Menu</span>
                       <button onClick={() => setMobileMenuOpen(false)}><X className="w-6 h-6 text-slate-500" /></button>
                   </div>
-                  <nav className="space-y-1 flex-1 overflow-y-auto">
+                  <nav className="space-y-1 flex-1 overflow-y-auto no-scrollbar">
                       <SidebarItem to="/" icon={LayoutDashboard} label="Dashboard" active={location.pathname === '/'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
                       <SidebarItem to="/eprf" icon={FileText} label="ePRF Records" active={location.pathname === '/eprf'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
                       <SidebarItem to="/rota" icon={Calendar} label="Rota & Shifts" active={location.pathname === '/rota'} collapsed={false} onClick={() => setMobileMenuOpen(false)} />
@@ -450,7 +452,7 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative pt-[calc(4rem+env(safe-area-inset-top))] md:pt-0">
           <MajorIncidentBanner />
           <OfflineIndicator />
           
@@ -494,7 +496,7 @@ const MainLayout = ({ children }: { children?: React.ReactNode }) => {
             </header>
           )}
 
-          <div className={`flex-1 overflow-y-auto ${isEPRF ? 'p-0' : 'p-4 md:p-8'} scroll-smooth`}>
+          <div className={`flex-1 overflow-y-auto ${isEPRF ? 'p-0' : 'p-4 md:p-8'} scroll-smooth pb-[calc(1rem+env(safe-area-inset-bottom))]`}>
               <div className="max-w-7xl mx-auto h-full">
                   {children}
               </div>

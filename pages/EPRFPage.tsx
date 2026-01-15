@@ -408,7 +408,7 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
     };
 
     return (
-        <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-black">
+        <div className="flex h-full overflow-hidden bg-slate-100 dark:bg-black">
             <div className="w-56 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-50">
                 <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
                     <h2 className="font-bold text-sm text-slate-800 dark:text-white tracking-tight px-1">Navigation</h2>

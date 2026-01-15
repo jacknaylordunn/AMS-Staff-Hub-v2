@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key, Camera } from 'lucide-react';
+import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key, Camera, RefreshCw } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../context/ToastContext';
 import { ComplianceDoc, Role } from '../types';
@@ -208,6 +208,19 @@ const ProfilePage = () => {
       if (e.target.files && e.target.files[0]) {
           setSelectedFile(e.target.files[0]);
       }
+  };
+
+  const handleUpdateDoc = (doc: ComplianceDoc) => {
+      // Attempt to match known types
+      if (DOC_TYPES.includes(doc.name)) {
+          setDocType(doc.name);
+          setDocName('');
+      } else {
+          setDocType('Other');
+          setDocName(doc.name);
+      }
+      setDocExpiry(''); // Reset expiry for new upload
+      setShowDocModal(true);
   };
 
   const handleDocUpload = async (e: React.FormEvent) => {
@@ -461,7 +474,7 @@ const ProfilePage = () => {
                                   <td className="px-4 py-3">
                                       <StatusBadge doc={doc} />
                                   </td>
-                                  <td className="px-4 py-3 text-right">
+                                  <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
                                       {doc.fileUrl && (
                                           <button 
                                             onClick={() => setViewingDoc({ url: doc.fileUrl!, title: doc.name })} 
@@ -470,6 +483,12 @@ const ProfilePage = () => {
                                             View
                                           </button>
                                       )}
+                                      <button 
+                                        onClick={() => handleUpdateDoc(doc)}
+                                        className="text-slate-500 hover:text-ams-blue dark:text-slate-400 dark:hover:text-white text-xs font-bold flex items-center gap-1 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded"
+                                      >
+                                          <RefreshCw className="w-3 h-3" /> Update
+                                      </button>
                                   </td>
                               </tr>
                           ))}
