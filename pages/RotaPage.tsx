@@ -596,14 +596,39 @@ const RotaPage = () => {
 
   // Helper to safely parse coordinates for map display
   const getShiftCoordinates = (address?: string) => {
-      if (!address || !address.includes('|')) return null;
-      const [coords] = address.split('|');
-      const [latStr, lngStr] = coords.split(',');
-      const lat = parseFloat(latStr);
-      const lng = parseFloat(lngStr);
-      if (isNaN(lat) || isNaN(lng)) return null;
-      return { lat, lng };
+      if (!address) return null;
+      
+      let latStr, lngStr;
+      
+      // Try Pipe format: "lat,lng|address"
+      if (address.includes('|')) {
+          const [coords] = address.split('|');
+          const parts = coords.split(',');
+          if (parts.length === 2) {
+              latStr = parts[0];
+              lngStr = parts[1];
+          }
+      } 
+      // Try Raw Coords: "lat,lng"
+      else if (address.includes(',')) {
+          const parts = address.split(',');
+          // Simple validation to check if it looks like numbers
+          if (parts.length === 2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+              latStr = parts[0];
+              lngStr = parts[1];
+          }
+      }
+
+      if (latStr && lngStr) {
+          const lat = parseFloat(latStr);
+          const lng = parseFloat(lngStr);
+          if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+      }
+      
+      return null;
   };
+
+  const editorCoords = getShiftCoordinates(formData.address);
 
   return (
     <div className="space-y-6 pb-20">
@@ -959,25 +984,50 @@ const RotaPage = () => {
                                   <div className="relative">
                                       {/* Integrated Autocomplete */}
                                       <AddressAutocomplete 
-                                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-sm h-9 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm"
-                                          placeholder="Search address..."
+                                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-8 py-1.5 text-sm h-9 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm"
+                                          placeholder="Search address or coords (lat,lng)..."
                                           value={formData.address ? formData.address.split('|')[1] || formData.address : ''}
                                           onChange={(val) => {
-                                              // Keep coords if they exist, update text
                                               const currentCoords = formData.address?.includes('|') ? formData.address.split('|')[0] : '';
-                                              setFormData({...formData, address: currentCoords ? `${currentCoords}|${val}` : val});
+                                              
+                                              // Detect manual coordinate entry
+                                              if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(val)) {
+                                                   setFormData({...formData, address: val});
+                                                   if (!showAddressPicker) setShowAddressPicker(true);
+                                              } else {
+                                                   // Keep existing coords if editing text label
+                                                   setFormData({...formData, address: currentCoords ? `${currentCoords}|${val}` : val});
+                                              }
                                           }}
                                           onSelect={(addr, lat, lng) => {
                                               setFormData({...formData, address: `${lat},${lng}|${addr}`});
+                                              if (!showAddressPicker) setShowAddressPicker(true);
                                           }}
                                       />
                                       <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
+                                      {/* Clear Button */}
+                                      {formData.address && (
+                                          <button 
+                                            type="button"
+                                            onClick={() => setFormData({...formData, address: ''})}
+                                            className="absolute right-2 top-2 text-slate-400 hover:text-red-500 transition-colors"
+                                          >
+                                              <X className="w-4 h-4" />
+                                          </button>
+                                      )}
                                   </div>
                                   {showAddressPicker && (
                                       <div className="mt-2 h-48 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
                                           <LeafletMap 
                                               interactive 
                                               height="100%" 
+                                              center={editorCoords ? [editorCoords.lat, editorCoords.lng] : undefined}
+                                              markers={editorCoords ? [{
+                                                  id: 'selected-loc',
+                                                  lat: editorCoords.lat,
+                                                  lng: editorCoords.lng,
+                                                  label: 'Selected Location'
+                                              }] : []}
                                               onLocationSelect={(lat, lng, addr) => setFormData({...formData, address: `${lat},${lng}|${addr || ''}`})} 
                                           />
                                       </div>
