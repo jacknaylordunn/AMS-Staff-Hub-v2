@@ -19,7 +19,9 @@
     "jspdf-autotable": "^3.8.2",
     "express": "^4.19.2",
     "leaflet": "^1.9.4",
-    "react-leaflet": "^4.2.1"
+    "react-leaflet": "^4.2.1",
+    "qrcode": "^1.5.3",
+    "jsqr": "^1.4.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",
@@ -27,6 +29,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "typescript": "^5.2.2",
     "vite": "^5.2.0",
-    "@types/leaflet": "^1.9.8"
+    "@types/leaflet": "^1.9.8",
+    "@types/qrcode": "^1.5.5"
   }
 }
