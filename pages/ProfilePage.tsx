@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key, Camera, RefreshCw } from 'lucide-react';
+import { User, Shield, Phone, MapPin, Upload, AlertCircle, CheckCircle, Clock, Briefcase, ArrowUpCircle, X, Loader2, Eye, EyeOff, Lock, Crown, Key, Camera, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../context/ToastContext';
 import { ComplianceDoc, Role } from '../types';
@@ -90,6 +90,9 @@ const ProfilePage = () => {
   const [pinError, setPinError] = useState('');
 
   const [canBootstrap, setCanBootstrap] = useState(false);
+
+  // Derived state for permissions
+  const isManager = user?.role === Role.Manager || user?.role === Role.Admin;
 
   useEffect(() => {
       const checkSystemStatus = async () => {
@@ -221,6 +224,26 @@ const ProfilePage = () => {
       }
       setDocExpiry(''); // Reset expiry for new upload
       setShowDocModal(true);
+  };
+
+  const handleDeleteDoc = async (documentToDelete: ComplianceDoc) => {
+      if (!user || !user.compliance) return;
+      if (!confirm(`Are you sure you want to delete ${documentToDelete.name}? This cannot be undone.`)) return;
+
+      try {
+          // Filter out the document to delete
+          const newCompliance = user.compliance.filter(d => d.id !== documentToDelete.id);
+          
+          await updateDoc(doc(db, 'users', user.uid), {
+              compliance: newCompliance
+          });
+          
+          await refreshUser();
+          toast.success("Document deleted");
+      } catch (e) {
+          console.error("Delete failed", e);
+          toast.error("Failed to delete document.");
+      }
   };
 
   const handleDocUpload = async (e: React.FormEvent) => {
@@ -488,6 +511,13 @@ const ProfilePage = () => {
                                         className="text-slate-500 hover:text-ams-blue dark:text-slate-400 dark:hover:text-white text-xs font-bold flex items-center gap-1 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded"
                                       >
                                           <RefreshCw className="w-3 h-3" /> Update
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteDoc(doc)}
+                                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30"
+                                        title="Delete Document"
+                                      >
+                                          <Trash2 className="w-4 h-4" />
                                       </button>
                                   </td>
                               </tr>
