@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
 import { DRUG_DATABASE, CONTROLLED_DRUGS } from '../../data/drugDatabase';
 import { DrugAdministration, Procedure, InjuryMark, ResusEvent } from '../../types';
-import { Pill, Syringe, Plus, Search, CheckCircle, HeartPulse, Zap, Clock, Activity, MapPin, Trash2, Lock, FileText, HeartHandshake, Coffee, Car, Phone, Users, Wind, AlertOctagon, ClipboardList, Flame, Smile, X, AlertCircle, HeartCrack } from 'lucide-react';
+import { Pill, Syringe, Plus, Search, HeartPulse, ClipboardList, Trash2, Lock, FileText, HeartHandshake, Coffee, X, User, Timer } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import BodyMap from '../BodyMap';
 import WitnessModal from '../WitnessModal';
@@ -12,7 +12,7 @@ import ResusManager from '../ResusManager';
 const TreatmentTab = () => {
     const { activeDraft, addDrug, addProcedure, handleNestedUpdate } = useEPRF();
     const { user } = useAuth();
-    const [subTab, setSubTab] = useState<'Drugs' | 'Access' | 'Procedures' | 'Resus'>('Drugs');
+    const [subTab, setSubTab] = useState<'Drugs' | 'Access' | 'Procedures' | 'Resus' | 'Welfare'>('Drugs');
     
     // Drug State
     const [searchTerm, setSearchTerm] = useState('');
@@ -31,6 +31,10 @@ const TreatmentTab = () => {
     const [procTime, setProcTime] = useState('');
     const [procSuccess, setProcSuccess] = useState(true);
     const [procDetails, setProcDetails] = useState('');
+
+    // Welfare Log State
+    const [welfareAction, setWelfareAction] = useState('');
+    const [welfareNote, setWelfareNote] = useState('');
 
     // Access (Vascular) State
     const [showAccessModal, setShowAccessModal] = useState(false);
@@ -129,6 +133,23 @@ const TreatmentTab = () => {
         handleNestedUpdate(['treatments', 'procedures'], current.filter(p => p.id !== id));
     };
 
+    // --- Welfare Logging ---
+    const handleAddWelfareLog = (action: string) => {
+        const newLog = {
+            id: Date.now().toString(),
+            timestamp: new Date().toISOString(),
+            message: `${action}${welfareNote ? ': ' + welfareNote : ''}`,
+            category: 'Care',
+            author: user?.name || 'Clinician'
+        };
+        handleNestedUpdate(['logs'], [...(activeDraft.logs || []), newLog]);
+        setWelfareNote(''); // Clear note but keep action buttons ready
+    };
+
+    const removeLog = (id: string) => {
+        handleNestedUpdate(['logs'], (activeDraft.logs || []).filter(l => l.id !== id));
+    };
+
     // --- Access (BodyMap) ---
     const handleAccessMapChange = (vals: InjuryMark[]) => {
         handleNestedUpdate(['injuries'], vals);
@@ -216,11 +237,17 @@ const TreatmentTab = () => {
 
     const filteredDrugs = DRUG_DATABASE.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
+    const WELFARE_ACTIONS = [
+        "Water Given", "Food Given", "Toilet Visit", "Position Changed", 
+        "Blanket Given", "Reassurance", "Family Contacted", "Observation Only"
+    ];
+
     return (
         <div className="flex flex-col md:flex-row gap-6 h-full">
             <div className="w-full md:w-48 flex-shrink-0 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
                 {[
                     { id: 'Drugs', icon: Pill, label: 'Drugs' },
+                    { id: 'Welfare', icon: Coffee, label: 'Welfare / Log' },
                     { id: 'Access', icon: Syringe, label: 'Access (IV/IO)' },
                     { id: 'Procedures', icon: ClipboardList, label: 'Procedures' },
                     { id: 'Resus', icon: HeartPulse, label: 'Resuscitation' }
@@ -345,6 +372,65 @@ const TreatmentTab = () => {
                     </div>
                 )}
 
+                {subTab === 'Welfare' && (
+                    <div className="space-y-6">
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                                <Coffee className="w-5 h-5 text-amber-600" /> Welfare & Care Log
+                            </h3>
+                            
+                            <div className="mb-4">
+                                <label className="input-label">Additional Note (Optional)</label>
+                                <input 
+                                    className="input-field mb-3 h-9 text-sm" 
+                                    placeholder="e.g. 500ml water given" 
+                                    value={welfareNote}
+                                    onChange={e => setWelfareNote(e.target.value)}
+                                />
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {WELFARE_ACTIONS.map(action => (
+                                        <button
+                                            key={action}
+                                            onClick={() => handleAddWelfareLog(action)}
+                                            className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-ams-blue hover:text-white dark:hover:bg-slate-700 rounded-lg text-xs font-bold transition-all text-slate-600 dark:text-slate-300 shadow-sm border border-slate-200 dark:border-slate-700"
+                                        >
+                                            {action}
+                                        </button>
+                                    ))}
+                                    <button 
+                                        onClick={() => handleAddWelfareLog("Custom Entry")}
+                                        disabled={!welfareNote}
+                                        className="px-3 py-2 bg-ams-blue text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        Add Note
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-panel p-6 rounded-xl">
+                            <h4 className="font-bold text-slate-800 dark:text-white mb-4">Action Timeline</h4>
+                            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                                {(activeDraft.logs || []).slice().reverse().map(log => (
+                                    <div key={log.id} className="flex justify-between items-start p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold text-slate-800 dark:text-white">{log.message}</p>
+                                            <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                                <span className="flex items-center gap-1"><User className="w-3 h-3" /> {log.author}</span>
+                                                <span className="font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => removeLog(log.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                ))}
+                                {(!activeDraft.logs || activeDraft.logs.length === 0) && (
+                                    <p className="text-center text-slate-400 text-sm py-8 italic">No welfare actions recorded.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {subTab === 'Access' && (
                     <div className="glass-panel p-6 rounded-xl flex flex-col items-center">
                         <h3 className="font-bold text-slate-800 dark:text-white mb-4 w-full flex items-center gap-2">
@@ -423,7 +509,7 @@ const TreatmentTab = () => {
                     <div className="space-y-6">
                         <div className="glass-panel p-6 rounded-xl">
                             <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                                <HeartCrack className="w-5 h-5 text-red-600" /> Resuscitation Management
+                                <HeartHandshake className="w-5 h-5 text-red-600" /> Resuscitation Management
                             </h3>
                             <ResusManager 
                                 onLogEvent={handleResusEvent} 

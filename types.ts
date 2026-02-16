@@ -1,5 +1,4 @@
 
-
 export enum Role {
     Admin = 'Admin',
     Manager = 'Manager',
@@ -213,21 +212,17 @@ export interface InjuryMark {
     view: 'Anterior' | 'Posterior';
     type: 'Injury' | 'Pain' | 'IV' | 'IO' | 'IM' | 'SC' | 'Other';
     subtype?: string;
-    location?: string; // Auto-generated description
-    
-    // Access Specific
+    location?: string;
     device?: string;
     gauge?: string;
     time?: string;
     success?: boolean;
     attempts?: number;
-    
-    // Injury Specific
     notes?: string;
 }
 
 export interface VitalsEntry {
-    id?: string; // Added ID for editing
+    id?: string;
     time: string;
     hr?: number;
     rr?: number;
@@ -348,12 +343,13 @@ export interface TraumaTriageResult {
     seatbeltWorn?: string;
     airbagsDeployed?: string;
     extrication?: string;
+    mechanismDetails?: string; 
 }
 
 export interface NeuroAssessment {
     gcs: { eyes?: number; verbal?: number; motor?: number; total?: number };
-    pupils: { leftSize: number; leftReaction: string; rightSize: number; rightReaction: string };
-    fast: { face: string; arms: string; speech: string; time: string; testPositive: boolean };
+    pupils: { leftSize?: number; leftReaction?: string; rightSize?: number; rightReaction?: string };
+    fast: { face: string | null; arms: string | null; speech: string | null; time: string; testPositive: boolean };
     limbs: {
         leftArm: { power: string; sensation: string };
         rightArm: { power: string; sensation: string };
@@ -404,7 +400,7 @@ export interface EPRF {
         badgeNumber: string;
     }[];
     times: {
-        incidentDate: string; // Added Incident Date
+        incidentDate: string;
         callReceived: string;
         mobile: string;
         onScene: string;
@@ -443,6 +439,8 @@ export interface EPRF {
         allergies: string;
         medications: string;
         pastMedicalHistory: string;
+        socialHistory?: string;
+        familyHistory?: string;
     };
     assessment: {
         primary: PrimarySurvey;
@@ -458,7 +456,7 @@ export interface EPRF {
                 stDetails?: { type: 'Elevation' | 'Depression' | 'None'; leads: string; };
                 twelveLeadNotes?: string 
             };
-            socrates?: any;
+            socrates?: { site: string; onset: string; character: string; radiation: string; associations: string; timeCourse: string; exacerbatingRelieving: string; severity: string; };
             wellsCriteria?: string[];
             wellsScore?: number;
         };
@@ -545,8 +543,8 @@ export interface EPRF {
             arrestWitnessed: boolean;
             bystanderCPR: boolean;
             dnacprAvailable: boolean; 
-            downTimeMinutes: number;
-            totalShocks: number;
+            downTimeMinutes?: number;
+            totalShocks?: number;
             criteriaMet: string[];
             resusSummary: string; 
         };
@@ -565,11 +563,16 @@ export interface EPRF {
         gpName?: string;
         gpCallTime?: string;
         gpRefNumber?: string;
+        pathwayData?: {
+            pathwayName: string;
+            criteriaMet: string[];
+            outcome: string;
+        };
     };
     governance: {
         capacity: {
             status: string;
-            stage1?: { impairment: boolean; nexus: boolean };
+            stage1?: { impairment: boolean | undefined; nexus: boolean | undefined };
             stage2Functional?: { understand: boolean; retain: boolean; weigh: boolean; communicate: boolean };
             bestInterestsRationale: string;
         };

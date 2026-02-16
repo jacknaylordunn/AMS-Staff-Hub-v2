@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { RotateCcw, Check, Trash2, PenTool, X, Clock, Calendar } from 'lucide-react';
+import { RotateCcw, Check, Trash2, PenTool, X, Clock } from 'lucide-react';
 
 interface SignaturePadProps {
   label: string;
@@ -23,52 +23,78 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [isEmpty, setIsEmpty] = useState(!value);
+  const [hasDrawn, setHasDrawn] = useState(false);
 
-  // Initialize canvas when modal opens
+  // Initialize Canvas
   useEffect(() => {
-    if (isModalOpen) {
-      setTimeout(initCanvas, 100);
-    }
-  }, [isModalOpen]);
-
-  const initCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const parent = canvas.parentElement;
-    if (parent) {
-      canvas.width = parent.clientWidth;
-      canvas.height = parent.clientHeight;
-    }
-
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (isModalOpen && containerRef.current && canvasRef.current) {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
         
-        // Settings
+        // Initial setup
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Set dimensions to match container
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+
+        // Style
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.strokeStyle = '#000';
 
-        if (value && !value.startsWith('OFFLINE')) {
+        // Load existing signature if editing
+        if (value && value.startsWith('data:image')) {
             const img = new Image();
             img.src = value;
-            img.onload = () => {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                setIsEmpty(false);
-            };
-        } else {
-            setIsEmpty(true);
+            img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         }
     }
+  }, [isModalOpen]); // Run only when modal opens
+
+  const getPoint = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { x: 0, y: 0 };
+      const rect = canvas.getBoundingClientRect();
+      
+      let clientX, clientY;
+      if ('touches' in e) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+      } else {
+          clientX = (e as React.MouseEvent).clientX;
+          clientY = (e as React.MouseEvent).clientY;
+      }
+      return {
+          x: clientX - rect.left,
+          y: clientY - rect.top
+      };
   };
 
   const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    // e.preventDefault(); // Removed to allow scrolling if needed, handled via touch-action css
     setIsDrawing(true);
-    setIsEmpty(false);
-    draw(e);
+    setHasDrawn(true);
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) {
+        const { x, y } = getPoint(e);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+    }
+  };
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing) return;
+    e.preventDefault(); // Prevent scrolling while drawing
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) {
+        const { x, y } = getPoint(e);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+    }
   };
 
   const stopDrawing = () => {
@@ -77,82 +103,52 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
     ctx?.beginPath();
   };
 
-  const draw = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    let clientX, clientY;
-
-    if ('touches' in e) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-    } else {
-        clientX = (e as React.MouseEvent).clientX;
-        clientY = (e as React.MouseEvent).clientY;
-    }
-
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000';
-
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
   const clearCanvas = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      setIsEmpty(true);
+      setHasDrawn(false);
     }
   };
 
   const handleConfirm = () => {
     const canvas = canvasRef.current;
-    if (canvas && !isEmpty) {
-        const dataUrl = canvas.toDataURL();
-        onSave(dataUrl);
-        // Auto-fill timestamp if empty when signing
-        if (onTimestampChange && !timestamp) {
-            handleSetTimeNow();
+    if (canvas) {
+        if (hasDrawn) {
+            // Synchronously get data
+            const dataUrl = canvas.toDataURL('image/png');
+            onSave(dataUrl);
+            
+            if (onTimestampChange && !timestamp) {
+                const now = new Date();
+                const timeStr = now.toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                onTimestampChange(timeStr);
+            }
+        } else if (!value) {
+            onSave(''); // Clear if nothing drawn
         }
-    } else if (isEmpty) {
-        // If empty and confirmed, treat as clear
-        onSave('');
     }
     setIsModalOpen(false);
   };
 
   const handleClearSignature = (e: React.MouseEvent) => {
       e.stopPropagation();
-      onSave('');
-      setIsEmpty(true);
-      // Optional: Clear timestamp too? Probably keep it if manual entry, but logically signature clear = no signature time.
-      // Let's keep timestamp for audit unless manually cleared.
+      if(confirm("Clear this signature?")) {
+          onSave('');
+          setHasDrawn(false);
+      }
   };
 
   const handleSetTimeNow = () => {
       if (onTimestampChange) {
           const now = new Date();
-          // ISO format is better for data, but display needs to be friendly or standard.
-          // App uses locale strings mostly.
           const timeStr = now.toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
           onTimestampChange(timeStr);
       }
   };
 
   const isSigned = value && value.length > 50;
-  const displaySrc = value?.startsWith('OFFLINE_PENDING::') ? value.split('::')[2] : value;
 
   return (
     <div className="w-full mb-4">
@@ -163,7 +159,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
       </div>
 
       <div className="space-y-2">
-          {/* Signature Box - Forced White Background for visibility */}
+          {/* Signature Box */}
           <div 
             onClick={() => setIsModalOpen(true)}
             className={`
@@ -176,7 +172,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
           >
               {isSigned ? (
                   <>
-                    <img src={displaySrc} alt="Signature" className="w-full h-full object-contain p-2" />
+                    <img src={value} alt="Signature" className="w-full h-full object-contain p-2" />
                     <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity gap-3">
                         <button className="bg-white text-slate-800 px-3 py-1 rounded-full text-xs font-bold shadow-sm flex items-center gap-1">
                             <PenTool className="w-3 h-3" /> Edit
@@ -205,7 +201,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
                       type="text" 
                       placeholder={timeRequired ? "Date & Time Required *" : "Date & Time"}
                       value={timestamp || ''}
-                      onClick={() => !timestamp && handleSetTimeNow()}
                       onChange={(e) => onTimestampChange(e.target.value)}
                       className={`flex-1 bg-transparent text-sm outline-none font-mono ${timeRequired && !timestamp ? 'placeholder-red-400' : 'text-slate-700 dark:text-slate-200'}`}
                   />
@@ -222,7 +217,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
       {/* Modal */}
       {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col h-[70vh]">
                   <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2">
                           <PenTool className="w-4 h-4 text-ams-blue" /> {label}
@@ -232,10 +227,10 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
                       </button>
                   </div>
                   
-                  <div className="relative h-64 w-full bg-white touch-none">
+                  <div className="flex-1 bg-white relative touch-none p-4" ref={containerRef}>
                       <canvas 
                           ref={canvasRef}
-                          className="absolute inset-0 w-full h-full cursor-crosshair"
+                          className="w-full h-full border-2 border-dashed border-slate-200 rounded-xl cursor-crosshair bg-slate-50 touch-none"
                           onMouseDown={startDrawing}
                           onMouseUp={stopDrawing}
                           onMouseLeave={stopDrawing}
@@ -244,7 +239,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
                           onTouchEnd={stopDrawing}
                           onTouchMove={draw}
                       />
-                      {isEmpty && (
+                      {!hasDrawn && !value && (
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
                               <span className="text-4xl font-bold text-slate-300">SIGN HERE</span>
                           </div>
@@ -256,7 +251,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
                         onClick={clearCanvas}
                         className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-2"
                       >
-                          <RotateCcw className="w-4 h-4" /> Clear
+                          <RotateCcw className="w-4 h-4" /> Reset
                       </button>
                       <div className="flex gap-2">
                           <button 
@@ -267,9 +262,9 @@ const SignaturePad: React.FC<SignaturePadProps> = ({
                           </button>
                           <button 
                             onClick={handleConfirm}
-                            className="px-6 py-2 bg-ams-blue text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
+                            className="px-8 py-2 bg-ams-blue text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
                           >
-                              <Check className="w-4 h-4" /> Done
+                              <Check className="w-4 h-4" /> Save Signature
                           </button>
                       </div>
                   </div>

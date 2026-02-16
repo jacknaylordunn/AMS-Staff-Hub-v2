@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { FileText, ClipboardList, Plus } from 'lucide-react';
+import { FileText, ClipboardList, Plus, Home, Users } from 'lucide-react';
 import SpeechTextArea from '../SpeechTextArea';
 
 const COMMON_ALLERGIES = ['NKDA', 'Penicillin', 'Latex', 'Nuts', 'Codeine', 'Morphine'];
@@ -21,7 +21,7 @@ const HistoryTab = () => {
     };
 
     return (
-        <div className="space-y-4 animate-in fade-in">
+        <div className="space-y-6 animate-in fade-in">
             {/* Presenting Complaint */}
             <div className="glass-panel p-4 rounded-xl">
                 <h3 className="font-bold text-base text-slate-800 dark:text-white mb-4 flex items-center gap-2">
@@ -40,7 +40,7 @@ const HistoryTab = () => {
                     <div>
                         <SpeechTextArea 
                             label="History of Presenting Complaint (HPC)"
-                            rows={4}
+                            rows={6}
                             className="text-sm py-2 px-3"
                             placeholder="Detailed narrative of the event..."
                             value={activeDraft.history.historyOfPresentingComplaint}
@@ -135,6 +135,36 @@ const HistoryTab = () => {
                             onChange={e => updateSample('eventsPrior', e.target.value)}
                         />
                     </div>
+                </div>
+            </div>
+
+            {/* Social & Family History */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="glass-panel p-4 rounded-xl">
+                    <h3 className="font-bold text-base text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+                        <Home className="w-4 h-4 text-green-600" /> Social History
+                    </h3>
+                    <SpeechTextArea 
+                        label="Lifestyle & Context"
+                        rows={3}
+                        className="text-sm"
+                        placeholder="e.g. Lives alone, Warden assisted, Smoker (20/day), ETOH intake..."
+                        value={activeDraft.history.socialHistory || ''}
+                        onChange={e => update('socialHistory', e.target.value)}
+                    />
+                </div>
+                <div className="glass-panel p-4 rounded-xl">
+                    <h3 className="font-bold text-base text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+                        <Users className="w-4 h-4 text-orange-600" /> Family History
+                    </h3>
+                    <SpeechTextArea 
+                        label="Relevant FHx"
+                        rows={3}
+                        className="text-sm"
+                        placeholder="e.g. Father MI < 50, Mother Stroke..."
+                        value={activeDraft.history.familyHistory || ''}
+                        onChange={e => update('familyHistory', e.target.value)}
+                    />
                 </div>
             </div>
         </div>

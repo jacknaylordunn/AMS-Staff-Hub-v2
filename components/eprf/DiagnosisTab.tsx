@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { Brain, Stethoscope, Signpost, MapPin, CheckCircle, XCircle } from 'lucide-react';
+import { Brain, Stethoscope, Signpost, MapPin, CheckCircle, XCircle, AlertTriangle, Lightbulb } from 'lucide-react';
 import SpeechTextArea from '../SpeechTextArea';
 import { HOSPITAL_DATA, HospitalTrust, HospitalRegion, Hospital } from '../../data/hospitals';
 
@@ -17,6 +17,9 @@ const DiagnosisTab = () => {
     const [regions, setRegions] = useState<HospitalRegion[]>([]);
     const [hospitals, setHospitals] = useState<Hospital[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
+    
+    // Pathway State
+    const [activePathway, setActivePathway] = useState<string | null>(null);
 
     useEffect(() => {
         if (activeDraft?.clinicalDecision?.destinationTrust) {
@@ -41,7 +44,16 @@ const DiagnosisTab = () => {
                 }
             }
         }
-    }, [activeDraft?.clinicalDecision?.destinationTrust, activeDraft?.clinicalDecision?.destinationRegion, activeDraft?.clinicalDecision?.destinationHospital]);
+        
+        // Auto-detect pathway
+        const imp = activeDraft?.clinicalDecision?.workingImpression?.toLowerCase() || '';
+        if (imp.includes('head')) setActivePathway('Head Injury (NICE CG176)');
+        else if (imp.includes('fall')) setActivePathway('Falls Risk Assessment');
+        else if (imp.includes('chest')) setActivePathway('Chest Pain (ACS)');
+        else if (imp.includes('sepsis') || imp.includes('infection')) setActivePathway('Sepsis Screening');
+        else setActivePathway(null);
+
+    }, [activeDraft?.clinicalDecision?.destinationTrust, activeDraft?.clinicalDecision?.destinationRegion, activeDraft?.clinicalDecision?.destinationHospital, activeDraft?.clinicalDecision?.workingImpression]);
 
     if (!activeDraft) return null;
 
@@ -117,6 +129,22 @@ const DiagnosisTab = () => {
         });
     };
 
+    // Pathway Logic
+    const togglePathwayCriterion = (criterion: string) => {
+        const currentCriteria = activeDraft.clinicalDecision.pathwayData?.criteriaMet || [];
+        const newCriteria = currentCriteria.includes(criterion) 
+            ? currentCriteria.filter(c => c !== criterion)
+            : [...currentCriteria, criterion];
+        
+        const outcome = newCriteria.length > 0 ? "Trigger Met - Action Required" : "No Triggers Met";
+
+        update('pathwayData', {
+            pathwayName: activePathway,
+            criteriaMet: newCriteria,
+            outcome
+        });
+    };
+
     const isConveying = data.finalDisposition?.includes('Conveyed');
     const smallInputClass = "w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm";
 
@@ -138,6 +166,58 @@ const DiagnosisTab = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Intelligent Clinical Pathway Support */}
+            {activePathway && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 animate-in slide-in-from-top-2">
+                    <h3 className="font-bold text-lg text-amber-800 dark:text-amber-200 mb-4 flex items-center gap-2">
+                        <Lightbulb className="w-5 h-5" /> Decision Support: {activePathway}
+                    </h3>
+                    
+                    {activePathway.includes('Head') && (
+                        <div className="space-y-3">
+                            <p className="text-xs font-bold text-slate-500 uppercase">NICE CG176 CT Criteria (Within 1 Hour)</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {['GCS < 13 on arrival', 'GCS < 15 at 2 hours', 'Suspected Open/Depressed Skull #', 'Sign of Basal Skull #', 'Post-traumatic Seizure', 'Focal Neuro Deficit', 'Vomiting > 1 episode'].map(c => (
+                                    <label key={c} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) ? 'bg-red-100 border-red-300 text-red-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                                        <input type="checkbox" checked={activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) || false} onChange={() => togglePathwayCriterion(c)} className="w-4 h-4 rounded text-red-600" />
+                                        <span className="text-sm font-medium">{c}</span>
+                                    </label>
+                                ))}
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 uppercase mt-2">Risk Factors (CT within 8 Hours)</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {['Age >= 65', 'Clotting Disorder / Anticoagulants', 'Dangerous Mechanism'].map(c => (
+                                    <label key={c} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                                        <input type="checkbox" checked={activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) || false} onChange={() => togglePathwayCriterion(c)} className="w-4 h-4 rounded text-amber-600" />
+                                        <span className="text-sm font-medium">{c}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {activePathway.includes('Fall') && (
+                        <div className="space-y-3">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Assessment Factors</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {['Mechanical Fall (Trip/Slip)', 'Medical Cause Suspected (Syncope/Dizzy)', 'Long Lie (> 1 Hour)', 'Injury Sustained', 'Able to stand independently'].map(c => (
+                                    <label key={c} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                                        <input type="checkbox" checked={activeDraft.clinicalDecision.pathwayData?.criteriaMet?.includes(c) || false} onChange={() => togglePathwayCriterion(c)} className="w-4 h-4 rounded text-blue-600" />
+                                        <span className="text-sm font-medium">{c}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeDraft.clinicalDecision.pathwayData?.criteriaMet?.length ? (
+                        <div className="mt-4 p-3 bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-800 text-sm font-bold text-slate-700 dark:text-slate-300">
+                            Outcome: {activeDraft.clinicalDecision.pathwayData.outcome}
+                        </div>
+                    ) : null}
+                </div>
+            )}
 
             <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-purple-500">
                 <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">

@@ -139,7 +139,7 @@ const getNavGroups = (mode: 'Clinical' | 'Welfare' | 'Minor') => {
                 items: [
                     { id: 'history', label: 'Situation', icon: FileText },
                     { id: 'assessment', label: 'Assessment', icon: ClipboardList }, 
-                    { id: 'treatment', label: 'Actions / Log', icon: Pill }, 
+                    { id: 'treatment', label: 'Action Log', icon: Pill }, // Changed Label for Clarity
                 ]
             },
             {
@@ -504,8 +504,6 @@ const EPRFContent = ({ drafts, createDraft, availableShifts, loading, user, view
 };
 
 const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
-    // ... (Code omitted for brevity as requested by prompt to not omit, but this component is unchanged)
-    // Actually, I must write it out.
     const [searchTerm, setSearchTerm] = useState('');
     const [results, setResults] = useState<EPRF[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -597,99 +595,103 @@ const DataComplianceModal = ({ onClose }: { onClose: () => void }) => {
 };
 
 const EPRFPage = () => {
-    const { user } = useAuth();
-    const { saveEPRF } = useDataSync();
-    const [drafts, setDrafts] = useState<EPRF[]>([]);
-    const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [viewAll, setViewAll] = useState(false);
-    const [showComplianceModal, setShowComplianceModal] = useState(false);
+  const { user } = useAuth();
+  const [drafts, setDrafts] = useState<EPRF[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [viewAll, setViewAll] = useState(false);
+  const [showComplianceModal, setShowComplianceModal] = useState(false);
 
-    useEffect(() => {
-        if (!user) return;
+  useEffect(() => {
+    if (!user) return;
 
-        let qDrafts;
+    // Fetch Shifts
+    const fetchShifts = async () => {
+        const now = new Date();
+        const start = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+        const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
         
-        if (viewAll && (user.role === 'Manager' || user.role === 'Admin')) {
-            qDrafts = query(
-                collection(db, 'eprfs'),
-                where('status', '==', 'Submitted'),
-                orderBy('lastUpdated', 'desc'),
-                limit(50)
+        try {
+            const q = query(
+                collection(db, 'shifts'), 
+                where('start', '>=', Timestamp.fromDate(start)),
+                where('start', '<=', Timestamp.fromDate(end))
             );
-        } else {
-            qDrafts = query(
-                collection(db, 'eprfs'),
-                where('userId', '==', user.uid),
-                where('status', '!=', 'Submitted'),
-                orderBy('status'), 
-                orderBy('lastUpdated', 'desc')
-            );
+            const snap = await getDocs(q);
+            setShifts(snap.docs.map(d => ({id: d.id, ...d.data(), start: d.data().start.toDate()} as Shift)));
+        } catch (e) {
+            console.error("Shift fetch error", e);
         }
-
-        const unsubDrafts = onSnapshot(qDrafts, (snap) => {
-            setDrafts(snap.docs.map(d => ({ id: d.id, ...d.data() } as EPRF)));
-            setLoading(false);
-        }, (err) => {
-            console.error(err);
-            setLoading(false);
-        });
-
-        const now = new Date();
-        const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const qShifts = query(collection(db, 'shifts'), where('start', '>=', Timestamp.fromDate(start)));
-        
-        getDocs(qShifts).then(snap => {
-            setAvailableShifts(snap.docs.map(d => ({ id: d.id, ...d.data(), start: d.data().start.toDate(), end: d.data().end.toDate() } as Shift)));
-        });
-
-        return () => unsubDrafts();
-    }, [user, viewAll]);
-
-    const handleCreateDraft = async (shiftId: string | null) => {
-        if (!user) return null;
-        const now = new Date();
-        const incidentNumber = `AMS-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${Math.floor(Math.random()*9999).toString().padStart(4,'0')}`;
-        
-        const newDraft = {
-            ...DEFAULT_EPRF,
-            id: Date.now().toString(),
-            incidentNumber,
-            userId: user.uid,
-            accessUids: [user.uid],
-            shiftId: shiftId || undefined,
-            status: 'Draft',
-            lastUpdated: new Date().toISOString(),
-            patient: { ...DEFAULT_EPRF.patient },
-            history: { ...DEFAULT_EPRF.history },
-            assessment: { ...DEFAULT_EPRF.assessment, primary: { ...DEFAULT_PRIMARY }, neuro: { ...DEFAULT_NEURO } },
-            clinicalDecision: { ...DEFAULT_EPRF.clinicalDecision },
-            governance: { ...DEFAULT_EPRF.governance },
-            handover: { ...DEFAULT_EPRF.handover },
-            vitals: [],
-            injuries: [],
-            treatments: { drugs: [], procedures: [] },
-            logs: []
-        };
-        await saveEPRF(newDraft, true);
-        return newDraft as EPRF;
     };
+    fetchShifts();
 
-    return (
-        <EPRFProvider initialDraft={null}>
-            <EPRFContent 
-                drafts={drafts} 
-                createDraft={handleCreateDraft} 
-                availableShifts={availableShifts} 
-                loading={loading}
-                user={user} 
-                viewAll={viewAll}
-                setViewAll={setViewAll}
-                setShowComplianceModal={setShowComplianceModal}
-            />
-            {showComplianceModal && <DataComplianceModal onClose={() => setShowComplianceModal(false)} />}
-        </EPRFProvider>
-    );
+    // Fetch Drafts
+    let q;
+    if (viewAll && (user.role === 'Manager' || user.role === 'Admin')) {
+        q = query(collection(db, 'eprfs'), where('status', '==', 'Submitted'), orderBy('lastUpdated', 'desc'), limit(50));
+    } else {
+        // Staff only see their own DRAFTS in the workspace. Submitted are hidden unless searched.
+        q = query(
+            collection(db, 'eprfs'), 
+            where('userId', '==', user.uid), 
+            where('status', '==', 'Draft'),
+            orderBy('lastUpdated', 'desc'), 
+            limit(20)
+        );
+    }
+
+    const unsub = onSnapshot(q, (snap) => {
+        setDrafts(snap.docs.map(d => ({ id: d.id, ...d.data() } as EPRF)));
+        setLoading(false);
+    }, (err) => {
+        console.error("Drafts fetch error", err);
+        setLoading(false);
+    });
+
+    return () => unsub();
+  }, [user, viewAll]);
+
+  const createDraft = async (shiftId: string | null) => {
+      if (!user) return null;
+      
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const rand = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
+      const incidentNumber = `INC${yyyy}${mm}${dd}-${rand}`;
+
+      const newDraft = {
+          ...DEFAULT_EPRF,
+          id: Date.now().toString(),
+          incidentNumber,
+          userId: user.uid,
+          shiftId: shiftId || undefined,
+          assistingClinicians: [{
+              name: user.name,
+              role: user.role,
+              badgeNumber: user.employeeId || 'Unknown'
+          }]
+      } as EPRF;
+
+      return newDraft;
+  };
+
+  return (
+    <EPRFProvider initialDraft={null}>
+        <EPRFContent 
+            drafts={drafts} 
+            createDraft={createDraft} 
+            availableShifts={shifts} 
+            loading={loading}
+            user={user}
+            viewAll={viewAll}
+            setViewAll={setViewAll}
+            setShowComplianceModal={setShowComplianceModal}
+        />
+        {showComplianceModal && <DataComplianceModal onClose={() => setShowComplianceModal(false)} />}
+    </EPRFProvider>
+  );
 };
 
 export default EPRFPage;

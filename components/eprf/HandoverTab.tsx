@@ -5,7 +5,7 @@ import SignaturePad from '../SignaturePad';
 import SpeechTextArea from '../SpeechTextArea';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../context/ToastContext';
-import { Lock, CheckCircle, Send, Loader2, AlertTriangle, Camera, Trash2, UserCheck, Clock, AlertCircle, FileCheck, Sparkles } from 'lucide-react';
+import { Lock, CheckCircle, Send, Loader2, AlertTriangle, Camera, Trash2, UserCheck, Clock, AlertCircle, FileCheck, Sparkles, Siren } from 'lucide-react';
 import { generateSBAR } from '../../services/geminiService';
 import { validateEPRF } from '../../utils/validation';
 import { uploadFile, uploadBlob } from '../../services/storage';
@@ -79,6 +79,33 @@ Signs: ${signs}
 Treatment: ${treatment}`;
 
         update('atmist', atmist);
+        return atmist;
+    };
+
+    const handlePreAlert = async () => {
+        if (!activeDraft.clinicalDecision.destinationHospital) {
+            toast.error("Select a destination hospital in 'Decision' tab first.");
+            return;
+        }
+        
+        if (confirm(`TRANSMIT PRE-ALERT TO: ${activeDraft.clinicalDecision.destinationHospital}?\n\nThis will send the current ATMIST data immediately.`)) {
+            const content = activeDraft.handover.atmist || generateATMIST();
+            
+            // In a real app, this would hit an API. Here we simulate and log.
+            await logAuditAction(user?.uid || 'Unknown', user?.name || 'User', 'Pre-Alert Sent', `Hospital: ${activeDraft.clinicalDecision.destinationHospital}`, 'Clinical');
+            
+            // Add a log entry to the ePRF
+            const newLog = {
+                id: Date.now().toString(),
+                timestamp: new Date().toISOString(),
+                category: 'Communication',
+                message: `Hospital Pre-Alert Sent to ${activeDraft.clinicalDecision.destinationHospital}`,
+                author: 'System'
+            };
+            handleNestedUpdate(['logs'], [...(activeDraft.logs || []), newLog]);
+            
+            toast.success("Pre-Alert Transmitted Successfully");
+        }
     };
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,10 +188,6 @@ Treatment: ${treatment}`;
 
             if (user) {
                 // Generate PDF Blobs (Final)
-                // Note: The PDF Generator automatically pulls the bodyMapImage URL from the draft.
-                // The BodyMap component updates the draft state whenever the canvas changes.
-                // So no extra save step needed here if state is synced.
-                
                 const pdfBlob = await getEPRFBlob(activeDraft, 'FULL');
                 const pdfPath = `eprfs/${activeDraft.incidentNumber}_final.pdf`;
                 const pdfUrl = await uploadBlob(pdfBlob, pdfPath);
@@ -245,15 +268,26 @@ Treatment: ${treatment}`;
                         />
                     </>
                 ) : (
-                    <SpeechTextArea 
-                        label="Age / Time / Mechanism / Injuries / Signs / Treatment"
-                        value={activeDraft.handover.atmist || ''}
-                        onChange={e => update('atmist', e.target.value)}
-                        rows={8}
-                        placeholder="ATMIST details..."
-                        className="font-mono text-sm leading-relaxed bg-amber-50 dark:bg-amber-900/10"
-                        disabled={isSubmitted}
-                    />
+                    <>
+                        <div className="flex justify-end mb-2">
+                            <button 
+                                onClick={handlePreAlert} 
+                                disabled={isSubmitted}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-md animate-pulse"
+                            >
+                                <Siren className="w-3 h-3" /> Transmit Pre-Alert
+                            </button>
+                        </div>
+                        <SpeechTextArea 
+                            label="Age / Time / Mechanism / Injuries / Signs / Treatment"
+                            value={activeDraft.handover.atmist || ''}
+                            onChange={e => update('atmist', e.target.value)}
+                            rows={8}
+                            placeholder="ATMIST details..."
+                            className="font-mono text-sm leading-relaxed bg-amber-50 dark:bg-amber-900/10"
+                            disabled={isSubmitted}
+                        />
+                    </>
                 )}
             </div>
 

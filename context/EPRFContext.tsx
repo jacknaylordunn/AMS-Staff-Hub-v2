@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { EPRF, VitalsEntry, DrugAdministration, Procedure } from '../types';
+import { EPRF, VitalsEntry, DrugAdministration, Procedure, Role } from '../types';
 import { useDataSync } from '../hooks/useDataSync';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../services/firebase';
@@ -18,11 +18,28 @@ interface EPRFContextType {
     addProcedure: (entry: Procedure) => void;
     generateIncidentId: () => string;
     deleteCurrentDraft: () => Promise<void>;
+    createNeonateDraft: () => Promise<void>;
 }
 
 const EPRFContext = createContext<EPRFContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'aegis_local_draft_backup';
+
+// Default Template for new records (Simplified for context brevity)
+const DEFAULT_NEONATE_TEMPLATE: any = {
+    status: 'Draft',
+    mode: 'Clinical',
+    patient: { firstName: 'Neonate of', lastName: '', dob: new Date().toISOString().split('T')[0], address: '', postcode: '', nhsNumber: '' },
+    history: { presentingComplaint: 'Born at Scene', historyOfPresentingComplaint: 'Neonate delivered at scene.', pastMedicalHistory: 'Maternal Hx: ', allergies: 'NKDA', medications: 'Nil' },
+    assessment: { 
+        primary: { airway: { status: 'Patent', intervention: '' }, breathing: { rate: '', effort: 'Normal', oxygenSats: '' }, circulation: { radialPulse: '', skin: 'Pink/Warm', color: 'Pink' }, disability: { avpu: 'A', gcs: '15', pupils: '', bloodGlucose: '' }, exposure: { injuriesFound: false, rash: false, temp: '' } },
+        neuro: { gcs: {}, pupils: {}, fast: { testPositive: false }, limbs: { leftArm: {}, rightArm: {}, leftLeg: {}, rightLeg: {} } },
+        clinicalNarrative: 'APGAR 1 min: \nAPGAR 5 min: \nAPGAR 10 min: '
+    },
+    clinicalDecision: { workingImpression: 'Neonate', differentialDiagnosis: '', managementPlan: '', finalDisposition: '' },
+    vitals: [], injuries: [], treatments: { drugs: [], procedures: [] }, governance: { safeguarding: { concerns: false }, capacity: { status: 'Not Assessed' }, refusal: { isRefusal: false } },
+    handover: { handoverType: 'Hospital Staff' }, logs: []
+};
 
 export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: EPRF | null }> = ({ children, initialDraft }) => {
     const { saveEPRF, deleteEPRF } = useDataSync();
@@ -37,20 +54,14 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     useEffect(() => {
         if (!activeDraft || !user) return;
 
-        // If it's a new draft not saved yet (no ID in DB), skip listener
-        // Assuming ID format 'draft_uid_timestamp'
         const draftDocId = `draft_${user.uid}_${activeDraft.id}`;
         
         const unsub = onSnapshot(doc(db, 'eprfs', draftDocId), (snapshot) => {
             if (snapshot.exists()) {
                 const remoteData = snapshot.data() as EPRF;
-                
-                // Only update if remote is newer or different to prevent loop with local typing
-                // We use lastUpdated timestamp
                 const localTime = new Date(activeDraft.lastUpdated).getTime();
                 const remoteTime = new Date(remoteData.lastUpdated).getTime();
 
-                // Allow 2 second buffer for clock skew / latency to prefer local if actively typing
                 if (remoteTime > localTime + 2000) {
                     console.log("Syncing from remote...");
                     setActiveDraftState(remoteData);
@@ -61,28 +72,7 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         });
 
         return () => unsub();
-    }, [activeDraft?.id, user]); // Only re-bind if the ID changes
-
-    // Local Storage Recovery
-    useEffect(() => {
-        if (!activeDraft) {
-            const backup = localStorage.getItem(STORAGE_KEY);
-            if (backup) {
-                try {
-                    const parsed = JSON.parse(backup);
-                    // Only restore if less than 24 hours old
-                    const age = Date.now() - new Date(parsed.lastUpdated).getTime();
-                    if (age < 24 * 60 * 60 * 1000) {
-                        console.log("Restoring ePRF draft from local storage");
-                    } else {
-                        localStorage.removeItem(STORAGE_KEY);
-                    }
-                } catch (e) {
-                    localStorage.removeItem(STORAGE_KEY);
-                }
-            }
-        }
-    }, []);
+    }, [activeDraft?.id, user]);
 
     const setActiveDraft = (draft: EPRF | null) => {
         setActiveDraftState(draft);
@@ -96,8 +86,8 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     const persist = (draft: EPRF, immediate = false) => {
         const safeData = sanitizeData(draft);
         setActiveDraftState(safeData);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(safeData)); // Instant local backup
-        saveEPRF(safeData, immediate); // Firestore sync
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(safeData));
+        saveEPRF(safeData, immediate);
     };
 
     const updateDraft = (updates: Partial<EPRF>) => {
@@ -106,7 +96,6 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         persist(updated);
     };
 
-    // Specific function for final submission to ensure data integrity
     const submitDraft = async (token: string, pdfUrl?: string) => {
         if (!activeDraft) return;
         
@@ -124,11 +113,9 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         const updated = { ...activeDraft, ...updates };
         const safeData = sanitizeData(updated);
         
-        // Update local state immediately for UI responsiveness
         setActiveDraftState(safeData);
-        localStorage.removeItem(STORAGE_KEY); // Clear backup on submission
+        localStorage.removeItem(STORAGE_KEY);
         
-        // FORCE SAVE IMMEDIATE
         await saveEPRF(safeData, true);
     };
 
@@ -139,7 +126,7 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         let current = newDraft;
         
         for (let i = 0; i < path.length - 1; i++) {
-            if (!current[path[i]]) current[path[i]] = {}; // Safety init
+            if (!current[path[i]]) current[path[i]] = {}; 
             current = current[path[i]];
         }
         current[path[path.length - 1]] = value;
@@ -151,7 +138,6 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
     const addVitals = (entry: VitalsEntry) => {
         if (!activeDraft) return;
         const newVitals = [...activeDraft.vitals, entry];
-        // Sort by time
         newVitals.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
         updateDraft({ vitals: newVitals });
     };
@@ -188,6 +174,34 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
         localStorage.removeItem(STORAGE_KEY);
     };
 
+    const createNeonateDraft = async () => {
+        if (!activeDraft || !user) return;
+
+        const newId = Date.now().toString();
+        const neonateRecord: EPRF = {
+            ...DEFAULT_NEONATE_TEMPLATE,
+            id: newId,
+            incidentNumber: `${activeDraft.incidentNumber}-BABY`,
+            userId: user.uid,
+            location: activeDraft.location,
+            callSign: activeDraft.callSign,
+            times: { ...activeDraft.times }, // Copy timings
+            patient: {
+                ...DEFAULT_NEONATE_TEMPLATE.patient,
+                lastName: activeDraft.patient.lastName || 'Unknown',
+                address: activeDraft.patient.address
+            },
+            assistingClinicians: activeDraft.assistingClinicians,
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Save new record
+        await saveEPRF(neonateRecord, true);
+        
+        // Switch to it
+        setActiveDraft(neonateRecord);
+    };
+
     return (
         <EPRFContext.Provider value={{ 
             activeDraft, 
@@ -199,7 +213,8 @@ export const EPRFProvider: React.FC<{ children: React.ReactNode, initialDraft: E
             addDrug,
             addProcedure,
             generateIncidentId,
-            deleteCurrentDraft
+            deleteCurrentDraft,
+            createNeonateDraft
         }}>
             {children}
         </EPRFContext.Provider>

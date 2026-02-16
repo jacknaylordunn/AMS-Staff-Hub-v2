@@ -183,7 +183,7 @@ class PDFBuilder {
             this.doc.setTextColor(COLORS.text);
             this.doc.setFont('helvetica', 'normal');
             if (displayVal === 'YES') this.doc.setTextColor(COLORS.green);
-            if (['CRITICAL', 'HIGH RISK', 'POSITIVE', 'YES - TRIGGERED', 'Capacity Lacking'].includes(displayVal) || displayVal.includes('Allergy')) this.doc.setTextColor(COLORS.red);
+            if (['CRITICAL', 'HIGH RISK', 'POSITIVE', 'YES - TRIGGERED', 'Capacity Lacking', 'Major Trauma'].includes(displayVal) || displayVal.includes('Allergy')) this.doc.setTextColor(COLORS.red);
 
             const splitVal = this.doc.splitTextToSize(displayVal, colWidth - 5);
             this.doc.text(splitVal, currentX, rowY + 4);
@@ -362,9 +362,40 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
         }, 1);
     }
 
+    // New: Social & Family History
+    if (data.history.socialHistory || data.history.familyHistory) {
+        builder.addSubsectionTitle("Social & Family Context");
+        if (data.history.socialHistory) builder.addFullWidthField("Social History", data.history.socialHistory);
+        if (data.history.familyHistory) builder.addFullWidthField("Family History", data.history.familyHistory);
+    }
+
     // 6. CLINICAL NARRATIVE (Important)
     builder.addSectionTitle("Clinical Assessment Narrative");
     builder.addFullWidthField("", data.assessment.clinicalNarrative || "No narrative recorded.");
+
+    // Mental Health specific if present
+    if (data.assessment.mentalHealth?.mood || data.assessment.mentalHealth?.riskToSelf) {
+        builder.addSubsectionTitle("Mental Health Assessment");
+        builder.addGrid({
+            "Appearance": data.assessment.mentalHealth.appearance,
+            "Behaviour": data.assessment.mentalHealth.behaviour,
+            "Speech": data.assessment.mentalHealth.speech,
+            "Mood": data.assessment.mentalHealth.mood,
+            "Risk to Self": data.assessment.mentalHealth.riskToSelf ? "HIGH RISK" : "No",
+            "Risk to Others": data.assessment.mentalHealth.riskToOthers ? "HIGH RISK" : "No"
+        }, 2);
+    }
+
+    // Social / Frailty if present
+    if (data.assessment.cfsScore || data.assessment.social?.livingStatus) {
+        builder.addSubsectionTitle("Social & Frailty");
+        builder.addGrid({
+            "Clinical Frailty Score": data.assessment.cfsScore ? String(data.assessment.cfsScore) : '-',
+            "Living Status": data.assessment.social?.livingStatus,
+            "Carers Involved": data.assessment.social?.carers ? "Yes" : "No",
+            "Access Keys": data.assessment.social?.accessKeys ? "Yes" : "No"
+        }, 2);
+    }
 
     // 7. VITAL SIGNS
     if (data.vitals.length > 0) {
@@ -387,8 +418,8 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
         );
     }
 
-    // 8. TREATMENTS
-    if (data.treatments.drugs.length > 0 || data.treatments.procedures.length > 0) {
+    // 8. TREATMENTS & LOGS
+    if (data.treatments.drugs.length > 0 || data.treatments.procedures.length > 0 || (data.logs && data.logs.length > 0)) {
         builder.addSectionTitle("Treatments & Interventions");
         
         if (data.treatments.drugs.length > 0) {
@@ -406,18 +437,44 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
                 data.treatments.procedures.map(p => [p.time, p.type, p.site || '-', p.details || '-', p.success ? 'Yes' : 'No', p.performedBy])
             );
         }
+
+        if (data.logs && data.logs.length > 0) {
+            builder.addSubsectionTitle("Welfare & Care Log");
+            builder.addTable(
+                ['Time', 'Category', 'Action / Observation', 'Logged By'],
+                data.logs.map(l => [
+                    new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+                    l.category,
+                    l.message,
+                    l.author
+                ])
+            );
+        }
     }
 
     // 9. BODY MAPS & IMAGES
     // Automatically include active Body Map if present
-    if (data.bodyMapImage || data.accessMapImage || (data.handover.media && data.handover.media.length > 0)) {
+    const hasMedia = data.bodyMapImage || data.accessMapImage || (data.handover.media && data.handover.media.length > 0);
+    const hasInjuries = data.injuries && data.injuries.length > 0;
+
+    if (hasMedia || hasInjuries) {
         builder.addSectionTitle("Body Maps & Media Evidence");
+        
+        // List injuries first
+        if (hasInjuries) {
+            builder.addSubsectionTitle("Recorded Injuries");
+            builder.addTable(
+                ['Location', 'Type', 'Notes'],
+                data.injuries.map(i => [i.location || 'Unknown', `${i.type} (${i.subtype || '-'})`, i.notes || '-'])
+            );
+        }
+
         if (data.bodyMapImage) await builder.addImage(await resolveImage(data.bodyMapImage), "Injury Body Map", 100);
         if (data.accessMapImage) await builder.addImage(await resolveImage(data.accessMapImage), "Vascular Access Map", 80);
         
         if (data.handover.media) {
             for (const item of data.handover.media) {
-                await builder.addImage(await resolveImage(item.url), `Photo: ${item.notes || 'Evidence'}`, 90);
+                await builder.addImage(await resolveImage(item.url), `Photo Evidence: ${item.notes || ''}`, 90);
             }
         }
     }
@@ -430,6 +487,13 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
         "Final Disposition": data.clinicalDecision.finalDisposition,
         "Destination": data.clinicalDecision.destinationHospital || 'N/A'
     }, 2);
+
+    // New: Pathway Data
+    if (data.clinicalDecision.pathwayData?.pathwayName) {
+        builder.addAlertBox("CLINICAL PATHWAY TRIGGERED", 
+            `Protocol: ${data.clinicalDecision.pathwayData.pathwayName}\nOutcome: ${data.clinicalDecision.pathwayData.outcome}\nCriteria Met: ${data.clinicalDecision.pathwayData.criteriaMet.join(', ')}`
+        );
+    }
 
     // 11. GOVERNANCE (Capacity / Safeguarding)
     builder.addSectionTitle("Governance");

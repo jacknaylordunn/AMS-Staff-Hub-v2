@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { Clock, MapPin, AlertTriangle, Crosshair, Loader2, Users, Plus, Trash2, Calendar } from 'lucide-react';
+import { Clock, MapPin, AlertTriangle, Crosshair, Loader2, Users, Plus, Trash2, Calendar, Timer } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -92,6 +92,17 @@ const IncidentTab = () => {
         handleNestedUpdate(['assistingClinicians'], updated);
     };
 
+    // Calculate duration on scene
+    const getOnSceneDuration = () => {
+        if (!activeDraft.times.onScene || !activeDraft.times.departScene) return null;
+        const start = new Date(`1970-01-01T${activeDraft.times.onScene}`);
+        const end = new Date(`1970-01-01T${activeDraft.times.departScene}`);
+        let diff = (end.getTime() - start.getTime()) / 60000;
+        if (diff < 0) diff += 1440; // Handle midnight
+        return Math.floor(diff);
+    };
+    const duration = getOnSceneDuration();
+
     return (
         <div className="space-y-4 animate-in fade-in">
             {/* Incident Details */}
@@ -103,7 +114,7 @@ const IncidentTab = () => {
                     <div>
                         <label className="input-label">Incident Number</label>
                         <input 
-                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm" 
+                            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm h-8 outline-none focus:ring-2 focus:ring-ams-blue dark:text-white shadow-sm font-mono" 
                             value={activeDraft.incidentNumber} 
                             readOnly
                         />
@@ -167,7 +178,7 @@ const IncidentTab = () => {
                                 </div>
                                 <div>
                                     <p className="text-sm font-bold text-slate-800 dark:text-white">{member.name}</p>
-                                    <p className="text-xs text-slate-500">{member.role}</p>
+                                    <p className="text-xs text-slate-500">{member.role} ({member.badgeNumber})</p>
                                 </div>
                             </div>
                             <button onClick={() => removeStaff(idx)} className="p-1 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded">
@@ -201,9 +212,17 @@ const IncidentTab = () => {
 
             {/* Timings */}
             <div className="glass-panel p-4 rounded-xl">
-                <h3 className="font-bold text-base text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-ams-blue" /> Incident Timings
-                </h3>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-base text-slate-800 dark:text-white flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-ams-blue" /> Incident Timings
+                    </h3>
+                    {duration !== null && (
+                        <div className="flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">
+                            <Timer className="w-3 h-3" /> {duration} min on scene
+                        </div>
+                    )}
+                </div>
+                
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {[
                         { key: 'callReceived', label: 'Call Received' },
