@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useEPRF } from '../../context/EPRFContext';
-import { Search, History, Download, X, User, AlertTriangle, FileText, ChevronRight, Loader2, UserPlus } from 'lucide-react';
+import { Search, History, Download, X, User, AlertTriangle, FileText, ChevronRight, Loader2, UserPlus, Phone, Heart } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { EPRF, LinkedRecord } from '../../types';
@@ -87,6 +87,8 @@ const PatientTab = () => {
             address: p.address || activeDraft.patient.address,
             postcode: p.postcode || activeDraft.patient.postcode,
             gender: p.gender || activeDraft.patient.gender,
+            contactNumber: p.contactNumber || activeDraft.patient.contactNumber,
+            ethnicity: p.ethnicity || activeDraft.patient.ethnicity,
             // Import DNACPR Status if verified
             dnacpr: p.dnacpr?.verified ? p.dnacpr : activeDraft.patient.dnacpr
         };
@@ -126,13 +128,16 @@ const PatientTab = () => {
                 dob: `${year}-01-01`,
                 address: 'Unknown / No Fixed Abode',
                 postcode: 'UNKNOWN',
-                nhsNumber: ''
+                nhsNumber: '',
+                gender: 'Unknown',
+                contactNumber: '',
+                ethnicity: 'Not Stated'
             }
         });
     };
 
     return (
-        <div className="glass-panel p-4 rounded-xl space-y-4 animate-in fade-in slide-in-from-bottom-4 relative">
+        <div className="glass-panel p-4 rounded-xl space-y-6 animate-in fade-in slide-in-from-bottom-4 relative">
             <div className="flex justify-between items-center">
                 <h3 className="font-bold text-base text-slate-800 dark:text-white">Patient Demographics</h3>
                 <div className="flex gap-2">
@@ -152,11 +157,12 @@ const PatientTab = () => {
                 </div>
             </div>
             
+            {/* Primary Demographics */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label className="input-label">First Name</label>
                     <input 
-                        className="input-field py-1.5 px-3 text-sm h-8" 
+                        className="input-field py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.firstName} 
                         onChange={e => handleNestedUpdate(['patient', 'firstName'], e.target.value)} 
                         placeholder="Patient's First Name"
@@ -165,7 +171,7 @@ const PatientTab = () => {
                 <div>
                     <label className="input-label">Last Name</label>
                     <input 
-                        className="input-field py-1.5 px-3 text-sm h-8" 
+                        className="input-field py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.lastName} 
                         onChange={e => handleNestedUpdate(['patient', 'lastName'], e.target.value)} 
                         placeholder="Patient's Surname"
@@ -173,20 +179,36 @@ const PatientTab = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label className="input-label">Date of Birth</label>
                     <input 
                         type="date" 
-                        className="input-field py-1.5 px-3 text-sm h-8" 
+                        className="input-field py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.dob} 
                         onChange={e => handleNestedUpdate(['patient', 'dob'], e.target.value)} 
                     />
                 </div>
                 <div>
+                    <label className="input-label">Gender</label>
+                    <select
+                        className="input-field py-1.5 px-3 text-sm h-9"
+                        value={activeDraft.patient.gender || ''}
+                        onChange={e => handleNestedUpdate(['patient', 'gender'], e.target.value)}
+                    >
+                        <option value="">Select...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Intersex">Intersex</option>
+                        <option value="Transgender">Transgender</option>
+                        <option value="Other">Other</option>
+                        <option value="Not Stated">Not Stated</option>
+                    </select>
+                </div>
+                <div>
                     <label className="input-label">NHS Number (Optional)</label>
                     <input 
-                        className="input-field font-mono py-1.5 px-3 text-sm h-8" 
+                        className="input-field font-mono py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.nhsNumber || ''} 
                         onChange={e => handleNestedUpdate(['patient', 'nhsNumber'], e.target.value)} 
                         placeholder="10-digit NHS Number"
@@ -195,11 +217,44 @@ const PatientTab = () => {
                 </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="input-label">Ethnicity</label>
+                    <select
+                        className="input-field py-1.5 px-3 text-sm h-9"
+                        value={activeDraft.patient.ethnicity || ''}
+                        onChange={e => handleNestedUpdate(['patient', 'ethnicity'], e.target.value)}
+                    >
+                        <option value="">Select...</option>
+                        <option value="White British">White British</option>
+                        <option value="White Irish">White Irish</option>
+                        <option value="Other White">Other White</option>
+                        <option value="Mixed">Mixed</option>
+                        <option value="Asian or Asian British">Asian or Asian British</option>
+                        <option value="Black or Black British">Black or Black British</option>
+                        <option value="Chinese">Chinese</option>
+                        <option value="Other">Other</option>
+                        <option value="Not Stated">Not Stated</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="input-label">Patient Contact Number</label>
+                    <input 
+                        type="tel"
+                        className="input-field py-1.5 px-3 text-sm h-9" 
+                        value={activeDraft.patient.contactNumber || ''} 
+                        onChange={e => handleNestedUpdate(['patient', 'contactNumber'], e.target.value)} 
+                        placeholder="Mobile or Home Phone"
+                    />
+                </div>
+            </div>
+
+            {/* Address */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2">
-                    <label className="input-label">Street Address</label>
+                    <label className="input-label">Home Address</label>
                     <AddressAutocomplete
-                        className="input-field py-1.5 px-3 text-sm h-8" 
+                        className="input-field py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.address} 
                         onChange={val => handleNestedUpdate(['patient', 'address'], val)}
                         onSelect={(addr, lat, lon, details) => {
@@ -213,11 +268,48 @@ const PatientTab = () => {
                 <div>
                     <label className="input-label">Postcode</label>
                     <input 
-                        className="input-field uppercase py-1.5 px-3 text-sm h-8" 
+                        className="input-field uppercase py-1.5 px-3 text-sm h-9" 
                         value={activeDraft.patient.postcode || ''} 
                         onChange={e => handleNestedUpdate(['patient', 'postcode'], e.target.value)} 
                         placeholder="e.g. AB1 2CD"
                     />
+                </div>
+            </div>
+
+            {/* Next of Kin */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 mt-2">
+                <h4 className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase mb-3 flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-pink-500" /> Next of Kin / Emergency Contact
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label className="input-label">Name</label>
+                        <input 
+                            className="input-field py-1.5 px-3 text-sm h-8" 
+                            value={activeDraft.patient.nextOfKin?.name || ''} 
+                            onChange={e => handleNestedUpdate(['patient', 'nextOfKin', 'name'], e.target.value)} 
+                            placeholder="Next of Kin Name"
+                        />
+                    </div>
+                    <div>
+                        <label className="input-label">Relationship</label>
+                        <input 
+                            className="input-field py-1.5 px-3 text-sm h-8" 
+                            value={activeDraft.patient.nextOfKin?.relationship || ''} 
+                            onChange={e => handleNestedUpdate(['patient', 'nextOfKin', 'relationship'], e.target.value)} 
+                            placeholder="e.g. Spouse, Parent"
+                        />
+                    </div>
+                    <div>
+                        <label className="input-label">Contact Number</label>
+                        <input 
+                            type="tel"
+                            className="input-field py-1.5 px-3 text-sm h-8" 
+                            value={activeDraft.patient.nextOfKin?.contactNumber || ''} 
+                            onChange={e => handleNestedUpdate(['patient', 'nextOfKin', 'contactNumber'], e.target.value)} 
+                            placeholder="Emergency Contact Phone"
+                        />
+                    </div>
                 </div>
             </div>
 

@@ -307,10 +307,21 @@ export const createEPRFDoc = async (data: EPRF, mode: PDFMode = 'FULL'): Promise
         "Patient Name": `${pt.firstName} ${pt.lastName}`,
         "DOB": `${pt.dob} (Age: ${getAge(pt.dob)})`,
         "Gender": pt.gender,
+        "Ethnicity": pt.ethnicity,
         "NHS Number": pt.nhsNumber,
+        "Contact No": pt.contactNumber,
         "Patient Address": addr,
         "GP Surgery": data.clinicalDecision.gpPractice
     }, 2);
+
+    if (pt.nextOfKin && pt.nextOfKin.name) {
+        builder.addSubsectionTitle("Next of Kin / Emergency Contact");
+        builder.addGrid({
+            "Name": pt.nextOfKin.name,
+            "Relationship": pt.nextOfKin.relationship,
+            "Contact Number": pt.nextOfKin.contactNumber
+        }, 3);
+    }
 
     if (pt.dnacpr?.hasDNACPR) {
         builder.addAlertBox("DNACPR STATUS", 

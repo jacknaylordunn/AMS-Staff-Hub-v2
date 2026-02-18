@@ -417,6 +417,13 @@ export interface EPRF {
         nhsNumber: string;
         address: string;
         postcode: string;
+        contactNumber?: string;
+        ethnicity?: string;
+        nextOfKin?: {
+            name: string;
+            relationship: string;
+            contactNumber: string;
+        };
         chronicHypoxia: boolean;
         dnacpr: {
             hasDNACPR: boolean;
