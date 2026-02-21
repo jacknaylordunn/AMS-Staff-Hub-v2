@@ -4,12 +4,23 @@ import { GoogleGenAI, Type } from "@google/genai";
 // --------------------------------------------------------
 // GOOGLE GEMINI API KEY
 // --------------------------------------------------------
-const apiKey = process.env.API_KEY;
+let aiInstance: GoogleGenAI | null = null;
 
-const ai = new GoogleGenAI({ apiKey });
+const getAiClient = (): GoogleGenAI => {
+  if (aiInstance) return aiInstance;
+  
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("Gemini API Key is missing. Please check your environment configuration.");
+  }
+  
+  aiInstance = new GoogleGenAI({ apiKey });
+  return aiInstance;
+};
 
 export const analyzeSafeguarding = async (narrative: string): Promise<{ detected: boolean; type?: string; reasoning?: string }> => {
   try {
+    const ai = getAiClient();
     const model = 'gemini-2.5-flash';
     const prompt = `
       Act as a Clinical Safeguarding Officer. Analyze the following clinical narrative for potential safeguarding concerns (Child Protection, Adult at Risk, Domestic Abuse, Modern Slavery, Neglect).
@@ -51,6 +62,7 @@ export const analyzeSafeguarding = async (narrative: string): Promise<{ detected
 
 export const analyzeRotaCoverage = async (shiftsSummary: string): Promise<string> => {
     try {
+        const ai = getAiClient();
         const model = 'gemini-2.5-flash';
         const prompt = `
             Act as an Operations Manager for an Ambulance Service. Analyze the following shift rota summary data.
@@ -78,6 +90,7 @@ export const analyzeRotaCoverage = async (shiftsSummary: string): Promise<string
 
 export const auditEPRF = async (eprfData: any): Promise<{ score: number; feedback: string; critical_issues: string[] }> => {
   try {
+    const ai = getAiClient();
     const model = 'gemini-2.5-flash';
     const prompt = `
       Act as a Clinical Audit Officer. Review the following anonymized Patient Report Form (ePRF) data against JRCALC guidelines and UK Ambulance Service documentation standards.
@@ -126,6 +139,7 @@ export const auditEPRF = async (eprfData: any): Promise<{ score: number; feedbac
 
 export const generateSBAR = async (eprfData: any): Promise<string> => {
   try {
+    const ai = getAiClient();
     const model = 'gemini-2.5-flash';
     const prompt = `
       Generate a professional SBAR (Situation, Background, Assessment, Recommendation) handover statement for a hospital nurse/doctor based on the following ePRF data.
@@ -156,6 +170,7 @@ export const generateSBAR = async (eprfData: any): Promise<string> => {
 };
 
 export const createGuidelineChat = () => {
+  const ai = getAiClient();
   const model = 'gemini-2.5-flash';
   return ai.chats.create({
     model: model,
