@@ -28,7 +28,11 @@ const EmailVerification = () => {
     setError('');
     
     try {
-      await sendEmailVerification(auth.currentUser);
+      const actionCodeSettings = {
+        url: window.location.origin + '/login',
+        handleCodeInApp: true,
+      };
+      await sendEmailVerification(auth.currentUser, actionCodeSettings);
       setMessage('Verification email sent! Please check your inbox and spam folder.');
       setCooldown(60); // 60s cooldown to prevent API limits
     } catch (err: any) {

@@ -209,7 +209,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const fbUser = userCredential.user;
-      await sendEmailVerification(fbUser);
+      const actionCodeSettings = {
+        url: window.location.origin + '/login',
+        handleCodeInApp: true,
+      };
+      await sendEmailVerification(fbUser, actionCodeSettings);
 
       // Generate AMS Badge ID: AMS + YY + MM + Random 4 Digits
       const date = new Date();
