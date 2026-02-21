@@ -9,13 +9,21 @@ let aiInstance: GoogleGenAI | null = null;
 const getAiClient = (): GoogleGenAI => {
   if (aiInstance) return aiInstance;
   
+  // Safely access the key, handling potential undefined/null
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
+  
+  if (!apiKey || apiKey.trim() === '') {
+    console.error("Gemini API Key is missing or empty.");
     throw new Error("Gemini API Key is missing. Please check your environment configuration.");
   }
   
-  aiInstance = new GoogleGenAI({ apiKey });
-  return aiInstance;
+  try {
+    aiInstance = new GoogleGenAI({ apiKey });
+    return aiInstance;
+  } catch (error) {
+    console.error("Failed to initialize Gemini Client:", error);
+    throw error;
+  }
 };
 
 export const analyzeSafeguarding = async (narrative: string): Promise<{ detected: boolean; type?: string; reasoning?: string }> => {

@@ -1,0 +1,35 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '--build-arg'
+      - 'API_KEY=${_API_KEY}'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/aegis-staff-hub'
+      - '.'
+  
+  # Push the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/aegis-staff-hub']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'aegis-staff-hub'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/aegis-staff-hub'
+      - '--region'
+      - 'europe-west2'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+
+substitutions:
+  _API_KEY: '' # Must be set in Cloud Build Trigger settings
+
+images:
+  - 'gcr.io/$PROJECT_ID/aegis-staff-hub'
